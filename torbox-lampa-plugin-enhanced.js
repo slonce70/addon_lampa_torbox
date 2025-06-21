@@ -704,31 +704,390 @@
         }
     };
     
+    // TorBox API integration
+    const TorBoxAPI = {
+        /**
+         * Creates a torrent in TorBox
+         * @param {string} magnetOrHash - Magnet link or torrent hash
+         * @param {File} torrentFile - Optional torrent file
+         * @returns {Promise<Object>} - API response
+         */
+        async createTorrent(magnetOrHash, torrentFile = null) {
+            const apiKey = Config.get('apiKey');
+            if (!apiKey) {
+                throw new TorBoxError('API ключ не настроен', 'INVALID_API_KEY');
+            }
+
+            const formData = new FormData();
+            if (torrentFile) {
+                formData.append('torrent', torrentFile);
+            } else {
+                formData.append('magnet', magnetOrHash);
+            }
+
+            return await APIClient.request('/api/torrents/createtorrent', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                }
+            });
+        },
+
+        /**
+         * Gets torrent list
+         * @returns {Promise<Object>} - API response
+         */
+        async getTorrentList() {
+            const apiKey = Config.get('apiKey');
+            if (!apiKey) {
+                throw new TorBoxError('API ключ не настроен', 'INVALID_API_KEY');
+            }
+
+            return await APIClient.request('/api/torrents/mylist', {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                }
+            });
+        },
+
+        /**
+         * Gets download link for torrent
+         * @param {string} torrentId - Torrent ID
+         * @param {string} fileId - File ID
+         * @returns {Promise<Object>} - API response
+         */
+        async getDownloadLink(torrentId, fileId) {
+            const apiKey = Config.get('apiKey');
+            if (!apiKey) {
+                throw new TorBoxError('API ключ не настроен', 'INVALID_API_KEY');
+            }
+
+            return await APIClient.request('/api/torrents/requestdl', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    torrent_id: torrentId,
+                    file_id: fileId
+                })
+            });
+        },
+
+        /**
+         * Checks if torrent is cached
+         * @param {string} hash - Torrent hash
+         * @returns {Promise<Object>} - API response
+         */
+        async checkCached(hash) {
+            const apiKey = Config.get('apiKey');
+            if (!apiKey) {
+                throw new TorBoxError('API ключ не настроен', 'INVALID_API_KEY');
+            }
+
+            return await APIClient.request(`/api/torrents/checkcached?hash=${hash}`, {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                }
+            });
+        }
+    };
+
+    // Settings interface for Lampa
+    const SettingsInterface = {
+        init() {
+            // Add settings to Lampa
+            if (window.Lampa && Lampa.Settings) {
+                Lampa.Settings.listener.follow('open', (e) => {
+                    if (e.name === 'torbox') {
+                        this.render();
+                    }
+                });
+
+                // Add TorBox section to settings
+                Lampa.Settings.main().render().find('[data-component="settings"]').append(`
+                    <div class="settings-folder" data-action="torbox">
+                        <div class="settings-folder__icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="settings-folder__name">TorBox</div>
+                    </div>
+                `);
+            }
+        },
+
+        render() {
+            const settingsHtml = `
+                <div class="settings-param selector" data-type="input" data-name="apiKey">
+                    <div class="settings-param__name">API Ключ</div>
+                    <div class="settings-param__value">${Config.get('apiKey') ? '••••••••••••••••' : 'Не настроен'}</div>
+                    <div class="settings-param__descr">Введите ваш API ключ от TorBox.app</div>
+                </div>
+                <div class="settings-param selector" data-type="toggle" data-name="autoPlay">
+                    <div class="settings-param__name">Автовоспроизведение</div>
+                    <div class="settings-param__value">${Config.get('autoPlay') ? 'Включено' : 'Выключено'}</div>
+                    <div class="settings-param__descr">Автоматически начинать воспроизведение</div>
+                </div>
+                <div class="settings-param selector" data-type="toggle" data-name="autoDelete">
+                    <div class="settings-param__name">Автоудаление</div>
+                    <div class="settings-param__value">${Config.get('autoDelete') ? 'Включено' : 'Выключено'}</div>
+                    <div class="settings-param__descr">Удалять торренты после просмотра</div>
+                </div>
+                <div class="settings-param selector" data-type="select" data-name="preferredQuality">
+                    <div class="settings-param__name">Предпочитаемое качество</div>
+                    <div class="settings-param__value">${Config.get('preferredQuality')}</div>
+                    <div class="settings-param__descr">Выберите предпочитаемое качество видео</div>
+                </div>
+            `;
+
+            Lampa.Settings.content().render().html(settingsHtml);
+            this.bindEvents();
+        },
+
+        bindEvents() {
+            // Bind setting change events
+            Lampa.Settings.content().render().find('[data-name="apiKey"]').on('click', () => {
+                Lampa.Input({
+                    title: 'API Ключ TorBox',
+                    value: Config.get('apiKey'),
+                    free: true,
+                    nosave: true
+                }, (value) => {
+                    if (Config.validateApiKey(value)) {
+                        Config.set('apiKey', value);
+                        Utils.toast('API ключ сохранен', 'success');
+                        this.render();
+                    } else {
+                        Utils.toast('Неверный формат API ключа', 'error');
+                    }
+                });
+            });
+
+            // Other setting bindings...
+        }
+    };
+
+    // Torrent handler for Lampa
+    const TorrentHandler = {
+        /**
+         * Handles torrent from other plugins
+         * @param {Object} torrent - Torrent data
+         * @returns {Promise<void>}
+         */
+        async handleTorrent(torrent) {
+            try {
+                Utils.log('Handling torrent:', 'info', torrent);
+                
+                const magnetLink = torrent.magnet || torrent.url;
+                if (!magnetLink) {
+                    throw new TorBoxError('Магнет-ссылка не найдена', 'INVALID_REQUEST');
+                }
+
+                // Check if cached first
+                const hash = this.extractHashFromMagnet(magnetLink);
+                if (hash) {
+                    const cached = await TorBoxAPI.checkCached(hash);
+                    if (cached.data && cached.data.length > 0) {
+                        Utils.toast('Торрент найден в кэше!', 'success');
+                        return await this.playFromCache(cached.data[0]);
+                    }
+                }
+
+                // Create torrent in TorBox
+                Utils.toast('Добавляем торрент в TorBox...', 'info');
+                const result = await TorBoxAPI.createTorrent(magnetLink);
+                
+                if (result.success) {
+                    Utils.toast('Торрент добавлен! Ожидаем загрузки...', 'success');
+                    await this.waitForDownload(result.data.torrent_id);
+                } else {
+                    throw new TorBoxError(result.error || 'Ошибка добавления торрента', 'API_ERROR');
+                }
+                
+            } catch (error) {
+                ErrorBoundary.handleError(error, 'torrent_handling');
+            }
+        },
+
+        /**
+         * Extracts hash from magnet link
+         * @param {string} magnet - Magnet link
+         * @returns {string|null} - Hash or null
+         */
+        extractHashFromMagnet(magnet) {
+            const match = magnet.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-fA-F0-9]{32})/);
+            return match ? match[1] : null;
+        },
+
+        /**
+         * Waits for torrent download and starts playback
+         * @param {string} torrentId - Torrent ID
+         * @returns {Promise<void>}
+         */
+        async waitForDownload(torrentId) {
+            const maxAttempts = 60; // 5 minutes
+            let attempts = 0;
+
+            const checkStatus = async () => {
+                try {
+                    const torrents = await TorBoxAPI.getTorrentList();
+                    const torrent = torrents.data.find(t => t.id === torrentId);
+                    
+                    if (!torrent) {
+                        throw new TorBoxError('Торрент не найден', 'NOT_FOUND');
+                    }
+
+                    if (torrent.download_state === 'downloaded') {
+                        Utils.toast('Торрент загружен! Начинаем воспроизведение...', 'success');
+                        return await this.startPlayback(torrent);
+                    }
+
+                    if (torrent.download_state === 'error') {
+                        throw new TorBoxError('Ошибка загрузки торрента', 'DOWNLOAD_ERROR');
+                    }
+
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        throw new TorBoxError('Превышено время ожидания загрузки', 'TIMEOUT');
+                    }
+
+                    // Update progress
+                    const progress = Math.round((torrent.progress || 0) * 100);
+                    Utils.toast(`Загрузка: ${progress}%`, 'info');
+
+                    // Check again in 5 seconds
+                    setTimeout(checkStatus, 5000);
+                    
+                } catch (error) {
+                    ErrorBoundary.handleError(error, 'download_waiting');
+                }
+            };
+
+            await checkStatus();
+        },
+
+        /**
+         * Starts playback of downloaded torrent
+         * @param {Object} torrent - Torrent data
+         * @returns {Promise<void>}
+         */
+        async startPlayback(torrent) {
+            try {
+                // Find video files
+                const videoFiles = torrent.files.filter(file => 
+                    /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$/i.test(file.name)
+                );
+
+                if (videoFiles.length === 0) {
+                    throw new TorBoxError('Видеофайлы не найдены', 'NO_VIDEO_FILES');
+                }
+
+                // Get largest video file
+                const mainFile = videoFiles.reduce((prev, current) => 
+                    (prev.size > current.size) ? prev : current
+                );
+
+                // Get download link
+                const downloadLink = await TorBoxAPI.getDownloadLink(torrent.id, mainFile.id);
+                
+                if (downloadLink.success && downloadLink.data) {
+                    // Start playback in Lampa
+                    const playData = {
+                        url: downloadLink.data,
+                        title: torrent.name,
+                        quality: this.detectQuality(mainFile.name),
+                        subtitles: await this.findSubtitles(torrent.files)
+                    };
+
+                    if (window.Lampa && Lampa.Player) {
+                        Lampa.Player.play(playData);
+                        Utils.toast('Воспроизведение началось!', 'success');
+                    }
+                } else {
+                    throw new TorBoxError('Не удалось получить ссылку для воспроизведения', 'DOWNLOAD_LINK_ERROR');
+                }
+                
+            } catch (error) {
+                ErrorBoundary.handleError(error, 'playback_start');
+            }
+        },
+
+        /**
+         * Plays from cached torrent
+         * @param {Object} cachedData - Cached torrent data
+         * @returns {Promise<void>}
+         */
+        async playFromCache(cachedData) {
+            // Implementation for cached playback
+            Utils.toast('Воспроизведение из кэша...', 'info');
+            // Similar to startPlayback but for cached content
+        },
+
+        /**
+         * Detects video quality from filename
+         * @param {string} filename - File name
+         * @returns {string} - Quality string
+         */
+        detectQuality(filename) {
+            if (/2160p|4K|UHD/i.test(filename)) return '4K';
+            if (/1080p|FHD/i.test(filename)) return '1080p';
+            if (/720p|HD/i.test(filename)) return '720p';
+            if (/480p|SD/i.test(filename)) return '480p';
+            return 'Unknown';
+        },
+
+        /**
+         * Finds subtitle files
+         * @param {Array} files - File list
+         * @returns {Array} - Subtitle files
+         */
+        async findSubtitles(files) {
+            return files.filter(file => 
+                /\.(srt|vtt|ass|ssa|sub)$/i.test(file.name)
+            ).map(file => ({
+                label: file.name,
+                url: file.download_url
+            }));
+        }
+    };
+
     // Initialize plugin with error boundary
     function initializePlugin() {
         try {
-            Utils.log('Initializing TorBox Enhanced Plugin (Secure)', 'info');
+            Utils.log('Initializing TorBox Enhanced Plugin', 'info');
             
-            // Register video source
-            if (window.Lampa && Lampa.Source) {
-                Lampa.Source.add(PLUGIN_ID, {
-                    name: 'TorBox Enhanced (Secure)',
-                    type: 'video',
-                    play: async (data) => {
-                        try {
-                            // Implementation would continue here...
-                            Utils.toast('TorBox Enhanced (Secure) - Ready!', 'success');
-                        } catch (error) {
-                            ErrorBoundary.handleError(error, 'play');
-                        }
-                    }
-                });
-                
-                Utils.log('Plugin registered successfully', 'info');
-                Utils.toast('TorBox Enhanced (Secure) готовий до роботи!', 'success');
-            } else {
-                throw new TorBoxError('Lampa not found', 'INITIALIZATION_ERROR');
+            if (!window.Lampa) {
+                throw new TorBoxError('Lampa не найдена', 'INITIALIZATION_ERROR');
             }
+
+            // Initialize settings interface
+            SettingsInterface.init();
+            
+            // Register torrent handler
+            if (window.Lampa.Torrent) {
+                Lampa.Torrent.add('torbox', {
+                    name: 'TorBox Enhanced',
+                    handler: TorrentHandler.handleTorrent.bind(TorrentHandler)
+                });
+            }
+            
+            // Register as torrent client
+            if (window.Lampa.TorrentClient) {
+                Lampa.TorrentClient.add('torbox', {
+                    name: 'TorBox Enhanced',
+                    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+                    handler: TorrentHandler.handleTorrent.bind(TorrentHandler)
+                });
+            }
+            
+            Utils.log('TorBox Enhanced Plugin зарегистрирован', 'info');
+            Utils.toast('TorBox Enhanced готов к работе!', 'success');
             
         } catch (error) {
             ErrorBoundary.handleError(error, 'initialization');
