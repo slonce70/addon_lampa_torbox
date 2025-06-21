@@ -1,26 +1,22 @@
 /**
- * TorBox Enhanced Lampa Plugin – v2.3.0 (2025‑06‑22)
+ * TorBox Enhanced Lampa Plugin – v2.4.0 (2025‑06‑23)
  * =================================================
- * – Фікс крешу «Cannot read properties of undefined (reading \u2018name\u2019)»
- * – Параметри SettingsApi тепер відповідають офіційному формату Lampa
- * – Додає заглушку для відсутнього `Lampa.Torrent.add`, щоб блокувати помилку
- * – Виправлено типи: `trigger` замість `toggle`, додано `values` для input
- * – Додано перевірку та попередження про дублікати старого TorBox‑плагіну
+ * – NEW: «Перехоплення TorrServer» (toggle) – можна автоматично замінити TorrServer на TorBox
+ * – Додає кнопку «▶ TorBox» у вікно вибору клієнта TorrServer (legacy overlay)
+ * – Перехоплення `Lampa.Torrent.open` (safe‑proxy) + fallback, щоб не ламати інші аддони
+ * – Виправлено edge‑case, коли сторонній парсер віддає array із внутрішніми об’єктами без `menu`
+ * – Мінімальна версія Lampa залишилась 2.3.0+, проте плагін сам себе відключить на <2.x
  * --------------------------------------------------------------------------
- * Встановлення:
- *   1. Видаліть посилання на старий TorBox‑плагін (slonce70.github.io/...)
- *   2. Збережіть цей файл у каталозі плагінів або додайте пряме посилання
- *   3. Перезапустіть Lampa.
- *
- * Якщо все зробили коректно – у «Налаштування → Розширення» пункт
- * «TorBox Enhanced» відкривається без помилок.
+ * Як використати новий режим:
+ *  1) Налаштування → TorBox Enhanced → **Перенаправляти TorrServer** → увімкнути.
+ *  2) Тепер при кліку на «Відтворити» або виборі клієнта TorrServer торент піде в TorBox API — без додаткових дій.
  */
 
 (function () {
   'use strict';
 
   /* eslint-disable no-undef */
-  const PLUGIN_ID = 'torbox_enhanced_secure_23';
+  const PLUGIN_ID = 'torbox_enhanced_secure_24';
   const COMPONENT_ID = 'torbox_enhanced_settings';
   const WAIT_STEP = 500; // ms
   const MAX_WAIT = 60000; // 60 s
@@ -41,10 +37,23 @@
     }
   }
 
-  /**
-   * 👉 Патч для старого TorBox‑плагіну (slonce70.github.io):
-   * якщо він присутній у списку, виводимо попередження в консоль.
-   */
+  /** Зручний гетер/сетер для localStorage */
+  function storage(key, value) {
+    if (typeof value === 'undefined') return window.localStorage.getItem(key);
+    window.localStorage.setItem(key, String(value));
+    return value;
+  }
+
+  /** Стягуємо API‑key, debug‑mode, redirect‑toggle */
+  function getConfig() {
+    return {
+      apiKey: storage('torbox_api_key') || '',
+      debug: storage('torbox_debug') === 'true',
+      redirect: storage('torbox_redirect') === 'true',
+    };
+  }
+
+  /** Патч для старого TorBox‑плагіну */
   function detectDuplicatePlugin() {
     const list = (window.lampa_plugins_list || []).filter((u) => /torbox-lampa-plugin\.js/i.test(u));
     if (list.length) {
@@ -53,7 +62,7 @@
     }
   }
 
-  /** Заглушка для випадку, якщо Lampa.Torrent.add відсутній */
+  /** Заглушка для відсутнього Lampa.Torrent.add */
   function stubTorrentAdd() {
     if (!window.Lampa) return;
     if (!window.Lampa.Torrent) window.Lampa.Torrent = {};
@@ -63,30 +72,21 @@
     }
   }
 
-  /** Очікує на появу необхідних об’єктів Lampa і ініціалізує плагін */
+  /** Очікуємо Lampa */
   function waitForLampa() {
     let waited = 0;
-
     (function loop() {
-      const lampaReady = typeof window.Lampa === 'object';
-
-      if (lampaReady) {
-        // Додатково перевіримо наявність SettingsApi або legacy Settings
-        const hasApi = !!window.Lampa.SettingsApi;
-        const hasLegacy = !!(window.Lampa.Settings && window.Lampa.Settings.listener);
-
-        if (hasApi || hasLegacy) {
-          logger('Lampa detected, init start');
-          stubTorrentAdd();
-          detectDuplicatePlugin();
-          return initPlugin(hasApi);
-        }
+      const ok = window.Lampa && (window.Lampa.SettingsApi || (window.Lampa.Settings && window.Lampa.Settings.listener));
+      if (ok) {
+        logger('Lampa detected – init');
+        stubTorrentAdd();
+        detectDuplicatePlugin();
+        return initPlugin(Boolean(window.Lampa.SettingsApi));
       }
-
       waited += WAIT_STEP;
       if (waited >= MAX_WAIT) {
         // eslint-disable-next-line no-console
-        console.warn(`${PLUGIN_ID}: Lampa not ready after ${MAX_WAIT / 1000}s – aborting init`);
+        console.warn(`${PLUGIN_ID}: Lampa not ready after ${MAX_WAIT / 1000}s – abort`);
         return undefined;
       }
       setTimeout(loop, WAIT_STEP);
@@ -94,138 +94,159 @@
     }());
   }
 
-  /** Створює налаштування через SettingsApi (нові збірки) */
+  /** SettingsApi component */
   function buildSettingsApi() {
-    logger('Registering settings component via SettingsApi');
+    Lampa.SettingsApi.addComponent({ component: COMPONENT_ID, name: 'TorBox Enhanced', icon: ICON });
 
-    // 1) Компонент
-    Lampa.SettingsApi.addComponent({
-      component: COMPONENT_ID,
-      name: 'TorBox Enhanced',
-      icon: ICON,
-    });
-
-    // 2) API‑Key (input)
-    Lampa.SettingsApi.addParam({
-      component: COMPONENT_ID,
-      param: {
-        name: 'torbox_api_key',
+    const params = [
+      {
+        key: 'torbox_api_key',
+        field: { name: 'API‑Key', description: 'Персональний ключ TorBox' },
         type: 'input',
-        values: '',
-        default: window.localStorage.getItem('torbox_api_key') || '',
+        def: storage('torbox_api_key') || '',
       },
-      field: {
-        name: 'API‑Key',
-        description: 'Персональний ключ TorBox для доступу до API',
-      },
-      onChange(val) {
-        window.localStorage.setItem('torbox_api_key', (val || '').trim());
-      },
-    });
-
-    // 3) Debug‑mode (trigger)
-    Lampa.SettingsApi.addParam({
-      component: COMPONENT_ID,
-      param: {
-        name: 'torbox_debug',
+      {
+        key: 'torbox_debug',
+        field: { name: 'Debug‑режим', description: 'Писати детальні логи у консоль' },
         type: 'trigger',
-        values: '',
-        default: window.localStorage.getItem('torbox_debug') === 'true',
+        def: storage('torbox_debug') === 'true',
       },
-      field: {
-        name: 'Debug‑режим',
-        description: 'Показувати розширені логи у консолі',
+      {
+        key: 'torbox_redirect',
+        field: { name: 'Перенаправляти TorrServer', description: 'Авто‑стрім у TorBox замість TorrServer' },
+        type: 'trigger',
+        def: storage('torbox_redirect') === 'true',
       },
-      onChange(val) {
-        window.localStorage.setItem('torbox_debug', Boolean(val));
-      },
+    ];
+
+    params.forEach((p) => {
+      Lampa.SettingsApi.addParam({
+        component: COMPONENT_ID,
+        param: { name: p.key, type: p.type, values: '', default: p.def },
+        field: p.field,
+        onChange(val) {
+          storage(p.key, p.type === 'trigger' ? Boolean(val) : (val || '').trim());
+        },
+      });
     });
   }
 
-  /** Legacy‑метод (старі збірки Lampa без SettingsApi) */
+  /** Legacy settings */
   function buildSettingsLegacy() {
-    logger('Registering settings component via legacy DOM');
-
     const $folder = $(
-      `<div class="settings-folder">
-        <div class="settings-folder__title">TorBox Enhanced</div>
-        <div class="settings-folder__body"></div>
-      </div>`,
+      `<div class="settings-folder"><div class="settings-folder__title">TorBox Enhanced</div><div class="settings-folder__body"></div></div>`,
     );
+    const items = [
+      {
+        label: 'API‑Key',
+        key: 'torbox_api_key',
+        type: 'input',
+      },
+      {
+        label: 'Debug‑режим',
+        key: 'torbox_debug',
+        type: 'trigger',
+      },
+      {
+        label: 'Перенаправляти TorrServer',
+        key: 'torbox_redirect',
+        type: 'trigger',
+      },
+    ];
 
-    // API‑Key input
-    const $apiKey = $('<div class="settings-param"><div class="settings-param__name">API‑Key</div></div>');
-    const $input = $('<input type="text" class="input">');
-    $input.val(window.localStorage.getItem('torbox_api_key') || '');
-    $input.on('input', () => {
-      window.localStorage.setItem('torbox_api_key', $input.val().trim());
+    items.forEach((p) => {
+      const $row = $(`<div class="settings-param"><div class="settings-param__name">${p.label}</div></div>`);
+      let $ctrl;
+      if (p.type === 'input') {
+        $ctrl = $('<input type="text" class="input">').val(storage(p.key) || '').on('input', (e) => storage(p.key, e.target.value.trim()));
+      } else {
+        $ctrl = $('<input type="checkbox">').prop('checked', storage(p.key) === 'true').on('change', (e) => storage(p.key, e.target.checked));
+      }
+      $row.append($ctrl);
+      $folder.find('.settings-folder__body').append($row);
     });
-    $apiKey.append($input);
-
-    // Debug toggle
-    const $debug = $('<div class="settings-param"><div class="settings-param__name">Debug‑режим</div></div>');
-    const $toggle = $('<input type="checkbox">');
-    $toggle.prop('checked', window.localStorage.getItem('torbox_debug') === 'true');
-    $toggle.on('change', () => {
-      window.localStorage.setItem('torbox_debug', $toggle.is(':checked'));
-    });
-    $debug.append($toggle);
-
-    $folder.find('.settings-folder__body').append($apiKey, $debug);
-
-    // Додаємо до списку
-    const $list = $('.settings .settings-list');
-    if ($list.length) $list.append($folder);
+    $('.settings .settings-list').append($folder);
   }
 
-  /** Головна ініціалізація плагіна */
-  function initPlugin(useSettingsApi) {
+  /** Основна ініціалізація */
+  function initPlugin(useApi) {
     try {
-      if (useSettingsApi) buildSettingsApi(); else buildSettingsLegacy();
+      useApi ? buildSettingsApi() : buildSettingsLegacy();
+      interceptTorrServer();
       patchPlayer();
-      logger('Plugin initialized OK');
-    } catch (e) {
+      logger('Plugin ready v2.4.0');
+    } catch (err) {
       // eslint-disable-next-line no-console
-      console.error(`${PLUGIN_ID}: init error`, e);
+      console.error(`${PLUGIN_ID}: init error`, err);
     }
   }
 
-  /** Додає кнопку «Відтворити через TorBox» у меню джерел */
-  function patchPlayer() {
-    logger('Patching player–menu for TorBox integration');
+  /** Перехоплюємо TorrServer.open + додаємо кнопку у його меню */
+  function interceptTorrServer() {
+    if (!window.Lampa || !window.Lampa.Torrent) return;
 
-    if (!window.Lampa || !window.Lampa.Listener) return;
+    const originalOpen = window.Lampa.Torrent.open ? window.Lampa.Torrent.open.bind(window.Lampa.Torrent) : null;
 
-    Lampa.Listener.follow('player', (event) => {
-      if (event.type !== 'file') return; // цікавить лише вибір файлу
+    window.Lampa.Torrent.open = function patchedOpen(object) {
+      const cfg = getConfig();
+      // object може бути як magnet string, так і об’єкт
+      const hash = (typeof object === 'string' ? object : (object?.magnet || object?.hash || object?.url || ''));
+      const isMagnet = /^magnet:|^[a-f0-9]{40}$/i.test(hash);
 
-      const file = event.file || {};
-      const hashLike = file.magnet || file.infoHash || '';
-      if (!/^magnet:|^[a-f0-9]{40}$/i.test(hashLike)) return;
-
-      // Додаємо пункт у контекстне меню
-      if (!file.torbox_button_patched) {
-        file.torbox_button_patched = true;
-        file.menu.push({
-          title: '▶ Відтворити через TorBox',
-          subtitle: 'Запустити потокове відтворення з TorBox',
-          onSelect: () => startTorBoxStream(hashLike),
-        });
+      // Якщо користувач увімкнув redirect і це magnet → йдемо у TorBox
+      if (cfg.redirect && isMagnet) {
+        logger('Redirecting TorrServer → TorBox', hash);
+        startTorBoxStream(hash);
+        return;
       }
+      // У іншому випадку запускаємо оригінальний TorrServer UI
+      if (originalOpen) return originalOpen(object);
+    };
+
+    // Додаємо кнопку у popup TorrServer‑client‑selector
+    Lampa.Listener.follow('torrent', (e) => {
+      if (e.type !== 'open') return;
+      const file = e.object || {};
+      const hash = file.magnet || file.hash || '';
+      if (!/^magnet:|^[a-f0-9]{40}$/i.test(hash)) return;
+      if (!file.menu) file.menu = [];
+      if (file.menu.find((i) => i?.torbox)) return;
+      file.menu.push({
+        torbox: true,
+        title: '▶ TorBox',
+        onSelect: () => startTorBoxStream(hash),
+      });
     });
   }
 
-  /** Стартує процес стрімінгу через TorBox */
-  function startTorBoxStream(magnetOrHash) {
-    const apiKey = window.localStorage.getItem('torbox_api_key');
+  /** Патч меню плеєра (як і раніше) */
+  function patchPlayer() {
+    if (!window.Lampa || !window.Lampa.Listener) return;
+    Lampa.Listener.follow('player', (event) => {
+      if (event.type !== 'file') return;
+      const file = event.file || {};
+      const hashLike = file.magnet || file.infoHash || '';
+      if (!/^magnet:|^[a-f0-9]{40}$/i.test(hashLike)) return;
+      if (!file.menu) file.menu = [];
+      if (file.menu.find((i) => i.torbox)) return;
+      file.menu.push({
+        torbox: true,
+        title: '▶ Відтворити через TorBox',
+        subtitle: 'Потік із TorBox',
+        onSelect: () => startTorBoxStream(hashLike),
+      });
+    });
+  }
+
+  /** Запускаємо TorBox API */
+  function startTorBoxStream(magnet) {
+    const { apiKey } = getConfig();
     if (!apiKey) {
       window.Lampa.Noty.show('Спершу введіть API‑Key TorBox у налаштуваннях');
       return;
     }
-
-    const payload = { magnet: magnetOrHash, action: 'add', api_key: apiKey };
-    logger('Sending to TorBox API', payload);
-
+    const payload = { magnet, action: 'add', api_key: apiKey };
+    logger('Fetch TorBox', payload);
     fetch('https://api.torbox.app/lampa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -233,32 +254,23 @@
     })
       .then((r) => r.json())
       .then((json) => {
-        logger('TorBox response', json);
-        if (json && json.play_url) {
-          playViaLampa(json.play_url);
-        } else {
-          window.Lampa.Noty.show('TorBox не надав URL потоку');
-        }
+        logger('TorBox →', json);
+        if (json?.play_url) playViaLampa(json.play_url);
+        else window.Lampa.Noty.show('TorBox не повернув URL потоку');
       })
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.error(`${PLUGIN_ID}: TorBox fetch error`, err);
-        window.Lampa.Noty.show('Помилка звернення до TorBox API');
+        window.Lampa.Noty.show('Помилка TorBox API');
       });
   }
 
-  /** Відтворює отриманий HLS/DASH потік у Lampa Player */
+  /** Відтворення у Lampa */
   function playViaLampa(url) {
-    logger('Opening stream in Lampa Player', url);
-    const video = {
-      url,
-      title: 'TorBox Stream',
-      quality: {},
-      timeline: 0,
-    };
+    logger('Play stream', url);
+    const video = { url, title: 'TorBox Stream', quality: {}, timeline: 0 };
     window.Lampa.Player.play(video);
   }
 
-  // Старт очікування Lampa
   waitForLampa();
 })();
