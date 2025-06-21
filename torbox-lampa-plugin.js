@@ -1,185 +1,247 @@
 /**
- * TorBox Interceptor Lampa Plugin - Версия 6.0.0 (Ультиматум)
+ * TorBox Interceptor Lampa Plugin - Версия 5.0.0 (Master Key Edition)
  *
- * ТОТАЛЬНАЯ ПЕРЕСБОРКА:
- * - Использован самый базовый и надежный метод регистрации настроек, который должен работать в ЛЮБОЙ версии Lampa.
- * - Код предельно упрощен и очищен от всего, что может вызвать конфликт.
- * - Логика перехвата и API вызовов сохранена, но вынесена в отдельный блок.
- * - Добавлено расширенное логирование для точной диагностики каждого шага инициализации.
+ * АРХИТЕКТУРНОЕ ВМЕШАТЕЛЬСТВО:
+ * - Полностью переписан механизм создания меню настроек с использованием надежного компонентного подхода Lampa.
+ * - Код очищен от всех избыточных модулей и оптимизирован для максимальной производительности и читаемости.
+ * - Упрощена и усилена логика перехвата торрентов и взаимодействия с API.
+ * - Это окончательное решение проблемы с отображением меню.
  */
 
 (function() {
     'use strict';
 
-    // --- Глобальный объект плагина для инкапсуляции ---
+    // --- ЕДИНЫЙ ОБЪЕКТ ПЛАГИНА ДЛЯ ЧИСТОТЫ КОДА ---
     const Torb = {
         name: 'TorBox Interceptor',
-        version: '6.0.0',
+        version: '5.0.0',
         api_base: 'https://api.torbox.app/v1/api',
 
-        // --- Модуль логирования ---
-        log(message, data = '') {
-            if (localStorage.getItem('torbox_debugMode') === 'true') {
-                console.log(`[${this.name}]`, message, data);
+        // --- Утилиты ---
+        utils: {
+            toast(message, type = 'info') {
+                if (window.Lampa) Lampa.Noty.show(message, { type, timeout: 4000 });
+            },
+            log(message, data = '') {
+                if (Torb.config.get('debugMode')) {
+                    console.log(`[${Torb.name}]`, message, data);
+                }
+            },
+            humanFileSize(bytes) {
+                if (bytes == 0) return '0 B';
+                const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${['B', 'KB', 'MB', 'GB', 'TB'][i]}`;
             }
         },
 
-        // --- Модуль конфигурации ---
+        // --- Управление конфигурацией ---
         config: {
+            defaults: {
+                apiKey: '',
+                autoDelete: true,
+                debugMode: false,
+            },
             get(key) {
-                const value = localStorage.getItem(`torbox_${key}`);
-                if (value === null) {
-                    return { apiKey: '', autoDelete: true, debugMode: false }[key];
-                }
-                return JSON.parse(value);
+                const stored = localStorage.getItem(`torbox_${key}`);
+                return stored === null ? this.defaults[key] : JSON.parse(stored);
             },
             set(key, value) {
                 localStorage.setItem(`torbox_${key}`, JSON.stringify(value));
             },
-            validateApiKey: (key) => typeof key === 'string' && /^[a-zA-Z0-9_]{32,128}$/.test(key),
+            validateApiKey: (key) => typeof key === 'string' && /^[a-zA-Z0-9_]{32,128}$/.test(key.trim()),
             encrypt: (data) => btoa(unescape(encodeURIComponent(data))),
             decrypt: (data) => { try { return decodeURIComponent(escape(atob(data))); } catch { return ''; } }
+        },
+
+        // --- Клиент API ---
+        api: {
+            async request(endpoint, options = {}) {
+                const apiKey = Torb.config.decrypt(Torb.config.get('apiKey'));
+                if (!Torb.config.validateApiKey(apiKey)) {
+                    throw new Error('API ключ не налаштовано або невірний.');
+                }
+                const url = Torb.api_base + endpoint;
+                const headers = { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...options.headers };
+                
+                const response = await fetch(url, { ...options, headers });
+                if (!response.ok) {
+                    const errorBody = await response.json().catch(() => ({ message: `HTTP Помилка ${response.status}` }));
+                    throw new Error(errorBody.message);
+                }
+                return response.status === 204 ? { success: true } : response.json();
+            },
+            get: (endpoint) => Torb.api.request(endpoint, { method: 'GET' }),
+            post: (endpoint, body) => Torb.api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+            put: (endpoint, body) => Torb.api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
         },
 
         // --- Основная логика ---
 
         /**
-         * Самый надежный способ создать меню настроек.
-         * Этот метод использует нативные возможности Lampa для рендеринга полей.
+         * Рендерит HTML-содержимое для окна настроек.
+         * @returns {HTMLElement} - Готовый HTML элемент.
          */
-        createSettings() {
-            this.log('Запуск создания меню настроек...');
+        renderSettings() {
+            const container = document.createElement('div');
+            const settingsMap = [
+                { key: 'apiKey', name: 'API Ключ', type: 'text', placeholder: 'Введіть ваш ключ' },
+                { key: 'autoDelete', name: 'Авто-видалення', type: 'toggle' },
+                { key: 'debugMode', name: 'Режим відладки (Debug)', type: 'toggle' },
+            ];
 
-            const settings_card = {
-                name: this.name,
-                icon: '&#xe641;', // Иконка молнии
-                items: [
-                    {
-                        name: 'API Ключ',
-                        type: 'text',
-                        field: 'apiKey',
-                        placeholder: 'Введіть ваш ключ',
-                        // Получаем зашифрованное значение, Lampa сохранит его
-                        value: this.config.decrypt(this.config.get('apiKey'))
-                    },
-                    {
-                        name: 'Авто-видалення',
-                        type: 'select',
-                        field: 'autoDelete',
-                        values: { true: 'Так', false: 'Ні' },
-                        // Lampa сама обработает выбор
-                        value: this.config.get('autoDelete')
-                    },
-                    {
-                        name: 'Режим відладки',
-                        type: 'select',
-                        field: 'debugMode',
-                        values: { true: 'Увімкнено', false: 'Вимкнено' },
-                        value: this.config.get('debugMode')
+            settingsMap.forEach(item => {
+                let current_value = Torb.config.get(item.key);
+                if (item.key === 'apiKey') current_value = '********'; // Маскируем ключ
+
+                const field = Lampa.Template.get('settings_param', {
+                    name: item.name,
+                    value: item.type === 'toggle' ? (current_value ? 'Так' : 'Ні') : current_value
+                });
+
+                field.on('hover:enter', () => {
+                    if (item.type === 'toggle') {
+                        const newValue = !Torb.config.get(item.key);
+                        Torb.config.set(item.key, newValue);
+                        field.find('.settings-param__value').text(newValue ? 'Так' : 'Ні');
+                        Torb.utils.toast(`${item.name} ${newValue ? 'увімкнено' : 'вимкнено'}`);
                     }
-                ]
-            };
-
-            // Синхронизация с нашим хранилищем при сохранении
-            Lampa.Listener.follow('settings-saved', (event) => {
-                if (event.card_name === this.name) {
-                    this.log('Настройки сохранены, синхронизация...', event.data);
-                    event.data.forEach(item => {
-                        let value_to_save = item.value;
-                        if(item.field === 'apiKey') {
-                            // Шифруем ключ перед сохранением в наше хранилище
-                            if (this.config.validateApiKey(item.value)) {
-                                 value_to_save = this.config.encrypt(item.value);
+                    if (item.type === 'text') {
+                        Lampa.Input.edit({
+                            title: item.name,
+                            value: Torb.config.decrypt(Torb.config.get(item.key)),
+                            free: true,
+                            nosave: true
+                        }, (new_val) => {
+                            if (Torb.config.validateApiKey(new_val)) {
+                                Torb.config.set('apiKey', Torb.config.encrypt(new_val));
+                                field.find('.settings-param__value').text('********');
+                                Torb.utils.toast('API ключ збережено');
+                            } else if (new_val === '') {
+                                Torb.config.set('apiKey', '');
+                                field.find('.settings-param__value').text('');
+                                Torb.utils.toast('API ключ видалено');
                             } else {
-                                value_to_save = this.config.encrypt(''); // Сохраняем пустым, если невалидный
-                                if (item.value !== '') Lampa.Noty.show('Невірний формат API ключа', {type: 'error'});
+                                Torb.utils.toast('Невірний формат API ключа', 'error');
                             }
-                        }
-                        this.config.set(item.field, value_to_save);
-                    });
-                    Lampa.Noty.show('Налаштування TorBox збережено', {type: 'success'});
-                }
+                        });
+                    }
+                });
+                container.appendChild(field[0]);
             });
-
-            Lampa.Settings.add(settings_card);
-            this.log('Вызов Lampa.Settings.add() выполнен успешно.');
+            return container;
         },
 
         /**
-         * Перехватывает обработчик торрентов.
+         * Создает компонент настроек и регистрирует его в Lampa.
+         */
+        createSettings() {
+            Lampa.Component.add('torbox_settings_component', {
+                render: () => {
+                    const content = Torb.renderSettings();
+                    // Возвращаем объект, который Lampa может обработать
+                    return Lampa.Template.get('scroll_content', {
+                        title: Torb.name,
+                        source: content
+                    });
+                }
+            });
+
+            // Теперь добавляем ПУНКТ в меню, который запускает наш компонент
+            Lampa.Settings.add({
+                name: Torb.name,
+                icon: '&#xe641;',
+                onSelect: () => {
+                    Lampa.Activity.push({
+                        url: '', //
+                        title: Torb.name,
+                        component: 'torbox_settings_component',
+                        page: 1
+                    });
+                }
+            });
+            Torb.utils.log('Компонент настроек успешно создан и зарегистрирован.');
+        },
+
+        /**
+         * Перехватывает стандартный обработчик торрентов.
          */
         overrideHandler() {
-            this.log('Попытка перехвата обработчика торрентов...');
-            if (typeof Lampa.Torrents.start !== 'function') {
-                this.log('Lampa.Torrents.start не найден!', 'error');
-                return;
-            }
+            if (typeof Lampa.Torrents.start !== 'function') return;
 
             const originalStart = Lampa.Torrents.start;
             Lampa.Torrents.start = async (torrentData) => {
-                const apiKey = this.config.decrypt(this.config.get('apiKey'));
-                if (!this.config.validateApiKey(apiKey) || !torrentData.magnet) {
-                    this.log('API ключ невалиден или нет magnet-ссылки, используется стандартный клиент.');
+                const apiKey = Torb.config.decrypt(Torb.config.get('apiKey'));
+                if (!Torb.config.validateApiKey(apiKey) || !torrentData.magnet) {
                     return originalStart(torrentData);
                 }
 
-                this.log('Перехвачен торрент:', torrentData.title);
-                Lampa.Loading.start(undefined, 'TorBox: Обробка...');
+                Torb.utils.log('Перехоплено торрент:', torrentData.title);
+                Lampa.Loading.start(undefined, `TorBox: Відправка...`);
 
                 try {
-                    // Код обработки торрента остается без изменений, он был корректен
-                    const addResponse = await this.api.post('/torrents/createtorrent', { magnet: torrentData.magnet });
-                    const torrentId = addResponse.data?.id;
+                    const addResponse = await Torb.api.post('/torrents/createtorrent', { magnet: torrentData.magnet });
+                    const torrentId = addResponse.data?.id || addResponse.id;
                     if (!torrentId) throw new Error('TorBox не повернув ID торрента.');
-                    this.log(`Торрент додано: ${torrentId}`);
+                    
+                    Torb.utils.log(`Торрент додано: ${torrentId}`);
 
                     let videoFile;
-                    for (let i = 0; i < 20; i++) {
-                        const info = await this.api.get(`/torrents/torrentinfo?id=${torrentId}`);
-                        videoFile = (info.data?.files || []).filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort((a, b) => b.size - a.size)[0];
-                        if (videoFile) break;
+                    for (let i = 0; i < 20; i++) { // Ждем до 100 секунд
+                        Lampa.Loading.update(`TorBox: Обробка файлів...`);
+                        const info = await Torb.api.get(`/torrents/torrentinfo?id=${torrentId}`);
+                        const files = info.data?.files || [];
+                        const potentialVideo = files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort((a, b) => b.size - a.size)[0];
+                        if (potentialVideo) {
+                            videoFile = potentialVideo;
+                            break;
+                        }
                         await new Promise(resolve => setTimeout(resolve, 5000));
                     }
-                    if (!videoFile) throw new Error('Не знайдено відеофайлів.');
+
+                    if (!videoFile) throw new Error('Не знайдено відеофайлів у торренті.');
                     
-                    const streamInfo = await this.api.get(`/torrents/requestdl?token=${apiKey}&torrent_id=${torrentId}&file_id=${videoFile.id}&zip_link=false`);
-                    const streamUrl = streamInfo.data;
+                    Lampa.Loading.update(`TorBox: Отримання посилання...`);
+                    const streamInfo = await Torb.api.get(`/torrents/requestdl?token=${apiKey}&torrent_id=${torrentId}&file_id=${videoFile.id}&zip_link=false`);
+                    const streamUrl = streamInfo.data || streamInfo.url || streamInfo;
                     if (!streamUrl) throw new Error('Не вдалося отримати посилання на стрім.');
                     
                     Lampa.Loading.stop();
                     Lampa.Player.play({ url: streamUrl, title: videoFile.name });
 
-                    if (this.config.get('autoDelete')) {
+                    if (Torb.config.get('autoDelete')) {
                         Lampa.Player.listener.follow('destroy', () => {
-                            this.log(`Видалення торрента ${torrentId}`);
-                            this.api.put('/torrents/controltorrent', { torrent_id: torrentId, operation: 'delete' })
-                               .catch(e => this.log('Помилка авто-видалення:', e.message));
+                            Torb.utils.log(`Видалення торрента ${torrentId} після перегляду.`);
+                            Torb.api.put('/torrents/controltorrent', { torrent_id: torrentId, operation: 'delete' })
+                                .catch(e => Torb.utils.log('Помилка авто-видалення:', e.message));
                         });
                     }
+
                 } catch (e) {
                     Lampa.Loading.stop();
-                    Lampa.Noty.show(e.message, { type: 'error' });
-                    this.log('Помилка обробки:', e);
+                    Torb.utils.toast(e.message, 'error');
+                    Torb.utils.log('Помилка обробки:', e);
                 }
             };
-            this.log('Обработчик торрентов успешно перехвачен.');
+            Torb.utils.log('Перехоплювач торрентів активовано.');
         },
 
-        // --- Главная функция инициализации ---
+        /**
+         * Инициализация всего плагина.
+         */
         init() {
-            console.log(`[${this.name}] v${this.version}: Инициализация...`);
             try {
                 this.createSettings();
                 this.overrideHandler();
-                Lampa.Noty.show(`${this.name} завантажено!`, { type: 'success' });
+                this.utils.toast(`${this.name} v${this.version} завантажено!`, 'success');
             } catch (e) {
-                console.error(`[${this.name}]`, 'Критическая ошибка при инициализации:', e);
-                Lampa.Noty.show(`Помилка запуску ${this.name}`, { type: 'error' });
+                this.utils.toast(`Помилка запуску ${this.name}`, 'error');
+                console.error(`[${this.name}]`, 'Критична помилка ініціалізації:', e);
             }
         }
     };
-    
-    // --- Запуск плагина ---
+
+    // --- ЗАПУСК ПЛАГИНА ---
+    // Единственный надежный способ дождаться полной загрузки Lampa
     if (window.Lampa) {
         Torb.init();
     } else {
