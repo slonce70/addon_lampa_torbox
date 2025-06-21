@@ -161,7 +161,6 @@ Config.set('maxCacheSize', 100);
 ```
 addon_lampa_torbox/
 ├── torbox-lampa-plugin-enhanced.js  # Покращена версія плагіна
-├── torbox-lampa-plugin.js           # Оригінальна версія
 ├── config.json                      # Конфігурація середовищ
 ├── package.json                     # Конфігурація пакету
 ├── SECURITY_ANALYSIS.md             # Аналіз безпеки

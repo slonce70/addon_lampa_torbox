@@ -3,7 +3,7 @@
 ## 🎯 Швидке встановлення
 
 ### Для досвідчених користувачів:
-1. Завантажте `torbox-lampa-plugin.js`
+1. Завантажте `torbox-lampa-plugin-enhanced.js`
 2. Додайте в Lampa через **Налаштування** → **Розширення**
 3. Введіть API ключ TorBox
 4. Готово! 🎉
@@ -18,7 +18,7 @@
 1. Відкрийте Lampa
 2. Натисніть `Ctrl + Shift + I` (відкрити DevTools)
 3. Перейдіть на вкладку **Console**
-4. Скопіюйте весь код з файлу `torbox-lampa-plugin.js`
+4. Скопіюйте весь код з файлу `torbox-lampa-plugin-enhanced.js`
 5. Вставте в консоль і натисніть Enter
 6. Плагін активується автоматично
 
@@ -26,7 +26,7 @@
 1. Відкрийте Lampa в браузері
 2. Перейдіть в **Налаштування** → **Розширення** → **Додати розширення**
 3. Виберіть "Завантажити з файлу" або "Вставити код"
-4. Завантажте `torbox-lampa-plugin.js` або вставте код
+4. Завантажте `torbox-lampa-plugin-enhanced.js` або вставте код
 5. Активуйте плагін
 
 ### 📱 Android
@@ -36,7 +36,7 @@
 2. Перейдіть в **Налаштування** → **Розширення**
 3. Натисніть **"+"** (Додати розширення)
 4. Виберіть **"Завантажити з файлу"**
-5. Знайдіть і виберіть файл `torbox-lampa-plugin.js`
+5. Знайдіть і виберіть файл `torbox-lampa-plugin-enhanced.js`
 6. Підтвердіть встановлення
 
 **Через браузер Android:**
@@ -52,7 +52,7 @@
 3. Виберіть **"Запросити сайт робочого столу"**
 4. Перейдіть в **Налаштування** → **Розширення**
 5. Додайте плагін через **"Вставити код"**
-6. Скопіюйте код з `torbox-lampa-plugin.js`
+6. Скопіюйте код з `torbox-lampa-plugin-enhanced.js`
 
 ### 📺 Android TV / Smart TV
 
@@ -73,7 +73,7 @@
 **AppImage/Snap версія:**
 ```bash
 # Завантажте плагін
-wget https://your-domain.com/torbox-lampa-plugin.js
+wget https://your-domain.com/torbox-lampa-plugin-enhanced.js
 
 # Відкрийте Lampa
 ./Lampa.AppImage
@@ -116,7 +116,7 @@ chromium-browser https://lampa.mx
 
 ```javascript
 // Вставте в консоль браузера
-fetch('https://your-domain.com/torbox-lampa-plugin.js')
+fetch('https://your-domain.com/torbox-lampa-plugin-enhanced.js')
   .then(response => response.text())
   .then(code => eval(code))
   .catch(console.error);
@@ -126,7 +126,7 @@ fetch('https://your-domain.com/torbox-lampa-plugin.js')
 
 1. Завантажте плагін на GitHub
 2. Увімкніть GitHub Pages
-3. Використайте посилання: `https://username.github.io/repo/torbox-lampa-plugin.js`
+3. Використайте посилання: `https://username.github.io/repo/torbox-lampa-plugin-enhanced.js`
 
 ### Метод 3: Локальний сервер
 
@@ -140,7 +140,7 @@ python -m SimpleHTTPServer 8000
 # Node.js (з npx)
 npx http-server
 
-# Потім відкрийте: http://localhost:8000/torbox-lampa-plugin.js
+# Потім відкрийте: http://localhost:8000/torbox-lampa-plugin-enhanced.js
 ```
 
 ---

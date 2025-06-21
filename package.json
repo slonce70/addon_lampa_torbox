@@ -2,7 +2,7 @@
   "name": "lampa-torbox-enhanced",
   "version": "2.0.0",
   "description": "Enhanced TorBox.app streaming plugin for Lampa media player - онлайн стрімінг торентів",
-  "main": "torbox-lampa-plugin.js",
+  "main": "torbox-lampa-plugin-enhanced.js",
   "scripts": {
     "build": "echo 'Plugin is ready to use'",
     "test": "echo 'No tests specified'",
@@ -39,7 +39,7 @@
       "description": "Онлайн стрімінг торентів через TorBox.app",
       "author": "Enhanced Community",
       "type": "source",
-      "entry": "torbox-lampa-plugin.js",
+      "entry": "torbox-lampa-plugin-enhanced.js",
       "minLampaVersion": "1.8.0",
       "features": [
         "online-streaming",

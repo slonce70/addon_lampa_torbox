@@ -1002,52 +1002,112 @@
                         url: downloadLink.data,
                         title: torrent.name,
                         quality: this.detectQuality(mainFile.name),
-                        subtitles: await this.findSubtitles(torrent.files)
+                        subtitles: this.findSubtitles(torrent.files)
                     };
-
+                    
                     if (window.Lampa && Lampa.Player) {
                         Lampa.Player.play(playData);
                         Utils.toast('Воспроизведение началось!', 'success');
+                    } else {
+                        // Fallback to direct link
+                        window.open(downloadLink.data, '_blank');
+                    }
+                    
+                    // Auto-delete if enabled
+                    if (Config.get('autoDelete')) {
+                        setTimeout(() => {
+                            this.deleteTorrent(torrent.id);
+                        }, 300000); // Delete after 5 minutes
                     }
                 } else {
-                    throw new TorBoxError('Не удалось получить ссылку для воспроизведения', 'DOWNLOAD_LINK_ERROR');
+                    throw new TorBoxError('Не удалось получить ссылку для скачивания', 'DOWNLOAD_LINK_ERROR');
                 }
                 
             } catch (error) {
                 ErrorBoundary.handleError(error, 'playback_start');
             }
         },
-
+        
+        /**
+         * Deletes torrent from TorBox
+         * @param {string} torrentId - Torrent ID
+         */
+        async deleteTorrent(torrentId) {
+            try {
+                const apiKey = Config.get('apiKey');
+                if (!apiKey) return;
+                
+                await APIClient.request(`/api/torrents/controltorrent`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        torrent_id: torrentId,
+                        operation: 'delete'
+                    })
+                });
+                
+                Utils.log(`Торрент ${torrentId} удален`, 'info');
+            } catch (error) {
+                Utils.log(`Ошибка удаления торрента: ${error.message}`, 'error');
+            }
+        },
+        
         /**
          * Plays from cached torrent
-         * @param {Object} cachedData - Cached torrent data
-         * @returns {Promise<void>}
+         * @param {Object} cachedTorrent - Cached torrent data
          */
-        async playFromCache(cachedData) {
-            // Implementation for cached playback
-            Utils.toast('Воспроизведение из кэша...', 'info');
-            // Similar to startPlayback but for cached content
+        async playFromCache(cachedTorrent) {
+            try {
+                const downloadLink = await TorBoxAPI.getDownloadLink(cachedTorrent.id, cachedTorrent.files[0].id);
+                
+                if (downloadLink.success) {
+                    const playData = {
+                        url: downloadLink.data,
+                        title: cachedTorrent.name,
+                        quality: this.detectQuality(cachedTorrent.files[0].name)
+                    };
+                    
+                    if (window.Lampa && Lampa.Player) {
+                        Lampa.Player.play(playData);
+                    }
+                }
+            } catch (error) {
+                ErrorBoundary.handleError(error, 'cache_playback');
+            }
         },
-
+        
         /**
          * Detects video quality from filename
          * @param {string} filename - File name
          * @returns {string} - Quality string
          */
         detectQuality(filename) {
-            if (/2160p|4K|UHD/i.test(filename)) return '4K';
-            if (/1080p|FHD/i.test(filename)) return '1080p';
-            if (/720p|HD/i.test(filename)) return '720p';
-            if (/480p|SD/i.test(filename)) return '480p';
+            const qualityMap = {
+                '2160p': '4K',
+                '1440p': '1440p',
+                '1080p': '1080p',
+                '720p': '720p',
+                '480p': '480p'
+            };
+            
+            for (const [key, value] of Object.entries(qualityMap)) {
+                if (filename.toLowerCase().includes(key)) {
+                    return value;
+                }
+            }
+            
             return 'Unknown';
         },
-
+        
         /**
-         * Finds subtitle files
-         * @param {Array} files - File list
+         * Finds subtitle files in torrent
+         * @param {Array} files - Torrent files
          * @returns {Array} - Subtitle files
          */
-        async findSubtitles(files) {
+        findSubtitles(files) {
             return files.filter(file => 
                 /\.(srt|vtt|ass|ssa|sub)$/i.test(file.name)
             ).map(file => ({
