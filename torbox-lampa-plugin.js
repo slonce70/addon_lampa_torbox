@@ -694,115 +694,198 @@
                     return;
                 }
 
-                // Add TorBox settings section using correct Lampa API
-                Lampa.Settings.add({
-                    component: 'torbox_enhanced',
-                    param: {
-                        name: 'TorBox Enhanced',
-                        description: 'Настройки TorBox плагина для Lampa'
-                    },
-                    onRender: (item) => {
-                        return this.render();
-                    },
-                    onSelect: () => {
-                        Lampa.Activity.push({
-                            url: '',
-                            title: 'TorBox Enhanced',
-                            component: 'torbox_enhanced',
-                            page: 1
-                        });
+                // Create settings component
+                this.createSettingsComponent();
+                
+                // Add TorBox settings to existing settings menu
+                Lampa.Settings.listener.follow('open', (e) => {
+                    if (e.name === 'main') {
+                        this.addToMainSettings();
                     }
                 });
 
-                Utils.log('TorBox settings registered successfully', 'info');
+                Utils.log('TorBox settings listener registered successfully', 'info');
             } catch (error) {
                 Utils.log('Failed to register TorBox settings:', 'error', error);
             }
         },
 
-        render() {
+        addToMainSettings() {
             try {
-                const settingsHtml = `
-                    <div class="settings-folder">
-                        <div class="settings-folder__title">TorBox Enhanced</div>
-                        
-                        <div class="settings-param selector" data-type="input" data-name="apiKey">
-                            <div class="settings-param__name">API Ключ</div>
-                            <div class="settings-param__value">${Config.get('apiKey') || 'Не задан'}</div>
-                            <div class="settings-param__descr">API ключ от TorBox.app для доступа к сервису</div>
-                        </div>
-                        
-                        <div class="settings-param selector" data-type="toggle" data-name="autoPlay">
-                            <div class="settings-param__name">Автовоспроизведение</div>
-                            <div class="settings-param__value">${Config.get('autoPlay') ? 'Включено' : 'Выключено'}</div>
-                            <div class="settings-param__descr">Автоматически начинать воспроизведение найденных файлов</div>
-                        </div>
-                        
-                        <div class="settings-param selector" data-type="toggle" data-name="autoDelete">
-                            <div class="settings-param__name">Автоудаление торрентов</div>
-                            <div class="settings-param__value">${Config.get('autoDelete') ? 'Включено' : 'Выключено'}</div>
-                            <div class="settings-param__descr">Удалять торренты из TorBox после просмотра</div>
-                        </div>
-                        
-                        <div class="settings-param selector" data-type="select" data-name="preferredQuality">
-                            <div class="settings-param__name">Предпочитаемое качество</div>
-                            <div class="settings-param__value">${Config.get('preferredQuality') || '1080p'}</div>
-                            <div class="settings-param__descr">Выберите предпочитаемое качество видео для воспроизведения</div>
-                        </div>
-                        
-                        <div class="settings-param selector" data-type="toggle" data-name="subtitlesEnabled">
-                            <div class="settings-param__name">Субтитры</div>
-                            <div class="settings-param__value">${Config.get('subtitlesEnabled') ? 'Включены' : 'Выключены'}</div>
-                            <div class="settings-param__descr">Автоматически загружать и подключать субтитры</div>
-                        </div>
-                        
-                        <div class="settings-param selector" data-type="toggle" data-name="debugMode">
-                            <div class="settings-param__name">Режим отладки</div>
-                            <div class="settings-param__value">${Config.get('debugMode') ? 'Включен' : 'Выключен'}</div>
-                            <div class="settings-param__descr">Включить подробное логирование для диагностики</div>
-                        </div>
+                const settingsContainer = document.querySelector('.settings .settings-list');
+                if (!settingsContainer) {
+                    Utils.log('Settings container not found', 'warn');
+                    return;
+                }
+
+                // Check if already added
+                if (settingsContainer.querySelector('.torbox-settings-item')) {
+                    return;
+                }
+
+                // Create TorBox settings item
+                const settingsItem = document.createElement('div');
+                settingsItem.className = 'settings-folder torbox-settings-item';
+                settingsItem.innerHTML = `
+                    <div class="settings-folder__icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        </svg>
                     </div>
+                    <div class="settings-folder__name">TorBox Enhanced</div>
+                    <div class="settings-folder__description">Настройки TorBox плагина</div>
                 `;
-                
-                const $element = $(settingsHtml);
-                this.bindEvents($element);
-                return $element;
+
+                // Add click handler
+                settingsItem.addEventListener('click', () => {
+                    this.openTorBoxSettings();
+                });
+
+                // Insert after first item
+                const firstItem = settingsContainer.querySelector('.settings-folder');
+                if (firstItem) {
+                    firstItem.parentNode.insertBefore(settingsItem, firstItem.nextSibling);
+                } else {
+                    settingsContainer.appendChild(settingsItem);
+                }
+
+                Utils.log('TorBox settings item added to main settings', 'info');
             } catch (error) {
-                Utils.log('Failed to render TorBox settings:', 'error', error);
-                return $('<div>Ошибка загрузки настроек TorBox</div>');
+                Utils.log('Failed to add TorBox settings to main menu:', 'error', error);
             }
         },
 
-        bindEvents($element) {
+        openTorBoxSettings() {
             try {
-                if (!$element) return;
-
-                // Bind click events for settings
-                $element.find('.settings-param').on('click', (e) => {
-                    const $param = $(e.currentTarget);
-                    const type = $param.data('type');
-                    const name = $param.data('name');
-                    
-                    this.handleSettingClick(type, name, $param);
+                Lampa.Activity.push({
+                    url: '',
+                    title: 'TorBox Enhanced',
+                    component: 'torbox_settings',
+                    page: 1
                 });
-                
-                Utils.log('TorBox settings events bound successfully', 'debug');
             } catch (error) {
-                Utils.log('Failed to bind TorBox settings events:', 'error', error);
+                Utils.log('Failed to open TorBox settings:', 'error', error);
             }
+        },
+
+        createSettingsComponent() {
+            // Register TorBox settings component
+            Lampa.Component.add('torbox_settings', {
+                create: function() {
+                    const activity = this;
+                    
+                    activity.create = function() {
+                        activity.html = document.createElement('div');
+                        activity.html.className = 'activity-content';
+                        
+                        const settingsContainer = document.createElement('div');
+                        settingsContainer.className = 'settings';
+                        
+                        const settingsList = document.createElement('div');
+                        settingsList.className = 'settings-list';
+                        
+                        // Create settings items
+                        const settings = [
+                            {
+                                name: 'apiKey',
+                                title: 'API Ключ',
+                                description: 'API ключ от TorBox.app для доступа к сервису',
+                                type: 'input',
+                                value: Config.get('apiKey') || 'Не задан'
+                            },
+                            {
+                                name: 'autoPlay',
+                                title: 'Автовоспроизведение',
+                                description: 'Автоматически начинать воспроизведение найденных файлов',
+                                type: 'toggle',
+                                value: Config.get('autoPlay') ? 'Включено' : 'Выключено'
+                            },
+                            {
+                                name: 'autoDelete',
+                                title: 'Автоудаление торрентов',
+                                description: 'Удалять торренты из TorBox после просмотра',
+                                type: 'toggle',
+                                value: Config.get('autoDelete') ? 'Включено' : 'Выключено'
+                            },
+                            {
+                                name: 'preferredQuality',
+                                title: 'Предпочитаемое качество',
+                                description: 'Выберите предпочитаемое качество видео для воспроизведения',
+                                type: 'select',
+                                value: Config.get('preferredQuality') || '1080p'
+                            },
+                            {
+                                name: 'subtitlesEnabled',
+                                title: 'Субтитры',
+                                description: 'Автоматически загружать и подключать субтитры',
+                                type: 'toggle',
+                                value: Config.get('subtitlesEnabled') ? 'Включены' : 'Выключены'
+                            },
+                            {
+                                name: 'debugMode',
+                                title: 'Режим отладки',
+                                description: 'Включить подробное логирование для диагностики',
+                                type: 'toggle',
+                                value: Config.get('debugMode') ? 'Включен' : 'Выключен'
+                            }
+                        ];
+                        
+                        settings.forEach(setting => {
+                            const settingElement = SettingsInterface.createSettingElement(setting);
+                            settingsList.appendChild(settingElement);
+                        });
+                        
+                        settingsContainer.appendChild(settingsList);
+                        activity.html.appendChild(settingsContainer);
+                    };
+                    
+                    activity.render = function() {
+                        return activity.html;
+                    };
+                    
+                    activity.destroy = function() {
+                        // Cleanup
+                    };
+                    
+                    return activity;
+                }
+            });
         },
         
-        handleSettingClick(type, name, $param) {
+        createSettingElement(setting) {
+            const element = document.createElement('div');
+            element.className = 'settings-param selector';
+            element.setAttribute('data-type', setting.type);
+            element.setAttribute('data-name', setting.name);
+            
+            element.innerHTML = `
+                <div class="settings-param__name">${setting.title}</div>
+                <div class="settings-param__value">${setting.value}</div>
+                <div class="settings-param__descr">${setting.description}</div>
+            `;
+            
+            element.addEventListener('click', () => {
+                this.handleSettingClick(setting.type, setting.name, element);
+            });
+            
+            return element;
+        },
+
+
+        
+        handleSettingClick(type, name, element) {
             try {
                 switch (type) {
                     case 'input':
-                        this.showInputDialog(name, $param);
+                        this.showInputDialog(name, element);
                         break;
                     case 'toggle':
-                        this.toggleSetting(name, $param);
+                        this.toggleSetting(name, element);
                         break;
                     case 'select':
-                        this.showSelectDialog(name, $param);
+                        this.showSelectDialog(name, element);
                         break;
                     default:
                         Utils.log('Unknown setting type:', 'warn', type);
@@ -812,7 +895,7 @@
             }
         },
         
-        showInputDialog(name, $param) {
+        showInputDialog(name, element) {
             const currentValue = Config.get(name) || '';
             const title = name === 'apiKey' ? 'API Ключ TorBox' : 'Введите значение';
             
@@ -825,24 +908,24 @@
                 if (name === 'apiKey') {
                     if (newValue && Config.validateApiKey(newValue)) {
                         Config.set('apiKey', newValue);
-                        $param.find('.settings-param__value').text(newValue);
+                        element.querySelector('.settings-param__value').textContent = newValue;
                         Utils.toast('API ключ сохранен', 'success');
                     } else if (newValue) {
                         Utils.toast('Неверный формат API ключа', 'error');
                         return;
                     } else {
                         Config.set('apiKey', '');
-                        $param.find('.settings-param__value').text('Не задан');
+                        element.querySelector('.settings-param__value').textContent = 'Не задан';
                     }
                 } else {
                     Config.set(name, newValue);
-                    $param.find('.settings-param__value').text(newValue || 'Не задано');
+                    element.querySelector('.settings-param__value').textContent = newValue || 'Не задано';
                     Utils.toast('Настройка обновлена', 'success');
                 }
             });
         },
         
-        toggleSetting(name, $param) {
+        toggleSetting(name, element) {
             const currentValue = Config.get(name);
             const newValue = !currentValue;
             
@@ -870,10 +953,10 @@
                     displayText = newValue ? 'Включено' : 'Выключено';
             }
             
-            $param.find('.settings-param__value').text(displayText);
+            element.querySelector('.settings-param__value').textContent = displayText;
         },
         
-        showSelectDialog(name, $param) {
+        showSelectDialog(name, element) {
             if (name === 'preferredQuality') {
                 const qualities = ['480p', '720p', '1080p', '1440p', '2160p'];
                 const currentValue = Config.get('preferredQuality') || '1080p';
@@ -887,7 +970,7 @@
                     })),
                     onSelect: (item) => {
                         Config.set('preferredQuality', item.value);
-                        $param.find('.settings-param__value').text(item.value);
+                        element.querySelector('.settings-param__value').textContent = item.value;
                         Utils.toast('Качество установлено: ' + item.value, 'success');
                     }
                 });
