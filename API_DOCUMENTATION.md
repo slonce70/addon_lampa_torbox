@@ -599,7 +599,7 @@ class BatchProcessor {
 
 Для отримання додаткової інформації або повідомлення про помилки:
 
-- **GitHub Issues**: [Створити issue](https://github.com/your-repo/issues)
+- **GitHub Issues**: [Створити issue](https://github.com/slonce70/addon_lampa_torbox/issues)
 - **Email**: support@torbox-plugin.com
 - **Discord**: [Приєднатися до сервера](https://discord.gg/torbox)
 

@@ -23,12 +23,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/lampa-torbox-enhanced"
+    "url": "https://github.com/slonce70/addon_lampa_torbox"
   },
   "bugs": {
-    "url": "https://github.com/your-username/lampa-torbox-enhanced/issues"
+    "url": "https://github.com/slonce70/addon_lampa_torbox/issues"
   },
-  "homepage": "https://github.com/your-username/lampa-torbox-enhanced#readme",
+  "homepage": "https://github.com/slonce70/addon_lampa_torbox#readme",
   "engines": {
     "node": ">=14.0.0"
   },

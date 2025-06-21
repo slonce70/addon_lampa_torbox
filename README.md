@@ -1,6 +1,6 @@
 # 🎬 TorBox Lampa Plugin Enhanced
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/your-repo/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/slonce70/addon_lampa_torbox/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-enhanced-brightgreen.svg)](#security)
 [![Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen.svg)](#code-quality)
@@ -44,8 +44,8 @@
 
 1. **Завантажте плагін**:
    ```bash
-   git clone https://github.com/your-repo/torbox-lampa-plugin.git
-   cd torbox-lampa-plugin
+   git clone https://github.com/slonce70/addon_lampa_torbox.git
+   cd addon_lampa_torbox
    ```
 
 2. **Скопіюйте файли до Lampa**:
@@ -159,13 +159,15 @@ Config.set('maxCacheSize', 100);
 ### Структура проекту
 
 ```
-torbox-lampa-plugin/
+addon_lampa_torbox/
 ├── torbox-lampa-plugin-enhanced.js  # Покращена версія плагіна
 ├── torbox-lampa-plugin.js           # Оригінальна версія
 ├── config.json                      # Конфігурація середовищ
+├── package.json                     # Конфігурація пакету
 ├── SECURITY_ANALYSIS.md             # Аналіз безпеки
 ├── API_DOCUMENTATION.md             # API документація
 ├── DEVELOPMENT_GUIDE.md             # Посібник розробника
+├── INSTALL.md                       # Інструкції встановлення
 └── README.md                        # Цей файл
 ```
 
@@ -344,8 +346,8 @@ Logger.error('API request failed', {
 ### Отримання допомоги
 
 - **📖 Документація**: [API Documentation](API_DOCUMENTATION.md)
-- **🐛 Bug Reports**: [GitHub Issues](https://github.com/your-repo/issues)
-- **💬 Обговорення**: [GitHub Discussions](https://github.com/your-repo/discussions)
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/slonce70/addon_lampa_torbox/issues)
+- **💬 Обговорення**: [GitHub Discussions](https://github.com/slonce70/addon_lampa_torbox/discussions)
 - **📧 Email**: support@torbox-plugin.com
 - **💬 Discord**: [Приєднатися](https://discord.gg/torbox)
 
@@ -383,6 +385,6 @@ A: Enhanced версія має покращену безпеку, продук�
 
 **Зроблено з ❤️ для спільноти Lampa**
 
-[⭐ Поставте зірочку](https://github.com/your-repo) • [🐛 Повідомити про помилку](https://github.com/your-repo/issues) • [💡 Запропонувати ідею](https://github.com/your-repo/discussions)
+[⭐ Поставте зірочку](https://github.com/slonce70/addon_lampa_torbox) • [🐛 Повідомити про помилку](https://github.com/slonce70/addon_lampa_torbox/issues) • [💡 Запропонувати ідею](https://github.com/slonce70/addon_lampa_torbox/discussions)
 
 </div>
