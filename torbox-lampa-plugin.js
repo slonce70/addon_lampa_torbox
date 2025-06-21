@@ -187,23 +187,23 @@
 
     const originalOpen = window.Lampa.Torrent.open ? window.Lampa.Torrent.open.bind(window.Lampa.Torrent) : null;
 
+    // ЦЕ ГОЛОВНИЙ МЕХАНІЗМ АВТОМАТИЧНОГО ПЕРЕХОПЛЕННЯ
     window.Lampa.Torrent.open = function patchedOpen(object) {
       const cfg = getConfig();
-      // object може бути як magnet string, так і об’єкт
       const hash = (typeof object === 'string' ? object : (object?.magnet || object?.hash || object?.url || ''));
       const isMagnet = /^magnet:|^[a-f0-9]{40}$/i.test(hash);
 
-      // Якщо користувач увімкнув redirect і це magnet → йдемо у TorBox
+      // Якщо редирект увімкнено, відправляємо в TorBox
       if (cfg.redirect && isMagnet) {
         logger('Redirecting TorrServer → TorBox', hash);
         startTorBoxStream(hash);
         return;
       }
-      // У іншому випадку запускаємо оригінальний TorrServer UI
+      // Інакше, повертаємо оригінальну поведінку
       if (originalOpen) return originalOpen(object);
     };
 
-    // Додаємо кнопку у popup TorrServer‑client‑selector
+    // ЦЕ ЗАПАСНИЙ МЕХАНІЗМ: додавання кнопки в меню
     Lampa.Listener.follow('torrent', (e) => {
       if (e.type !== 'open') return;
       const file = e.object || {};
@@ -219,7 +219,7 @@
     });
   }
 
-  /** Патч меню плеєра (як і раніше) */
+  /** Патч меню плеєра (ще один запасний механізм) */
   function patchPlayer() {
     if (!window.Lampa || !window.Lampa.Listener) return;
     Lampa.Listener.follow('player', (event) => {
