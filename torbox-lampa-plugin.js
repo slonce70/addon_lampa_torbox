@@ -224,56 +224,59 @@
         const apiKey = Lampa.Storage.get('torbox_api_key', '');
         const cachedOnly = Lampa.Storage.get('torbox_cached_only', false);
         
-        const html = `
-            <div class="settings-param selector" data-name="torbox_api_key">
-                <div class="settings-param__name">API ключ TorBox</div>
-                <div class="settings-param__value">
-                    <input type="text" placeholder="Введите API ключ" value="${apiKey}" />
-                </div>
-                <div class="settings-param__descr">Ваш API ключ для доступа к TorBox</div>
-            </div>
-            <div class="settings-param selector ${cachedOnly ? 'active' : ''}" data-name="torbox_cached_only">
-                <div class="settings-param__name">Только кэшированные торренты</div>
-                <div class="settings-param__value"></div>
-                <div class="settings-param__descr">Показывать только торренты, которые уже кэшированы в TorBox</div>
-            </div>
-        `;
-        
-        Lampa.Modal.open({
-            title: 'TorBox',
-            html: html,
-            size: 'medium',
-            mask: true,
-            onSelect: function(a, b) {
-                if (a.hasClass('selector')) {
-                    if (a.data('name') === 'torbox_cached_only') {
-                        const isActive = a.hasClass('active');
-                        const newValue = !isActive;
-                        
-                        if (newValue) {
-                            a.addClass('active');
-                        } else {
-                            a.removeClass('active');
-                        }
-                        
-                        Lampa.Storage.set('torbox_cached_only', newValue);
-                        console.log('TorBox: Кэшированные торренты:', newValue);
-                    }
+        const items = [
+            {
+                title: 'API ключ TorBox',
+                subtitle: apiKey || 'Не установлен',
+                description: 'Ваш API ключ для доступа к TorBox',
+                input: true,
+                value: apiKey,
+                placeholder: 'Введите API ключ',
+                onChange: (value) => {
+                    Lampa.Storage.set('torbox_api_key', value);
+                    console.log('TorBox: API ключ сохранен:', value);
                 }
             },
-            onBack: function() {
-                Lampa.Modal.close();
+            {
+                title: 'Только кэшированные торренты',
+                subtitle: cachedOnly ? 'Включено' : 'Выключено',
+                description: 'Показывать только торренты, которые уже кэшированы в TorBox',
+                toggle: true,
+                value: cachedOnly,
+                onChange: (value) => {
+                    Lampa.Storage.set('torbox_cached_only', value);
+                    console.log('TorBox: Кэшированные торренты:', value);
+                }
+            }
+        ];
+        
+        Lampa.Select.show({
+            title: 'Настройки TorBox',
+            items: items,
+            onSelect: (item) => {
+                if (item.input) {
+                    Lampa.Input.show({
+                        title: item.title,
+                        value: item.value,
+                        placeholder: item.placeholder,
+                        onSave: (value) => {
+                            item.onChange(value);
+                            showSettings(); // Обновляем меню
+                        },
+                        onBack: () => {
+                            showSettings(); // Возвращаемся к настройкам
+                        }
+                    });
+                } else if (item.toggle) {
+                    const newValue = !item.value;
+                    item.onChange(newValue);
+                    showSettings(); // Обновляем меню
+                }
+            },
+            onBack: () => {
+                Lampa.Controller.toggle('content');
             }
         });
-        
-        // Добавляем обработчик для поля API ключа
-        setTimeout(() => {
-            $('.settings-param[data-name="torbox_api_key"] input').on('input', function() {
-                const value = $(this).val();
-                Lampa.Storage.set('torbox_api_key', value);
-                console.log('TorBox: API ключ сохранен:', value);
-            });
-        }, 100);
     }
 
     /* ---------- TORBOX COMPONENT ---------- */
