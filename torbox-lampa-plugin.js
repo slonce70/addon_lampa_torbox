@@ -1,37 +1,38 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.3.0 (2025‑06‑25)
+ * TorBox Enhanced – Universal Lampa Plugin v3.4.0 (2025‑06‑26)
  * ============================================================
- * 🌐  CORS & Cloudflare 530 solved, «Только кеш» сохраняется корректно
- * --------------------------------------------------------------------
- *  🟠  btm.tools иногда отдаёт **530 (Web server is down)** через Cloudflare,
- *      когда запрос идёт от публичных прокси.
- *  🟢  Новый алгоритм поиска:
- *        1.  btm.tools → corsproxy.io
- *        2.  btm.tools → thingproxy.freeboard.io
- *        3.  **search‑api.torbox.app** (без авторизации, _без metadata_)
- *  🔑  Если указан API‑Key → пешем `check_cache=true` даже на search‑api.
- *  📦  Результаты search‑api отличаются по схеме -> добавлена унификация.
- *  💾  Баг с «Только кеш = Да» после перезапуска — фикс: флаг теперь пишется
- *      и читается как "1" / "0" (строки), что Lampa корректно сериализует.
+ * 🚀  Что нового
+ * ------------------------------------------------------------------
+ * 1. **Флаг «Только кеш» действительно сохраняется**
+ *    • Lampa триггеры пишут строку "true" / "false". Храним именно так.
+ *    • def‑значение триггера теперь всегда boolean, иначе Lampa затирала.
+ * 2. **Поиск без ключа теперь стабилен**
+ *    • search‑api.torbox.app всегда отвечает 401 без Bearer — убрал из
+ *      fallback‑цепочки.
+ *    • НОВЫЙ шаг №3: публичный индексатор **files.api.canyouseeme.xyz**
+ *      (аналог rarbg) через corsproxy.
+ * 3. **Более чистое логирование** — статусы 530/401 ловятся и переходят
+ *    к следующему шагу без выброса исключения до конца цепочки.
  */
 
 (function(){
   'use strict';
 
-  const PLUGIN_ID='torbox_enhanced_v3_3_0';
+  const PLUGIN_ID='torbox_enhanced_v3_4_0';
   if(window[PLUGIN_ID]) return; window[PLUGIN_ID]=true;
 
   // ─────────── helpers ───────────
   const ICON=`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
   const Store={get:(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}},set:(k,v)=>{try{localStorage.setItem(k,String(v));}catch{}}};
   const CFG={
-    get debug(){return Store.get('torbox_debug','0')==='1';},   set debug(v){Store.set('torbox_debug',v?'1':'0');},
-    get cachedOnly(){return Store.get('torbox_cached_only','0')==='1';}, set cachedOnly(v){Store.set('torbox_cached_only',v?'1':'0');}
+    get debug(){return Store.get('torbox_debug','false')==='true';},   set debug(v){Store.set('torbox_debug',v?'true':'false');},
+    get cachedOnly(){return Store.get('torbox_cached_only','false')==='true';}, set cachedOnly(v){Store.set('torbox_cached_only',v?'true':'false');}
   };
   const LOG=(...a)=>CFG.debug&&console.log('[TorBox]',...a);
-  const CORS1=u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`;
+  const CORS=u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`;
   const CORS2=u=>`https://thingproxy.freeboard.io/fetch/${u}`;
   const ql=n=>{n=n.toLowerCase();if(/(2160|4k)/.test(n))return'4K';if(/1080/.test(n))return'1080p';if(/720/.test(n))return'720p';return'';};
+  const tryJSON=async r=>{if(!r.ok)throw new Error(r.status);return r.json();};
 
   // ─────────── API ───────────
   const API={
@@ -40,17 +41,13 @@
     async search(term){
       const safe=encodeURIComponent(term).replace(/%3A/ig,':');
       const qp='metadata=true&search_user_engines=true';
-      const btm=`https://btm.tools/api/torrents/search/${safe}?${qp}`;
-      const tryFetch=async (u)=>{const r=await fetch(u); if(!r.ok) throw new Error(r.status); return r.json();};
-      try{LOG('Try btm via corsproxy'); return await tryFetch(CORS1(btm));}
-      catch(e1){LOG('corsproxy failed',e1); try{LOG('Try btm via thingproxy'); return await tryFetch(CORS2(btm));}catch(e2){LOG('thingproxy failed',e2);} }
-
-      // fallback search‑api.torbox.app (public)
-      let url=`https://search-api.torbox.app/torrents/search/${safe}`;
-      const key=Store.get('torbox_api_key','');
-      if(key) url+=`?check_cache=true`; // check cache allowed с ключом
-      LOG('Fallback search-api',url);
-      return tryFetch(CORS1(url));
+      // 1) btm.tools via corsproxy
+      try{const r=await fetch(CORS(`https://btm.tools/api/torrents/search/${safe}?${qp}`)); return await tryJSON(r);}catch(e){LOG('btm corsproxy',e);} 
+      // 2) btm.tools via thingproxy
+      try{const r=await fetch(CORS2(`https://btm.tools/api/torrents/search/${safe}?${qp}`));return await tryJSON(r);}catch(e){LOG('btm thingproxy',e);} 
+      // 3) canyouseeme.xyz indexer (публичный, no‑auth)
+      try{const r=await fetch(CORS(`https://files.api.canyouseeme.xyz/search/${safe}`)); return await tryJSON(r);}catch(e){LOG('alt indexer',e);} 
+      throw new Error('TorBox: все источники поиска недоступны');
     },
 
     async main(path,body={},method='GET'){
@@ -74,7 +71,7 @@
     try{
       const term=movie?.imdb_id?`imdb:${movie.imdb_id}`:movie.title;
       const res = await API.search(term);
-      const list=(res.data?.torrents)||res.torrents||[];
+      const list=(res.data?.torrents)||res.torrents||res||[];
       if(!list.length){Lampa.Noty.show('TorBox: ничего не найдено');return;}
       const show=CFG.cachedOnly?list.filter(t=>t.cached):list;
       if(!show.length){Lampa.Noty.show('Нет кэшированных');return;}
@@ -112,10 +109,10 @@
       {k:'torbox_debug',n:'Debug',d:'Лог',t:'trigger',def:CFG.debug},
       {k:'torbox_api_key',n:'API‑Key',d:'Ключ TorBox (для загрузок)',t:'input',def:Store.get('torbox_api_key','')}
     ];
-    fields.forEach(p=>Lampa.SettingsApi.addParam({component:COMP,param:{name:p.k,type:p.t,values:'',default:p.def},field:{name:p.n,description:p.d},onChange:v=>{if(p.t==='input')Store.set('torbox_api_key',v.trim());else if(p.k==='torbox_cached_only')CFG.cachedOnly=v;else CFG.debug=v;}}));
+    fields.forEach(p=>Lampa.SettingsApi.addParam({component:COMP,param:{name:p.k,type:p.t,values:'',default:!!p.def},field:{name:p.n,description:p.d},onChange:v=>{if(p.t==='input')Store.set('torbox_api_key',v.trim());else if(p.k==='torbox_cached_only')CFG.cachedOnly=v;else CFG.debug=v;}}));
   }
 
   // ─────────── Boot / Hook ───────────
   function hook(){Lampa.Listener.follow('full',e=>{if(e.type!=='complite')return;const root=e.object.activity.render();if(root.find('.view--torbox').length)return;const btn=$(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);btn.on('hover:enter',()=>searchAndShow(e.data.movie));root.find('.view--torrent').after(btn);});}
-  let t=0;const STEP=500,MAX=60000;(function loop(){if(window.Lampa&&window.Lampa.Settings){try{addSettings();hook();LOG('Ready v3.3.0');}catch(e){console.error('[TorBox]',e);}return;}if((t+=STEP)>=MAX){console.warn('[TorBox] Lampa not found');return;}setTimeout(loop,STEP);})();
+  let t=0;const STEP=500,MAX=60000;(function loop(){if(window.Lampa&&window.Lampa.Settings){try{addSettings();hook();LOG('Ready v3.4.0');}catch(e){console.error('[TorBox]',e);}return;}if((t+=STEP)>=MAX){console.warn('[TorBox] Lampa not found');return;}setTimeout(loop,STEP);})();
 })();
