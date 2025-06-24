@@ -1,29 +1,24 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 17.0.0 (Улучшенная версия с рабочими настройками и UX-улучшениями)
+ * Version: 17.1.0 (Исправление ошибки Uncaught TypeError)
  * Author: Gemini AI & <Ваше Имя>
  *
- * CHANGE LOG v17.0.0:
- * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Механизм настроек полностью переписан для корректной работы с API Lampa.
- * - УЛУЧШЕНИЕ (UX): Добавлена кнопка для проверки API-ключа прямо в меню настроек.
- * - УЛУЧШЕНИЕ (UX): Добавлено распознавание и отображение качества видео (4K, 1080p, 720p) в списке файлов.
- * - УЛУЧШЕНИЕ (API): Улучшена обработка ошибок, в частности при неверном API-ключе.
+ * CHANGE LOG v17.1.0:
+ * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка 'Uncaught TypeError' при отображении списка результатов.
+ * Проблема была вызвана передачей сложного объекта в компонент Lampa.Select.
+ * Теперь в компонент передается только ID торрента, а полный объект находится после выбора.
  */
 (function () {
     'use strict';
 
-    // ===========================================================================================
-    // Глобальная защита от повторной инициализации
-    // ===========================================================================================
-    const PLUGIN_NAME = 'TorBoxPluginV17_Enhanced';
+    const PLUGIN_NAME = 'TorBoxPluginV17_Fixed';
     if (window[PLUGIN_NAME]) {
-        console.log(`TorBox Plugin: ${PLUGIN_NAME} уже был запущен. Повторная инициализация отменена.`);
         return;
     }
     window[PLUGIN_NAME] = true;
 
     // ===========================================================================================
-    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ (ИСПРАВЛЕНО И УЛУЧШЕНО)
+    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ
     // ===========================================================================================
 
     Lampa.Params.select('torbox_api_key', '', '');
@@ -72,7 +67,6 @@
                 e.body.html(Lampa.Template.get('settings_torbox'));
                 Lampa.Params.update(e.body.find('.selector'), false, e.body);
 
-                // Обработчик для кнопки проверки ключа
                 e.body.find('[data-name="check_api_key"]').on('hover:enter', async () => {
                     const status = e.body.find('[data-name="check_api_key"] .settings-param__status');
                     status.removeClass('active error').addClass('wait');
@@ -101,7 +95,7 @@
     }
 
     // ===========================================================================================
-    // БЛОК 2: API-ВРАППЕР И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (УЛУЧШЕНО)
+    // БЛОК 2: API-ВРАППЕР И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
     // ===========================================================================================
 
     function parseQuality(name) {
@@ -175,7 +169,7 @@
     };
 
     // ===========================================================================================
-    // БЛОК 3: ОСНОВНАЯ ЛОГИКА ПЛАГИНА (УЛУЧШЕНО)
+    // БЛОК 3: ОСНОВНАЯ ЛОГИКА ПЛАГИНА
     // ===========================================================================================
 
     function startPlugin() {
@@ -209,13 +203,27 @@
             }
         }
 
+        // ### ИСПРАВЛЕННАЯ ФУНКЦИЯ ###
         function displayTorrents(torrents, movie) {
             const items = torrents.sort((a,b) => (b.seeders || 0) - (a.seeders || 0)).map(t => ({
                 title: `${t.cached ? '⚡' : '☁️'} ${t.name || t.raw_title || 'Без названия'}`,
                 subtitle: [`💾 ${(t.size / 2**30).toFixed(2)} GB`, `🟢 ${t.seeders || 0}`, `🔴 ${t.peers || 0}`].filter(Boolean).join(' | '),
-                torrent: t
+                // НЕ передаем весь объект торрента, только его ID
+                torrent_id: t.id
             }));
-            Lampa.Select.show({ title: 'Результаты TorBox', items, onSelect: item => handleTorrentSelection(item.torrent, movie, torrents), onBack: () => Lampa.Controller.toggle('content') });
+        
+            Lampa.Select.show({
+                title: 'Результаты TorBox',
+                items,
+                onSelect: item => {
+                    // Находим полный объект торрента в исходном массиве по ID
+                    const selectedTorrent = torrents.find(t => t.id === item.torrent_id);
+                    if (selectedTorrent) {
+                        handleTorrentSelection(selectedTorrent, movie, torrents);
+                    }
+                },
+                onBack: () => Lampa.Controller.toggle('content')
+            });
         }
 
         async function handleTorrentSelection(torrent, movie, originalList) {
