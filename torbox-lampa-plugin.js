@@ -271,7 +271,7 @@
                     
                     Lampa.Modal.open({
                         title: item.title,
-                        html: inputHtml,
+                        html: $(inputHtml),
                         size: 'medium',
                         mask: true,
                         onSelect: function(element) {
