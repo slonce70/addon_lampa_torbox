@@ -1,282 +1,285 @@
 /**
- * TorBox ↔ Lampa integration plugin
- * Version 5.1.0 – Web version compatible (June 2025)
+ * TorBox <-> Lampa integration plugin
+ * Version 6.0.0 - Refactored for modern Lampa API and robustness
  *
- * Changelog vs 5.0.3:
- *  • Исправлено несоответствие ключей Storage (cached‑only)
- *  • Переключено на публичный Search‑API без авторизации (избавились от CORS)
- *  • RequestDL теперь использует permalink с ?token=…&redirect=true (рекомендация API)
- *  • Упрощена логика fallback, убраны лишние CORS‑прокси для поиска
- *  • Минимизировано количество запросов, улучшена обработка ошибок
- *
- * Author: GOD MODE (updated by ChatGPT‑o3)
+ * Author: Gemini AI, based on analysis of user-provided code
  */
 (function () {
     'use strict';
 
-    /* ---------- GLOBAL GUARD ---------- */
-    const NS = 'torbox_lampa_plugin_v5_1_0';
-    if (window[NS]) return;
-    window[NS] = true;
+    //--- Глобальная защита от повторной инициализации ---
+    const PLUGIN_NAME = 'TorBoxPlugin';
+    if (window[PLUGIN_NAME]) return;
+    window[PLUGIN_NAME] = true;
 
-    /* ---------- CONSTANTS ---------- */
+    //--- Константы ---
     const S = {
         API_KEY: 'torbox_api_key',
-        CACHED_ONLY: 'torbox_cached_only'
+        CACHED_ONLY: 'torbox_show_cached_only'
     };
+    const API_BASE = 'https://api.torbox.app/v1/api'; //
+    const API_SEARCH_BASE = 'https://search-api.torbox.app'; //
 
-    const API_BASE = 'https://api.torbox.app/v1/api';
-    const SEARCH_API = 'https://search-api.torbox.app';
-
-    /* ---------- CORE API ---------- */
+    //--- API-клиент для TorBox ---
     const TorBoxAPI = {
-        async call(endpoint, params = {}, method = 'GET') {
-            const key = Lampa.Storage.get(S.API_KEY, '');
-            if (!key) throw new Error('Установите API‑ключ TorBox в настройках');
+        /**
+         * Основной метод для вызова API
+         * @param {string} endpoint - эндпоинт API
+         * @param {object} params - параметры
+         * @param {string} method - HTTP метод
+         * @param {string} base - базовый URL
+         * @returns {Promise<any>}
+         */
+        async call(endpoint, params = {}, method = 'GET', base = API_BASE) {
+            const apiKey = Lampa.Storage.get(S.API_KEY, '');
+            if (!apiKey) {
+                Lampa.Noty.show('Необходимо указать API ключ TorBox в настройках Lampa', { type: 'error' });
+                return Promise.reject('API ключ не установлен');
+            }
 
-            let url = `${API_BASE}${endpoint}`;
-            const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` } };
+            let url = `${base}${endpoint}`;
+            const options = {
+                method: method,
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`, //
+                    'Content-Type': 'application/json'
+                }
+            };
 
-            if (method === 'GET' && Object.keys(params).length) {
+            if (method === 'GET' && Object.keys(params).length > 0) {
                 url += '?' + new URLSearchParams(params).toString();
             } else if (method === 'POST') {
-                opts.body = JSON.stringify(params);
+                options.body = JSON.stringify(params);
             }
+            
+            const response = await fetch(url, options);
+            const data = await response.json();
 
-            const resp = await fetch(url, opts);
-            if (!resp.ok) {
-                const txt = await resp.text();
-                throw new Error(`TorBox API: ${resp.status} ${resp.statusText}\n${txt}`);
+            if (!response.ok || data.success === false) {
+                throw new Error(data.error || data.detail || 'Ошибка API TorBox');
             }
-            const data = await resp.json();
-            if (data.success === false) throw new Error(data.error || data.detail || 'API ошибка');
             return data;
         },
 
-        /* ---------- SEARCH ---------- */
-        async searchTorrents(movie) {
-            const query = movie.imdb_id ? `imdb:${movie.imdb_id}` : `${movie.title} ${movie.year || ''}`.trim();
-            const url = `${SEARCH_API}/torrents/search/${encodeURIComponent(query)}?metadata=1&check_cache=1`;
+        /**
+         * Поиск торрентов
+         * @param {object} movie - объект фильма из Lampa
+         * @returns {Promise<Array>}
+         */
+        async search(movie) {
+            const query = movie.imdb_id ? `imdb:${movie.imdb_id}` : movie.title; //
+            const params = {
+                metadata: true,
+                check_cache: true,
+            };
+            const endpoint = `/torrents/search/${encodeURIComponent(query)}`; //
+            const response = await this.call(endpoint, params, 'GET', API_SEARCH_BASE);
+            return response.data?.torrents || [];
+        },
+
+        /**
+         * Добавление торрента в аккаунт
+         * @param {string} magnet - Magnet-ссылка
+         * @returns {Promise<any>}
+         */
+        async add(magnet) {
+            return await this.call('/torrents/createtorrent', { magnet }, 'POST'); //
+        },
+
+        /**
+         * Получение списка файлов торрента
+         * @param {string} torrentId
+         * @returns {Promise<Array>}
+         */
+        async files(torrentId) {
+             const response = await this.call(`/torrents/mylist?id=${torrentId}`);
+             const torrentData = response.data.find(t => t.id == torrentId);
+             return torrentData ? torrentData.files : [];
+        },
+
+        /**
+         * Запрос ссылки на скачивание
+         * @param {string} torrentId
+         * @param {string} fileId
+         * @returns {Promise<string>}
+         */
+        async getDownloadLink(torrentId, fileId) {
+            const params = { torrent_id: torrentId, file_id: fileId };
+            const response = await this.call('/torrents/requestdl', params, 'GET'); //
+            return response.data;
+        }
+    };
+
+    //--- Основной компонент плагина ---
+    const TorBoxComponent = {
+        async searchAndShow(movie) {
+            Lampa.Loading.start();
             try {
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error('Ошибка поиска');
-                const js = await resp.json();
-                return this.format(js?.data || []);
-            } catch (err) {
-                console.error('TorBox search:', err);
-                Lampa.Noty.show(err.message, { type: 'error' });
-                return [];
+                const torrents = await TorBoxAPI.search(movie);
+                if (!torrents.length) {
+                    Lampa.Noty.show('Торренты не найдены в TorBox', { type: 'info' });
+                    return;
+                }
+                this.displayResults(torrents, movie);
+            } catch (error) {
+                Lampa.Noty.show(error.message, { type: 'error' });
+            } finally {
+                Lampa.Loading.stop();
             }
         },
 
-        format(list) {
-            const cachedOnly = Lampa.Storage.get(S.CACHED_ONLY, false);
-            return list
+        displayResults(torrents, movie) {
+            const cachedOnly = Lampa.Storage.get(S.CACHED_ONLY, 'false') === 'true';
+            
+            const items = torrents
                 .filter(t => cachedOnly ? t.cached : true)
                 .map(t => ({
                     title: t.name || t.raw_title,
-                    info: `${t.cached ? '⚡ ' : ''}${(t.size / 2 ** 30).toFixed(2)} GB • S:${t.seeders ?? '?'}`,
-                    quality: t.resolution || t.quality || '—',
-                    size: t.size,
-                    cached: !!t.cached,
-                    id: t.id,
-                    hash: t.hash,
-                    magnet: t.magnet
+                    subtitle: `⚡${t.cached ? 'Кэш' : 'Нет'} | 💿 ${(t.size / 1024**3).toFixed(2)} GB | 🟢 ${t.seeders || 0}`,
+                    torrent: t
                 }))
-                .sort((a, b) => b.size - a.size);
-        },
+                .sort((a,b) => (b.torrent.seeders || 0) - (a.torrent.seeders || 0));
 
-        /* ---------- MAIN FLOW ---------- */
-        async select(t) {
-            Lampa.Loading.start();
-            try {
-                if (t.cached) await this.playCached(t);
-                else await this.add(t);
-            } finally {
-                Lampa.Loading.stop();
-            }
-        },
-
-        async add(t) {
-            await this.call('/torrents/createtorrent', { magnet: t.magnet }, 'POST');
-            Lampa.Noty.show('Торрент добавлен в TorBox!', { type: 'success' });
-        },
-
-        async playCached(t) {
-            const data = await this.call('/torrents/mylist', { id: t.id });
-            const files = (data.data?.files || []).filter(f => /\.(mkv|mp4|avi|mov|wmv|flv|m4v|webm)$/i.test(f.name));
-            if (!files.length) throw new Error('Видео‑файлы не найдены');
-
-            if (files.length === 1) {
-                await this.play(t.id, files[0].id);
-            } else {
-                this.chooseFile(t.id, files);
-            }
-        },
-
-        chooseFile(torrentId, files) {
             Lampa.Select.show({
-                title: 'Выберите файл',
-                items: files.map(f => ({
-                    title: f.name,
-                    subtitle: `${(f.size / 2 ** 30).toFixed(2)} GB`,
-                    fileId: f.id
-                })),
-                onSelect: ({ fileId }) => this.play(torrentId, fileId),
-                onBack: () => Lampa.Controller.toggle('content')
+                title: 'TorBox',
+                items: items,
+                onSelect: (item) => {
+                    this.handleTorrentSelection(item.torrent, movie);
+                },
+                onBack: () => {
+                    Lampa.Controller.toggle('content');
+                }
             });
         },
 
-        async play(torrentId, fileId) {
-            const key = Lampa.Storage.get(S.API_KEY, '');
-            const url = `${API_BASE}/torrents/requestdl?token=${key}&torrent_id=${torrentId}&file_id=${fileId}&redirect=true`;
-            Lampa.Player.play({ url });
-        }
-    };
-
-    /* ---------- SETTINGS UI ---------- */
-    function settings() {
-        const apiKey = Lampa.Storage.get(S.API_KEY, '');
-        const cachedOnly = Lampa.Storage.get(S.CACHED_ONLY, false);
-
-        Lampa.Select.show({
-            title: 'TorBox',
-            items: [
-                {
-                    title: 'API‑ключ',
-                    subtitle: apiKey ? '••••••••' : 'Не установлен',
-                    input: true,
-                    value: apiKey,
-                    placeholder: 'Введите API‑ключ',
-                    description: 'Ключ можно найти в Dashboard TorBox → API',
-                    onChange(v) { Lampa.Storage.set(S.API_KEY, v); }
-                },
-                {
-                    title: 'Только кэшированные торренты',
-                    subtitle: cachedOnly ? 'Включено' : 'Выключено',
-                    toggle: true,
-                    value: cachedOnly,
-                    onChange(v) { Lampa.Storage.set(S.CACHED_ONLY, v); }
-                }
-            ],
-            onSelect(item) {
-                if (item.input) {
-                    const html = $(
-                        `<div class="settings-param selector" data-name="field">
-                            <div class="settings-param__name">${item.title}</div>
-                            <div class="settings-param__value"><input type="text" placeholder="${item.placeholder}" value="${item.value}"/></div>
-                            <div class="settings-param__descr">${item.description}</div>
-                        </div>
-                        <div class="settings-param selector" data-name="save" data-static="true">
-                            <div class="settings-param__name">Сохранить</div>
-                        </div>`
-                    );
-                    Lampa.Modal.open({
-                        title: item.title,
-                        html,
-                        size: 'medium',
-                        mask: true,
-                        onSelect(el) {
-                            if (el.data('name') === 'save') {
-                                const val = el.closest('.modal').find('input').val().trim();
-                                item.onChange(val);
-                                Lampa.Modal.close();
-                                settings();
-                            }
-                        },
-                        onBack() { Lampa.Modal.close(); settings(); }
-                    });
-                    setTimeout(() => $('.modal input').focus(), 90);
-                } else if (item.toggle) {
-                    item.onChange(!item.value);
-                    settings();
-                }
-            },
-            onBack() { Lampa.Controller.toggle('content'); }
-        });
-    }
-
-    /* ---------- COMPONENT ---------- */
-    const Component = {
-        create() { return this; },
-        async searchAndShow(movie) {
-            if (!Lampa.Storage.get(S.API_KEY, '')) {
-                Lampa.Noty.show('Сначала укажите API‑ключ TorBox', { type: 'error' });
-                settings();
-                return;
-            }
+        async handleTorrentSelection(torrent, movie) {
             Lampa.Loading.start();
             try {
-                const list = await TorBoxAPI.searchTorrents(movie);
-                if (!list.length) {
-                    Lampa.Noty.show('Ничего не найдено', { type: 'info' });
-                    return;
+                if (torrent.cached) {
+                    const files = await TorBoxAPI.files(torrent.id);
+                    const videoFiles = files.filter(f => /\.(mkv|mp4|avi|mov)$/i.test(f.name));
+
+                    if (videoFiles.length === 0) {
+                        Lampa.Noty.show('Видеофайлы не найдены в торренте', {type: 'warning'});
+                        return;
+                    }
+
+                    if (videoFiles.length === 1) {
+                        this.playFile(torrent.id, videoFiles[0].id, movie);
+                    } else {
+                        // Показываем выбор файла
+                        Lampa.Select.show({
+                            title: 'Выберите файл для воспроизведения',
+                            items: videoFiles.map(f => ({
+                                title: f.name,
+                                subtitle: `${(f.size / 1024**3).toFixed(2)} GB`,
+                                torrent_id: torrent.id,
+                                file_id: f.id,
+                                movie: movie
+                            })),
+                            onSelect: (selectedFile) => {
+                                this.playFile(selectedFile.torrent_id, selectedFile.file_id, selectedFile.movie);
+                            },
+                            onBack: () => Lampa.Controller.toggle('content')
+                        });
+                    }
+                } else {
+                    await TorBoxAPI.add(torrent.magnet);
+                    Lampa.Noty.show('Торрент добавлен в TorBox для скачивания.', { type: 'success' });
                 }
-                Lampa.Select.show({
-                    title: 'TorBox — Выберите торрент',
-                    items: list.map(t => ({ title: t.title, subtitle: t.info, torrent: t })),
-                    onSelect: ({ torrent }) => TorBoxAPI.select(torrent),
-                    onBack: () => Lampa.Controller.toggle('content')
+            } catch(error) {
+                Lampa.Noty.show(error.message, {type: 'error'});
+            } finally {
+                Lampa.Loading.stop();
+            }
+        },
+
+        async playFile(torrentId, fileId, movie) {
+            Lampa.Loading.start();
+            try {
+                const url = await TorBoxAPI.getDownloadLink(torrentId, fileId);
+                Lampa.Player.play({
+                    url: url,
+                    title: movie.title,
+                    poster: movie.img
                 });
+                Lampa.Player.callback(()=>{
+                     Lampa.Activity.backward();
+                });
+            } catch(error) {
+                Lampa.Noty.show(error.message, {type: 'error'});
             } finally {
                 Lampa.Loading.stop();
             }
         }
     };
 
-    /* ---------- INTEGRATION ---------- */
-    function integrate() {
-        Lampa.Component.add?.('torbox', Component);
+    //--- Инициализация плагина ---
+    function init() {
+        /**
+         * Добавляет кнопку на страницу фильма
+         */
+        function addTorboxButton() {
+            Lampa.Listener.follow('full', (e) => {
+                if (e.type === 'complite' && !e.object.activity.render().find('.view--torbox').length) {
+                    let movie = e.data.movie;
+                    let button = $(`
+                        <div class="full-start__button selector view--torbox" data-subtitle="Поиск в TorBox">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                            <span>TorBox</span>
+                        </div>`);
 
-        // settings entry
-        const addSettings = () => {
-            if (!Lampa.Settings.main().render().find('[data-component="torbox"]').length) {
-                const field = `
-                    <div class="settings-folder selector" data-component="torbox" data-static="true">
-                        <div class="settings-folder__icon">
-                            <svg width="57" height="57" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                                <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                                <path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                            </svg>
-                        </div>
-                        <div class="settings-folder__name">TorBox</div>
-                    </div>`;
-                Lampa.Settings.main().render().find('[data-component="more"]').after(field);
-                Lampa.Settings.main().update();
+                    button.on('hover:enter', () => TorBoxComponent.searchAndShow(movie));
+                    e.object.activity.render().find('.view--torrent').after(button);
+                }
+            });
+        }
+
+        /**
+         * Добавляет раздел настроек
+         */
+        function addSettings() {
+            var comp = Lampa.Settings.create({
+                title: 'TorBox',
+                component: 'torbox_settings',
+                icon: '&#9883;',
+                onBack: ()=>{ Lampa.Controller.toggle('settings_component') }
+            });
+
+            comp.onRender = function(html){
+                let field_api = Lampa.Settings.p({
+                    name: S.API_KEY,
+                    placeholder: 'Введите ваш API ключ',
+                    type: 'text',
+                    label: 'API Ключ TorBox'
+                });
+                html.append(field_api);
+
+                let field_cached = Lampa.Settings.p({
+                    name: S.CACHED_ONLY,
+                    type: 'select',
+                    values: {
+                        'true': 'Да',
+                        'false': 'Нет'
+                    },
+                    label: 'Показывать только кэшированные'
+                });
+                html.append(field_cached);
             }
-        };
+            
+            Lampa.Settings.main().add(comp);
+        }
 
-        Lampa.Settings.listener.follow('open', e => {
-            if (e.name === 'main') e.body.find('[data-component="torbox"]').on('hover:enter', settings);
-        });
-
-        // movie menu button
-        Lampa.Listener.follow('full', e => {
-            if (e.type === 'complite') {
-                const { movie } = e.data;
-                const btn = $(
-                    `<div class="full-start__button selector view--torbox" data-subtitle="TorBox">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                        </svg>
-                        <span>TorBox</span>
-                    </div>`
-                );
-                btn.on('hover:enter', () => Component.searchAndShow(movie));
-                $('.full-start__buttons').append(btn);
-            }
-        });
-
-        if (window.appready) addSettings();
-        else Lampa.Listener.follow('app', e => { if (e.type === 'ready') addSettings(); });
-
-        console.log('%cTorBox v5.1.0 — initialized', 'color:#0f0');
+        addTorboxButton();
+        addSettings();
+        
+        console.log(`%c${PLUGIN_NAME} v6.0.0`, 'color: #2E7D32; font-weight: bold;', '– плагин успешно загружен.');
     }
 
-    /* ---------- BOOTSTRAP ---------- */
-    if (window.appready) integrate();
-    else Lampa.Listener.follow('app', e => { if (e.type === 'ready') integrate(); });
+    //--- Запуск ---
+    if(window.appready) init();
+    else Lampa.Listener.follow('app', (e) => {
+        if(e.type == 'ready') init();
+    });
+
 })();
