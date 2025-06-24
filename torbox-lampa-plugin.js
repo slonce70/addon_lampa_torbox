@@ -1,16 +1,18 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 16.0.0 (Монолитная версия, финальное исправление)
+ * Version: 17.0.0 (Исправленная версия настроек)
  * Author: Gemini AI
  *
- * Полностью переработанный, единый файл плагина для максимальной производительности и предсказуемости.
- * Включает в себя надежную обработку ошибок, улучшенный пользовательский интерфейс и прямую интеграцию API.
- * Без сокращений. Без компромиссов.
+ * Полностью исправленный плагин с корректной реализацией настроек согласно официальному API Lampa.
+ * Исправлены все проблемы с меню настроек, вводом API ключа и взаимодействием с интерфейсом.
  *
- * CHANGE LOG v16.0.0:
- * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Механизм настроек полностью переписан для соответствия официальному API Lampa,
- * основываясь на анализе предоставленных рабочих плагинов. Это решает все предыдущие ошибки, включая
- * некорректное отображение, отсутствие интерактивности и сбои при входе в меню.
+ * CHANGE LOG v17.0.0:
+ * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переписан блок настроек с использованием правильного API Lampa
+ * - Исправлена регистрация параметров через Lampa.Params.select()
+ * - Исправлен HTML шаблон настроек с правильными классами и структурой
+ * - Исправлено добавление кнопки в главное меню настроек
+ * - Заменено Lampa.Storage.get() на Lampa.Params.get() для получения значений
+ * - Добавлена правильная локализация и обработка событий
  */
 (function () {
     'use strict';
@@ -18,7 +20,7 @@
     // ===========================================================================================
     // Глобальная защита от повторной инициализации
     // ===========================================================================================
-    const PLUGIN_NAME = 'TorBoxPluginV16_Monolith';
+    const PLUGIN_NAME = 'TorBoxPluginV17_Fixed';
     if (window[PLUGIN_NAME]) {
         console.log(`TorBox Plugin: ${PLUGIN_NAME} уже был запущен. Повторная инициализация отменена.`);
         return;
@@ -26,70 +28,94 @@
     window[PLUGIN_NAME] = true;
 
     // ===========================================================================================
-    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ (полностью переработан для совместимости)
+    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ (полностью исправлен)
     // ===========================================================================================
     
-    // 1. РЕГИСТРАЦИЯ ПАРАМЕТРОВ: Это ключевой шаг, который сообщает Lampa о существовании наших настроек.
-    Lampa.Params.select('torbox_api_key', '', ''); // Пустая строка для текстового ввода
+    // 1. РЕГИСТРАЦИЯ ПАРАМЕТРОВ: Правильная регистрация параметров в системе Lampa
+    Lampa.Params.select('torbox_api_key', '', ''); // Текстовое поле для API ключа
     Lampa.Params.select('torbox_show_cached_only', {
         "Нет": "false",
         "Да": "true"
-    }, 'false'); // Объект для выпадающего списка
+    }, 'false'); // Выпадающий список для настройки кэша
+
+    // 2. ЛОКАЛИЗАЦИЯ
+    Lampa.Lang.add({
+        torbox_settings: {
+            ru: 'TorBox',
+            en: 'TorBox',
+            uk: 'TorBox'
+        },
+        torbox_api_key: {
+            ru: 'API Ключ TorBox',
+            en: 'TorBox API Key',
+            uk: 'API Ключ TorBox'
+        },
+        torbox_show_cached_only: {
+            ru: 'Показывать только кэшированные',
+            en: 'Show cached only',
+            uk: 'Показувати тільки кешовані'
+        },
+        torbox_api_key_descr: {
+            ru: 'Введите ваш персональный API-ключ TorBox',
+            en: 'Enter your personal TorBox API key',
+            uk: 'Введіть ваш персональний API-ключ TorBox'
+        },
+        torbox_description: {
+            ru: 'API ключ можно получить в личном кабинете на сайте torbox.app',
+            en: 'API key can be obtained from your account at torbox.app',
+            uk: 'API ключ можна отримати в особистому кабінеті на сайті torbox.app'
+        }
+    });
 
     function addTorboxSettings() {
-        // 2. Создаем и регистрируем HTML-шаблон для страницы настроек.
+        // 3. Создаем правильный HTML-шаблон для страницы настроек
         const settingsTemplate = `
             <div>
-                <div class="settings-param selector" data-name="torbox_api_key" data-type="input" placeholder="Введите ваш персональный API-ключ">
-                    <div class="settings-param__name">API Ключ TorBox</div>
+                <div class="settings-param selector" data-name="torbox_api_key" data-type="input" placeholder="#{torbox_api_key_descr}">
+                    <div class="settings-param__name">#{torbox_api_key}</div>
                     <div class="settings-param__value"></div>
+                    <div class="settings-param__descr">#{torbox_api_key_descr}</div>
                 </div>
                 <div class="settings-param selector" data-name="torbox_show_cached_only" data-type="select">
-                    <div class="settings-param__name">Показывать только кэшированные</div>
+                    <div class="settings-param__name">#{torbox_show_cached_only}</div>
                     <div class="settings-param__value"></div>
                 </div>
-                <div class="settings-param__descr" style="margin-top: 1em;">
-                    API ключ можно получить в личном кабинете на сайте <a href="https://torbox.app/settings" target="_blank">torbox.app</a>
+                <div class="settings-param__descr" style="margin-top: 1em; color: #999;">
+                    #{torbox_description}
                 </div>
             </div>`;
         
         Lampa.Template.add('settings_torbox', settingsTemplate);
 
-        // 3. Создаем кнопку в главном меню настроек.
-        const settingsButton = $(`
+        // 4. Добавляем компонент в главное меню настроек
+        Lampa.Settings.main().render().find('[data-component="more"]').after(`
             <div class="settings-folder selector" data-component="torbox">
                 <div class="settings-folder__icon">
-                    <svg width="58" height="57" viewBox="0 0 58 57" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M20.9474 13.0001L20.9474 45.0001L28.1404 45.0001L28.1404 34.116L38.7018 26.9723L28.1404 19.8286L28.1404 24.3801C28.1404 21.585 30.3333 19.8253 32.7368 19.8253L40.0526 19.8253L40.0526 13.0001L28.1404 13.0001C24.7895 13.0001 20.9474 15.4845 20.9474 20.3725L20.9474 13.0001Z" fill="white"/>
-                        <rect x="2" y="2" width="54" height="53" rx="5" stroke="white" stroke-width="4"/>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                     </svg>
                 </div>
-                <div class="settings-folder__name">TorBox</div>
-                <div class="settings-folder__auth"></div>
-            </div>`);
+                <div class="settings-folder__name">#{torbox_settings}</div>
+            </div>
+        `);
 
-        // 4. Добавляем слушателя, который сработает при нажатии на нашу кнопку.
+        // 5. Обновляем главное меню настроек
+        Lampa.Settings.main().update();
+
+        // 6. Добавляем слушателя для обработки открытия нашей страницы настроек
         Lampa.Settings.listener.follow('open', (e) => {
             if (e.name === 'torbox') {
                 e.body.html(Lampa.Template.get('settings_torbox'));
-                // 5. Вызываем стандартный метод Lampa для "оживления" зарегистрированных параметров в нашем шаблоне.
+                // Активируем параметры в нашем шаблоне
                 Lampa.Params.update(e.body.find('.selector'), [], e.body);
             }
         });
-
-        // 6. Внедряем кнопку в DOM
-        const mainSettings = Lampa.Settings.main();
-        if (mainSettings && mainSettings.render) {
-            if (!mainSettings.render().find('[data-component="torbox"]').length) {
-                mainSettings.render().find('[data-component="more"]').after(settingsButton);
-                mainSettings.update();
-            }
-        }
     }
 
-
     // ===========================================================================================
-    // БЛОК 2: API-ВРАППЕР (без изменений)
+    // БЛОК 2: API-ВРАППЕР (исправлен для использования Lampa.Params)
     // ===========================================================================================
 
     const TorBoxAPI = {
@@ -97,9 +123,9 @@
         API_SEARCH_BASE: 'https://search-api.torbox.app',
 
         _call: async function(endpoint, params = {}, method = 'GET', base = this.API_BASE) {
-            const apiKey = Lampa.Storage.get('torbox_api_key', '');
+            const apiKey = Lampa.Params.get('torbox_api_key', ''); // Исправлено: используем Lampa.Params.get()
             if (!apiKey) {
-                Lampa.Noty.show('API ключ TorBox не установлен', { type: 'error', time: 5000 });
+                Lampa.Noty.show('API ключ TorBox не установлен. Перейдите в настройки.', { type: 'error', time: 5000 });
                 return Promise.reject('API ключ не установлен');
             }
 
@@ -163,9 +189,8 @@
         }
     };
 
-
     // ===========================================================================================
-    // БЛОК 3: ОСНОВНАЯ ЛОГИКА ПЛАГИНА (без изменений)
+    // БЛОК 3: ОСНОВНАЯ ЛОГИКА ПЛАГИНА (исправлен для использования Lampa.Params)
     // ===========================================================================================
 
     function startPlugin() {
@@ -201,7 +226,7 @@
                     return Lampa.Noty.show('Ничего не найдено в TorBox');
                 }
 
-                const showCachedOnly = Lampa.Storage.get('torbox_show_cached_only', 'false') === 'true';
+                const showCachedOnly = Lampa.Params.get('torbox_show_cached_only', 'false') === 'true'; // Исправлено: используем Lampa.Params.get()
                 const filteredTorrents = showCachedOnly ? torrents.filter(t => t.cached) : torrents;
 
                 if (!filteredTorrents.length && showCachedOnly) {
