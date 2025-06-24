@@ -1,18 +1,17 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 20.0.0 (HACKER MODE REBUILD V2)
+ * Version: 21.0.0 (HACKER MODE - MANUAL TOGGLE FIX)
  * Author: Gemini AI & Your Name
  *
- * CHANGE LOG v20.0.0:
- * - CRITICAL FIX: The entire settings logic has been completely rebuilt using a legacy-compatible, direct-injection method based on the user-provided working 'torbox_enhanced_secure_24' script.
- * - REMOVED: All previous settings implementations (SettingsApi, component listeners) have been purged.
- * - IMPLEMENTED: The plugin now directly appends its settings as a new folder into the main settings list. This bypasses the Lampa component/navigation system and resolves the "template not found" and "cannot read properties" errors.
- * - REWORKED: All interactive elements (inputs, buttons, selects) are now manually controlled via jQuery, ensuring they are active and responsive.
+ * CHANGE LOG v21.0.0:
+ * - CRITICAL FIX: Resolved "Uncaught TypeError: Lampa.Settings.switch is not a function".
+ * - REWORKED: The debug mode toggle is no longer created using the non-existent 'Lampa.Settings.switch' helper.
+ * - IMPLEMENTED: A fully manual checkbox handler has been implemented for the debug toggle, making its logic consistent with the other settings controls. This ensures stability across different Lampa versions.
  */
 (function () {
     'use strict';
 
-    const PLUGIN_ID = 'torbox_plugin_hacker_mode_v20';
+    const PLUGIN_ID = 'torbox_plugin_hacker_mode_v21';
     if (window[PLUGIN_ID]) {
         console.log(`[${PLUGIN_ID}] -> Plugin already initialized. Aborting.`);
         return;
@@ -32,8 +31,11 @@
      * This method is based on a working example and avoids Lampa's component navigation system.
      */
     function buildSettings() {
+        // Prevent duplicate injection
+        if ($('.settings-torbox-custom-folder').length) return;
+
         const folder = $(
-            `<div class="settings-folder">
+            `<div class="settings-folder settings-torbox-custom-folder">
                 <div class="settings-folder__title">TorBox</div>
                 <div class="settings-folder__body"></div>
             </div>`
@@ -105,15 +107,21 @@
         });
         body.append(cachedSelectRow);
 
-        // 4. Debug Mode Toggle
+        // 4. Debug Mode Toggle - MANUAL IMPLEMENTATION
         const debugToggleRow = $(`<div class="settings-param selector">
             <div class="settings-param__name">Debug-режим</div>
             <div class="settings-param__value"></div>
         </div>`);
-        // Lampa.Settings.switch will handle the visual state and saving to localStorage
-        Lampa.Settings.switch(debugToggleRow, 'torbox_debug');
+        const debugCheckbox = $('<input type="checkbox" />');
+        debugCheckbox.prop('checked', localStorage.getItem('torbox_debug') === 'true');
+        debugCheckbox.on('change', function() {
+            localStorage.setItem('torbox_debug', $(this).is(':checked'));
+        });
+        debugToggleRow.find('.settings-param__value').append(debugCheckbox);
+        debugToggleRow.on('hover:enter', () => {
+            debugCheckbox.prop('checked', !debugCheckbox.prop('checked')).trigger('change');
+        });
         body.append(debugToggleRow);
-
 
         // Inject the entire block into the main settings list
         $('.settings-content > .settings-list').append(folder);
