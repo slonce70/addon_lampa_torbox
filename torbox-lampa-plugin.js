@@ -134,7 +134,17 @@
       return registerSource._cache.api;
     }
 
-    Lampa.Source.add("torbox", {
+    /* --- надёжно регистрируем источник, т.к. в некоторых сборках API отличается --- */
+    const addSrc = (() => {
+      if (Lampa.Source && typeof Lampa.Source.add === "function") return Lampa.Source.add.bind(Lampa.Source);
+      if (Lampa.Sources && typeof Lampa.Sources.add === "function") return Lampa.Sources.add.bind(Lampa.Sources);
+      if (Lampa.source && typeof Lampa.source.add === "function") return Lampa.source.add.bind(Lampa.source);
+      return null;
+    })();
+
+    if (!addSrc) { console.warn("TorBox plugin: Source.add API не найдено – источник не будет зарегистрирован"); return; }
+
+    const srcObj = {
       name: "TorBox",
       types: ["movie", "tv"],
       icon: "fa-cloud-bolt",
@@ -162,12 +172,24 @@
         let tid = torrent.owned ? torrent.id : null;
         try { if (!tid) tid = await api.add(torrent.magnet); } catch (e) { Lampa.Noty.show("TorBox: " + e); return; }
 
-        /* wait for cache */
+        const playFile = async fid => { try { Lampa.Player.play({ url: await api.link(tid, fid) }); } catch (e) { Lampa.Noty.show("TorBox: " + e); } };
+
         const poll = async () => {
           try {
             const info = await api.info(tid);
             if (info.progress < 100) { Lampa.Noty.show(`TorBox: кешируется ${info.progress}%…`); setTimeout(poll, 5000); return; }
-            const choose = async fid => { try { Lampa.Player.play({ url: await api.link(tid, fid) }); } catch (e) { Lampa.Noty.show("TorBox: " + e); } };
+            if (pickId) { playFile(pickId); return; }
+            if (info.files.length === 1) { playFile(info.files[0].id); return; }
+            const vids = info.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort((a, b) => b.size - a.size);
+            const list = (vids.length ? vids : info.files).map(f => ({ title: f.name, id: f.id, info: `${(f.size / 2 ** 30).toFixed(2)} GB` }));
+            Lampa.Select.show({ title: "Выберите файл", items: list, onSelect: s => srcObj.play(torrent, s.id), onBack: () => Lampa.Controller.toggle("content") });
+          } catch (e) { Lampa.Noty.show("TorBox: " + e); }
+        };
+        poll();
+      },
+    };
+
+    addSrc("torbox", srcObj); } catch (e) { Lampa.Noty.show("TorBox: " + e); } };
             if (pickId) { choose(pickId); return; }
             if (info.files.length === 1) { choose(info.files[0].id); return; }
             const vids = info.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort((a, b) => b.size - a.size);
