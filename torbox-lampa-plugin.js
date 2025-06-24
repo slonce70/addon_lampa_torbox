@@ -1,6 +1,6 @@
 /**
  * TorBox ↔ Lampa integration plugin
- * Version 5.0.3 – Web version compatible
+ * Version 5.0.4 – Web version compatible
  *
  * Changelog vs 4.3.1:
  *  • Полная адаптация для веб-версии Lampa
