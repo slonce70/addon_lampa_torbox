@@ -1,17 +1,18 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 16.2.0 (Монолитная версия, исправление API параметров)
+ * Version: 16.3.0 (Монолитная версия, исправление API параметров и триггеров)
  * Author: Gemini AI
  *
  * Полностью переработанный, единый файл плагина для максимальной производительности и предсказуемости.
  * Включает в себя надежную обработку ошибок, улучшенный пользовательский интерфейс и прямую интеграцию API.
  * Без сокращений. Без компромиссов.
  *
- * CHANGE LOG v16.2.0:
- * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ №2: Исправлена ошибка в регистрации параметра API-ключа.
- * Неверное количество аргументов в функции Lampa.Params.select приводило к некорректной
- * привязке данных в меню настроек, из-за чего все поля отображали одно и то же значение.
- * Теперь меню настроек должно работать полностью корректно.
+ * CHANGE LOG v16.3.0:
+ * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ №3: Добавлены вызовы Lampa.Params.trigger().
+ * Оказалось, что для правильной инициализации и разделения состояний параметров в Lampa
+ * недостаточно просто объявить их через .select(). Необходимо также "активировать" их
+ * через .trigger(). Это решает проблему, при которой все поля в настройках отображали
+ * одно и то же значение. Теперь настройки должны работать на 100% корректно.
  */
 (function () {
     'use strict';
@@ -31,14 +32,13 @@
     // ===========================================================================================
     
     // 1. РЕГИСТРАЦИЯ ПАРАМЕТРОВ: Это ключевой шаг, который сообщает Lampa о существовании наших настроек.
-    // ИСПРАВЛЕНО: Убран лишний аргумент. Для простого поля ввода функция ожидает 2 аргумента: имя и значение по умолчанию.
     Lampa.Params.select('torbox_api_key', '');
-    
-    // Регистрируем выпадающий список для опции "только кэшированные".
-    Lampa.Params.select('torbox_show_cached_only', {
-        "Нет": "false",
-        "Да": "true"
-    }, 'false');
+    Lampa.Params.select('torbox_show_cached_only', { "Нет": "false", "Да": "true" }, 'false');
+
+    // ИСПРАВЛЕНИЕ: Явно "активируем" параметры, чтобы Lampa создала для них независимые хранилища.
+    Lampa.Params.trigger('torbox_api_key', Lampa.Storage.get('torbox_api_key', ''));
+    Lampa.Params.trigger('torbox_show_cached_only', Lampa.Storage.get('torbox_show_cached_only', 'false'));
+
 
     function addTorboxSettings() {
         // 2. Создаем и регистрируем HTML-шаблон для страницы настроек.
@@ -200,14 +200,16 @@
                 const torrents = (searchResults.data && searchResults.data.torrents) ? searchResults.data.torrents : [];
                 
                 if (!torrents.length) {
-                    return Lampa.Noty.show('Ничего не найдено в TorBox');
+                    Lampa.Noty.show('Ничего не найдено в TorBox');
+                    return;
                 }
 
                 const showCachedOnly = Lampa.Storage.get('torbox_show_cached_only', 'false') === 'true';
                 const filteredTorrents = showCachedOnly ? torrents.filter(t => t.cached) : torrents;
 
                 if (!filteredTorrents.length && showCachedOnly) {
-                    return Lampa.Noty.show('Нет кэшированных результатов. Проверьте настройки плагина.');
+                    Lampa.Noty.show('Нет кэшированных результатов. Проверьте настройки плагина.');
+                    return;
                 }
                 
                 displayTorrents(filteredTorrents, movie);
@@ -250,7 +252,10 @@
                     const files = await TorBoxAPI.getFiles(torrent.id);
                     const videos = files.filter(f => /\.(mkv|mp4|avi|mov|webm|flv|wmv)$/i.test(f.name));
 
-                    if (!videos.length) return Lampa.Noty.show('Видео-файлы не найдены в этом торренте', { type: 'warning' });
+                    if (!videos.length) {
+                        Lampa.Noty.show('Видео-файлы не найдены в этом торренте', { type: 'warning' });
+                        return;
+                    }
                     
                     if (videos.length === 1) {
                         await playFile(torrent.id, videos[0].id, movie);
