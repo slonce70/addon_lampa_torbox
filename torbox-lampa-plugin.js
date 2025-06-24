@@ -1,6 +1,6 @@
 /**
  * TorBox ↔ Lampa integration plugin
- * Version 5.0.4 – Web version compatible
+ * Version 5.0.3 – Web version compatible
  *
  * Changelog vs 4.3.1:
  *  • Полная адаптация для веб-версии Lampa
@@ -255,18 +255,43 @@
             items: items,
             onSelect: (item) => {
                 if (item.input) {
-                    Lampa.Input.show({
+                    // Используем стандартный способ ввода через Modal
+                    const inputHtml = `
+                        <div class="settings-param selector" data-name="input_field">
+                            <div class="settings-param__name">${item.title}</div>
+                            <div class="settings-param__value">
+                                <input type="text" placeholder="${item.placeholder}" value="${item.value}" />
+                            </div>
+                            <div class="settings-param__descr">${item.description}</div>
+                        </div>
+                        <div class="settings-param selector" data-name="save_button" data-static="true">
+                            <div class="settings-param__name">Сохранить</div>
+                        </div>
+                    `;
+                    
+                    Lampa.Modal.open({
                         title: item.title,
-                        value: item.value,
-                        placeholder: item.placeholder,
-                        onSave: (value) => {
-                            item.onChange(value);
-                            showSettings(); // Обновляем меню
+                        html: inputHtml,
+                        size: 'medium',
+                        mask: true,
+                        onSelect: function(element) {
+                            if (element.data('name') === 'save_button') {
+                                const inputValue = element.closest('.modal').find('input').val();
+                                item.onChange(inputValue);
+                                Lampa.Modal.close();
+                                showSettings(); // Возвращаемся к настройкам
+                            }
                         },
-                        onBack: () => {
+                        onBack: function() {
+                            Lampa.Modal.close();
                             showSettings(); // Возвращаемся к настройкам
                         }
                     });
+                    
+                    // Автофокус на поле ввода
+                    setTimeout(() => {
+                        $('.modal input').focus();
+                    }, 100);
                 } else if (item.toggle) {
                     const newValue = !item.value;
                     item.onChange(newValue);
@@ -274,10 +299,10 @@
                 }
             },
             onBack: () => {
-                Lampa.Controller.toggle('content');
-            }
-        });
-    }
+                 Lampa.Controller.toggle('content');
+             }
+         });
+     }
 
     /* ---------- TORBOX COMPONENT ---------- */
     const TorBoxComponent = {
