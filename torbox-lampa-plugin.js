@@ -1,15 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.0.3 (2025‑06‑24)
+ * TorBox Enhanced – Universal Lampa Plugin v3.0.3 (2025-06-24)
  * ============================================================
  * ✔️ Search API now uses endpoint btm.tools/api/torrents/search with header X-Api-Key.
  * ✔️ CORS solved via corsproxy.io for search; main API stays direct with Bearer.
- * ✔️ Debug toggle, cached‑only filter, automatic settings (SettingsApi or legacy).
+ * ✔️ Debug toggle, cached-only filter, automatic settings (SettingsApi or legacy).
  */
 
 (function(){
   'use strict';
 
-  // ───────────────────────────── 0. Guard double‑load ─────────────────────────
+  // ───────────────────────────── 0. Guard double-load ─────────────────────────
   const PLUGIN_ID='torbox_enhanced_v3_0_3';
   if(window[PLUGIN_ID]) return; window[PLUGIN_ID]=true;
 
@@ -31,7 +31,7 @@
     SEARCH:'https://btm.tools/api',
 
     async main(path,body={},method='GET'){
-      if(!CFG.apiKey) throw new Error('TorBox: API‑Key не указан');
+      if(!CFG.apiKey) throw new Error('TorBox: API-Key не указан');
       let url=`${this.MAIN}${path}`;
       const opt={method,headers:{Authorization:`Bearer ${CFG.apiKey}`}};
       if(method==='GET'&&Object.keys(body).length) url+='?'+new URLSearchParams(body).toString();
@@ -40,12 +40,13 @@
     },
 
     async search(term){
-      const safe=encodeURIComponent(term).replace(/%3A/ig,':');
-      const url=CORS(`https://search-api.torbox.app/torrents/search/${safe}`);
-      const r=await fetch(url);
-      const j=await r.json();
-      if(j.error||j.success===false) throw new Error(j.message||j.error||'Search error');
-      return j;
+      if(!CFG.apiKey) throw new Error('TorBox: API-Key не указан');
+      const url=CORS(`${this.SEARCH}/torrents/search?query=${encodeURIComponent(term)}&search_user_engines=true`);
+      
+      // ИСПРАВЛЕНИЕ: Используем заголовок 'Authorization: Bearer' вместо 'X-Api-Key'
+      const r=await fetch(url,{headers:{Authorization: `Bearer ${CFG.apiKey}`}});
+      
+      const j=await r.json(); if(j.success===false) throw new Error(j.message||'Search error'); return j;
     },
 
     addMagnet(m){return this.main('/torrents/createtorrent',{magnet:m},'POST');},
@@ -65,7 +66,7 @@
       if(!list.length){Lampa.Noty.show('TorBox: ничего не найдено');return;}
       const show=CFG.cachedOnly?list.filter(t=>t.cached):list;
       if(!show.length){Lampa.Noty.show('Нет кэшированных');return;}
-      const items=show.sort((a,b)=>(b.seeders||0)-(a.seeders||0)).map(t=>({title:`${t.cached?'⚡':'☁️'} ${t.name}`,subtitle:`${(t.size/2**30).toFixed(2)} GB | 🟢${t.seeders||0}`,torrent:t}));
+      const items=show.sort((a,b)=>(b.seeders||0)-(a.seeders||0)).map(t=>({title:`${t.cached?'⚡':'☁️'} ${t.name}`,subtitle:`${(t.size/2**30).toFixed(2)} GB | 🟢${t.seeders||0}`,torrent:t}));
       Lampa.Select.show({title:'TorBox',items,onSelect:i=>handleTorrent(i.torrent,movie,show),onBack:()=>Lampa.Controller.toggle('content')});
     }catch(e){Lampa.Noty.show(e.message,{type:'error'});}finally{Lampa.Loading.stop();}
   }
@@ -79,7 +80,7 @@
         if(!vids.length){Lampa.Noty.show('Видео не найдены');return;}
         if(vids.length===1){play(t.id,vids[0],movie);return;}
         vids.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
-        Lampa.Select.show({title:'TorBox: файлы',items:vids.map(f=>({title:f.name,subtitle:`${(f.size/2**30).toFixed(2)} GB ${ql(f.name)}`,file:f})),onSelect:i=>play(t.id,i.file,movie),onBack:()=>searchAndShow(movie)});
+        Lampa.Select.show({title:'TorBox: файлы',items:vids.map(f=>({title:f.name,subtitle:`${(f.size/2**30).toFixed(2)} GB ${ql(f.name)}`,file:f})),onSelect:i=>play(t.id,i.file,movie),onBack:()=>searchAndShow(movie)});
       }else{await API.addMagnet(t.magnet);Lampa.Noty.show('Отправлено в TorBox, ждите кеш');}
     }catch(e){Lampa.Noty.show(e.message,{type:'error'});}finally{Lampa.Loading.stop();}
   }
@@ -99,7 +100,7 @@
     if(Lampa.SettingsApi){
       Lampa.SettingsApi.addComponent({component:COMP,name:'TorBox Enhanced',icon:ICON});
       const arr=[
-        {k:'torbox_api_key',n:'API‑Key',d:'Ключ TorBox',t:'input',def:CFG.apiKey},
+        {k:'torbox_api_key',n:'API-Key',d:'Ключ TorBox',t:'input',def:CFG.apiKey},
         {k:'torbox_cached_only',n:'Только кеш',d:'Скрывать не кеш',t:'trigger',def:CFG.cachedOnly},
         {k:'torbox_debug',n:'Debug',d:'Лог',t:'trigger',def:CFG.debug}
       ];
@@ -108,14 +109,14 @@
       const f=`<div class="settings-folder selector" data-component="${COMP}"><div class="settings-folder__icon">${ICON}</div><div class="settings-folder__name">TorBox Enhanced</div></div>`;
       Lampa.Settings.main().render().find('[data-component="more"]').after($(f));
       const tpl='settings_'+COMP;
-      if(!Lampa.Template.get(tpl))Lampa.Template.add(tpl,`<div class="torbox-set"><div class="settings-param selector" data-k="key">API‑Key <span></span></div><div class="settings-param selector" data-k="cached">Только кеш <span></span></div><div class="settings-param selector" data-k="dbg">Debug <span></span></div></div>`);
+      if(!Lampa.Template.get(tpl))Lampa.Template.add(tpl,`<div class="torbox-set"><div class="settings-param selector" data-k="key">API-Key <span></span></div><div class="settings-param selector" data-k="cached">Только кеш <span></span></div><div class="settings-param selector" data-k="dbg">Debug <span></span></div></div>`);
       Lampa.Settings.listener.follow('open',e=>{
         if(e.name!==tpl) return;
         e.activity.title('TorBox Enhanced');
         const root=$(Lampa.Template.get(tpl));
         const sync=()=>{root.find('[data-k="key"] span').text(CFG.apiKey?'***':'—');root.find('[data-k="cached"] span').text(CFG.cachedOnly?'Да':'Нет');root.find('[data-k="dbg"] span').text(CFG.debug?'Вкл':'Выкл');};
         sync();
-        root.find('[data-k="key"]').on('hover:enter',()=>{Lampa.Input.edit({title:'API‑Key',value:CFG.apiKey,free:true,nosave:true},v=>{CFG.apiKey=v;sync();Lampa.Controller.toggle('settings_component');});});
+        root.find('[data-k="key"]').on('hover:enter',()=>{Lampa.Input.edit({title:'API-Key',value:CFG.apiKey,free:true,nosave:true},v=>{CFG.apiKey=v;sync();Lampa.Controller.toggle('settings_component');});});
         root.find('[data-k="cached"]').on('hover:enter',()=>{CFG.cachedOnly=!CFG.cachedOnly;sync();});
         root.find('[data-k="dbg"]').on('hover:enter',()=>{CFG.debug=!CFG.debug;sync();});
         e.body.empty().append(root);
