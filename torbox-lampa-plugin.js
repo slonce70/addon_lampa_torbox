@@ -1,6 +1,6 @@
 /**
  * TorBox <-> Lampa integration plugin
- * Version 8.0.1 - Fully revised and corrected settings page generation.
+ * Version 8.0.2 - Fixed settings menu button injection mechanism.
  *
  * Author: Gemini AI, corrected based on user feedback and deep analysis.
  */
@@ -22,14 +22,6 @@
 
     //--- API-клиент для TorBox ---
     const TorBoxAPI = {
-        /**
-         * Основной метод для вызова API
-         * @param {string} endpoint - эндпоинт API
-         * @param {object} params - параметры
-         * @param {string} method - HTTP метод
-         * @param {string} base - базовый URL
-         * @returns {Promise<any>}
-         */
         async call(endpoint, params = {}, method = 'GET', base = API_BASE) {
             const apiKey = Lampa.Storage.get(S.API_KEY, '');
             if (!apiKey) {
@@ -101,7 +93,7 @@
         async searchAndShow(movie) {
             const apiKey = Lampa.Storage.get(S.API_KEY, '');
             if (!apiKey) {
-                Lampa.Noty.show('API-ключ TorBox не настроен. Пожалуйста, укажите его в Настройки -> Плагины -> TorBox.', { type: 'warning', time: 5000 });
+                Lampa.Noty.show('API-ключ TorBox не настроен. Пожалуйста, укажите его в Настройки -> TorBox.', { type: 'warning', time: 5000 });
                 return;
             }
 
@@ -171,7 +163,7 @@
                             onSelect: (selectedFile) => {
                                 this.playFile(selectedFile.torrent_id, selectedFile.file_id, selectedFile.movie);
                             },
-                            onBack: () => this.displayResults(torrents, movie) // Возврат к списку торрентов
+                            onBack: () => this.displayResults(torrents, movie)
                         });
                     }
                 } else {
@@ -206,15 +198,10 @@
         }
     };
     
-    /**
-     * Создает и показывает страницу настроек плагина (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-     */
     function showSettings() {
-        // Используем стандартный Lampa-шаблон для страниц настроек
         const settingsBody = Lampa.Template.get('settings');
-        settingsBody.find('.settings-content__title').text('Настройки TorBox'); // Устанавливаем заголовок
+        settingsBody.find('.settings-content__title').text('Настройки TorBox');
 
-        // Поле для API ключа
         let field_api = Lampa.Template.get('settings-input', {
             name: 'API Ключ TorBox',
             placeholder: 'Введите ваш API ключ',
@@ -226,7 +213,6 @@
         });
         settingsBody.find('.settings-content__body').append(field_api);
 
-        // Переключатель для кэшированных торрентов
         let field_cached = Lampa.Template.get('settings-select', {
             name: 'Показывать только кэшированные',
             value: Lampa.Storage.get(S.CACHED_ONLY, 'false'),
@@ -241,10 +227,9 @@
         });
         settingsBody.find('.settings-content__body').append(field_cached);
 
-        // Создаем и показываем контроллер
         Lampa.Controller.add('torbox_settings_activity', {
             title: 'Настройки TorBox',
-            template: settingsBody, // Используем созданный нами шаблон
+            template: settingsBody,
             toggle: function () {
                 Lampa.Controller.collectionSet(this.render());
                 Lampa.Controller.collectionFocus(false, this.render());
@@ -257,56 +242,50 @@
     }
 
 
-    //--- Инициализация плагина ---
+    //--- Инициализация плагина (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
     function init() {
-        /**
-         * Добавляет кнопку в основное меню настроек
-         */
-        function addSettingsButton() {
-            // Ждем, пока главный компонент настроек будет доступен
-            const interval = setInterval(() => {
-                if (Lampa.Settings.main) {
-                    clearInterval(interval);
-                    const button = $(`
-                        <div class="settings-folder selector" data-action="torbox_settings">
-                            <div class="settings-folder__icon">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>
-                            </div>
-                            <div class="settings-folder__name">TorBox</div>
-                        </div>`);
-                    
-                    button.on('hover:enter', showSettings);
-                    $('.settings .settings-content__body > div').last().after(button);
-                }
-            }, 100);
-        }
-        
-        /**
-         * Добавляет кнопку на страницу фильма
-         */
-        function addTorboxButton() {
-            Lampa.Listener.follow('full', (e) => {
-                if (e.type === 'complite' && e.object.activity) {
-                    const render = e.object.activity.render();
-                    if (!render.find('.view--torbox').length) {
-                        let movie = e.data.movie;
-                        let button = $(`
-                            <div class="full-start__button selector view--torbox" data-subtitle="Поиск в TorBox">
-                               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-                                <span>TorBox</span>
-                            </div>`);
+        // Используем слушатель событий Lampa, чтобы добавить кнопку в нужный момент
+        Lampa.Settings.listener.follow('open', (e) => {
+            // Проверяем, что это главный экран настроек и нашей кнопки еще нет
+            if (e.name === 'main' && !e.body.find('[data-action="torbox_settings"]').length) {
+                const button = $(`
+                    <div class="settings-folder selector" data-action="torbox_settings">
+                        <div class="settings-folder__icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="settings-folder__name">TorBox</div>
+                    </div>`);
+                
+                // Навешиваем событие клика (enter) на кнопку
+                button.on('hover:enter', showSettings);
+                
+                // Вставляем кнопку после пункта "Расширения" (или другого на ваш выбор)
+                e.body.find('[data-action="plugins"]').after(button);
+                
+                // Обновляем навигацию в настройках
+                Lampa.Controller.enable('settings');
+            }
+        });
 
-                        button.on('hover:enter', () => TorBoxComponent.searchAndShow(movie));
-                        render.find('.view--torrent, .view--online').first().after(button);
-                    }
+        // Добавляем кнопку на карточку фильма
+        Lampa.Listener.follow('full', (e) => {
+            if (e.type === 'complite' && e.object.activity) {
+                const render = e.object.activity.render();
+                if (render && !render.find('.view--torbox').length) {
+                    let movie = e.data.movie;
+                    let button = $(`
+                        <div class="full-start__button selector view--torbox" data-subtitle="Поиск в TorBox">
+                           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                            <span>TorBox</span>
+                        </div>`);
+
+                    button.on('hover:enter', () => TorBoxComponent.searchAndShow(movie));
+                    render.find('.view--torrent, .view--online').first().after(button);
                 }
-            });
-        }
+            }
+        });
         
-        addSettingsButton();
-        addTorboxButton();
-        
-        console.log(`%c${PLUGIN_NAME} v8.0.1`, 'color: #2E7D32; font-weight: bold;', '– плагин успешно загружен и исправлен.');
+        console.log(`%c${PLUGIN_NAME} v8.0.2`, 'color: #2E7D32; font-weight: bold;', '– плагин успешно загружен, механизм кнопки настроек исправлен.');
     }
 
     //--- Запуск ---
