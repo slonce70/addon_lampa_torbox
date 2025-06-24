@@ -1,14 +1,14 @@
 /**
  * TorBox <-> Lampa integration plugin
- * Version 8.0.2 - Fixed settings menu button injection mechanism.
+ * Version 9.0.0 - Final fix for syntax errors and robust initialization.
  *
- * Author: Gemini AI, corrected based on user feedback and deep analysis.
+ * Author: Gemini AI, corrected based on user feedback.
  */
-(function () {
+;(function () {
     'use strict';
 
     //--- Глобальная защита от повторной инициализации ---
-    const PLUGIN_NAME = 'TorBoxPluginV8';
+    const PLUGIN_NAME = 'TorBoxPluginV9';
     if (window[PLUGIN_NAME]) return;
     window[PLUGIN_NAME] = true;
 
@@ -45,14 +45,10 @@
             
             try {
                 const response = await fetch(url, options);
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => null);
-                    const errorMessage = errorData?.error || errorData?.detail || `Ошибка API TorBox (статус: ${response.status})`;
-                    throw new Error(errorMessage);
-                }
                 const data = await response.json();
-                if (data.success === false) {
-                     throw new Error(data.error || data.detail || 'Неизвестная ошибка API TorBox');
+
+                if (!response.ok || data.success === false) {
+                    throw new Error(data.error || data.detail || `Ошибка API TorBox (статус: ${response.status})`);
                 }
                 return data;
             } catch (error) {
@@ -77,7 +73,7 @@
 
         async files(torrentId) {
              const response = await this.call(`/torrents/mylist?id=${torrentId}`);
-             const torrentData = response.data.find(t => t.id == torrentId);
+             const torrentData = Array.isArray(response.data) ? response.data.find(t => t.id == torrentId) : null;
              return torrentData ? torrentData.files : [];
         },
 
@@ -93,7 +89,7 @@
         async searchAndShow(movie) {
             const apiKey = Lampa.Storage.get(S.API_KEY, '');
             if (!apiKey) {
-                Lampa.Noty.show('API-ключ TorBox не настроен. Пожалуйста, укажите его в Настройки -> TorBox.', { type: 'warning', time: 5000 });
+                Lampa.Noty.show('API-ключ TorBox не настроен. Пожалуйста, укажите его в Настройки -> Плагины -> TorBox.', { type: 'warning', time: 5000 });
                 return;
             }
 
@@ -163,7 +159,7 @@
                             onSelect: (selectedFile) => {
                                 this.playFile(selectedFile.torrent_id, selectedFile.file_id, selectedFile.movie);
                             },
-                            onBack: () => this.displayResults(torrents, movie)
+                            onBack: () => Lampa.Controller.toggle('content')
                         });
                     }
                 } else {
@@ -199,79 +195,79 @@
     };
     
     function showSettings() {
-        const settingsBody = Lampa.Template.get('settings');
-        settingsBody.find('.settings-content__title').text('Настройки TorBox');
+        var component = Lampa.Component.create({
+            template: `
+                <div class="settings-content">
+                    <div class="settings-content__body"></div>
+                    <div class="settings-content__template">
+                        <div class="settings-param selector" data-name="{name}">
+                            <div class="settings-param__name">{label}</div>
+                            <div class="settings-param__value"></div>
+                        </div>
+                    </div>
+                </div>`,
+            name: 'torbox_settings_page',
+            onRender: function() {
+                let field_api = Lampa.Template.get('settings_input', {
+                    name: S.API_KEY,
+                    label: 'API Ключ TorBox',
+                    placeholder: 'Введите ваш API ключ',
+                    value: Lampa.Storage.get(S.API_KEY, '')
+                });
+                field_api.find('input').on('change', function () {
+                    Lampa.Storage.set(S.API_KEY, $(this).val());
+                });
+                this.find('.settings-content__body').append(field_api);
 
-        let field_api = Lampa.Template.get('settings-input', {
-            name: 'API Ключ TorBox',
-            placeholder: 'Введите ваш API ключ',
-            value: Lampa.Storage.get(S.API_KEY, '')
+                let field_cached = Lampa.Template.get('settings_select', {
+                    name: S.CACHED_ONLY,
+                    label: 'Показывать только кэшированные',
+                    value: Lampa.Storage.get(S.CACHED_ONLY, 'false'),
+                    options: [
+                        {title: 'Нет', value: 'false'},
+                        {title: 'Да', value: 'true'}
+                    ]
+                });
+                field_cached.find('select').on('change', function () {
+                    Lampa.Storage.set(S.CACHED_ONLY, $(this).val());
+                });
+                this.find('.settings-content__body').append(field_cached);
+            }
         });
-        field_api.find('input').on('change', function () {
-            Lampa.Storage.set(S.API_KEY, $(this).val());
-            Lampa.Noty.show('API ключ сохранен');
-        });
-        settingsBody.find('.settings-content__body').append(field_api);
-
-        let field_cached = Lampa.Template.get('settings-select', {
-            name: 'Показывать только кэшированные',
-            value: Lampa.Storage.get(S.CACHED_ONLY, 'false'),
-            options: [
-                { title: 'Нет', value: 'false' },
-                { title: 'Да', value: 'true' }
-            ]
-        });
-        field_cached.find('select').on('change', function () {
-            Lampa.Storage.set(S.CACHED_ONLY, $(this).val());
-            Lampa.Noty.show('Настройка сохранена');
-        });
-        settingsBody.find('.settings-content__body').append(field_cached);
 
         Lampa.Controller.add('torbox_settings_activity', {
             title: 'Настройки TorBox',
-            template: settingsBody,
-            toggle: function () {
+            component: component,
+            toggle: function() {
                 Lampa.Controller.collectionSet(this.render());
                 Lampa.Controller.collectionFocus(false, this.render());
             },
-            back: function () {
+            back: function() {
                 Lampa.Controller.toggle('settings');
             }
         });
         Lampa.Controller.toggle('torbox_settings_activity');
     }
 
-
-    //--- Инициализация плагина (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
     function init() {
-        // Используем слушатель событий Lampa, чтобы добавить кнопку в нужный момент
-        Lampa.Settings.listener.follow('open', (e) => {
-            // Проверяем, что это главный экран настроек и нашей кнопки еще нет
-            if (e.name === 'main' && !e.body.find('[data-action="torbox_settings"]').length) {
-                const button = $(`
-                    <div class="settings-folder selector" data-action="torbox_settings">
+        function addSettingsButton() {
+            if (Lampa.Settings.main && !Lampa.Settings.main().render().find('[data-component="torbox_settings"]').length) {
+                var button_html = `
+                    <div class="settings-folder selector" data-component="torbox_settings" data-static="true">
                         <div class="settings-folder__icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>
                         </div>
                         <div class="settings-folder__name">TorBox</div>
-                    </div>`);
+                    </div>`;
                 
-                // Навешиваем событие клика (enter) на кнопку
-                button.on('hover:enter', showSettings);
-                
-                // Вставляем кнопку после пункта "Расширения" (или другого на ваш выбор)
-                e.body.find('[data-action="plugins"]').after(button);
-                
-                // Обновляем навигацию в настройках
-                Lampa.Controller.enable('settings');
+                Lampa.Settings.main().render().find('[data-component="more"]').after(button_html);
+                Lampa.Settings.main().update();
             }
-        });
-
-        // Добавляем кнопку на карточку фильма
-        Lampa.Listener.follow('full', (e) => {
-            if (e.type === 'complite' && e.object.activity) {
-                const render = e.object.activity.render();
-                if (render && !render.find('.view--torbox').length) {
+        }
+        
+        function addTorboxButton() {
+            Lampa.Listener.follow('full', (e) => {
+                if (e.type === 'complite' && !e.object.activity.render().find('.view--torbox').length) {
                     let movie = e.data.movie;
                     let button = $(`
                         <div class="full-start__button selector view--torbox" data-subtitle="Поиск в TorBox">
@@ -280,20 +276,28 @@
                         </div>`);
 
                     button.on('hover:enter', () => TorBoxComponent.searchAndShow(movie));
-                    render.find('.view--torrent, .view--online').first().after(button);
+                    e.object.activity.render().find('.view--torrent, .view--online').first().after(button);
                 }
+            });
+        }
+        
+        Lampa.Settings.listener.follow('open', function(e) {
+            if (e.name == 'main') {
+                e.body.find('[data-component="torbox_settings"]').on('hover:enter', function() {
+                    showSettings();
+                });
             }
         });
+
+        addSettingsButton();
+        addTorboxButton();
         
-        console.log(`%c${PLUGIN_NAME} v8.0.2`, 'color: #2E7D32; font-weight: bold;', '– плагин успешно загружен, механизм кнопки настроек исправлен.');
+        console.log(`%c${PLUGIN_NAME} v9.0.0`, 'color: #2E7D32; font-weight: bold;', '– плагин успешно загружен.');
     }
 
-    //--- Запуск ---
     if(window.appready) init();
-    else {
-        Lampa.Listener.follow('app', (e) => {
-            if(e.type == 'ready') init();
-        });
-    }
+    else Lampa.Listener.follow('app', (e) => {
+        if(e.type == 'ready') init();
+    });
 
 })();
