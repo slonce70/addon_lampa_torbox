@@ -35,8 +35,8 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-  const CORS =  u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`;
-  const CORS2 = u => `https://thingproxy.freeboard.io/fetch/${u}`;
+  const CORS =  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
+  const CORS2 = u => `https://allorigins.hexlet.app/raw?url=${encodeURIComponent(u)}`;
   const ok   = async r => { if (!r.ok) throw new Error(r.status); return r.json(); };
   const ql   = n => {
     n = n.toLowerCase();
@@ -53,39 +53,80 @@
     async search(term) {
       const safe = encodeURIComponent(term).replace(/%3A/ig, ':');
       const qp   = 'metadata=true&search_user_engines=true';
+      const timeout = 10000; // 10 секунд timeout
 
-      /* 1️⃣ btm.tools → corsproxy */
-      try { return await ok(await fetch(CORS(`https://btm.tools/api/torrents/search/${safe}?${qp}`))); }
-      catch (e) { LOG('btm corsproxy', e); }
+      const fetchWithTimeout = async (url, options = {}) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(url, { 
+            ...options, 
+            signal: controller.signal 
+          });
+          clearTimeout(timeoutId);
+          return response;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (error.name === 'AbortError') {
+            throw new Error('Запит перевищив час очікування');
+          }
+          throw error;
+        }
+      };
 
-      /* 2️⃣ btm.tools → thingproxy */
-      try { return await ok(await fetch(CORS2(`https://btm.tools/api/torrents/search/${safe}?${qp}`))); }
-      catch (e) { LOG('btm thingproxy', e); }
-
-      /* 3️⃣ api.sumanjay.cf (публічний) */
-      try {
-        const res = await ok(await fetch(CORS(`https://api.sumanjay.cf/torrent/?query=${safe}`)));
-        return {
-          torrents: res.map(t => ({
-            name   : t.name,
-            magnet : t.magnet,
-            seeders: +t.seeders || 0,
-            size   : parseFloat(t.size) * 1024 * 1024 * 1024 || 0,
-            cached : false
-          }))
-        };
-      } catch (e) { LOG('sumanjay', e); }
-
-      /* 4️⃣ Вбудований пошук TorBox (потрібен API-Key) */
+      /* 1️⃣ Вбудований пошук TorBox (найкращий варіант) */
       const key = Store.get('torbox_api_key', '');
       if (key) {
         try {
-          const r = await fetch(`${this.MAIN}/torrents/search/${safe}`, {
-            headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }
-          });
-          return await ok(r);
+          const r = await fetchWithTimeout(`${this.MAIN}/torrents/search/${safe}`, {
+             headers: { 
+               'Authorization': `Bearer ${key}`, 
+               'Accept': 'application/json',
+               'User-Agent': 'Lampa/TorBox-Plugin'
+             }
+           });
+          const result = await ok(r);
+          if (result.data && result.data.length > 0) {
+            return {
+              torrents: result.data.map(t => ({
+                ...t,
+                cached: t.cached || false,
+                torbox_id: t.id // Зберігаємо TorBox ID
+              }))
+            };
+          }
         } catch (e) { LOG('TorBox native', e); }
       }
+
+      /* 2️⃣ btm.tools → allorigins */
+      try { 
+        const result = await ok(await fetchWithTimeout(CORS(`https://btm.tools/api/torrents/search/${safe}?${qp}`))); 
+        if (result.torrents && result.torrents.length > 0) return result;
+      }
+      catch (e) { LOG('btm allorigins', e); }
+
+      /* 3️⃣ btm.tools → hexlet */
+      try { 
+        const result = await ok(await fetchWithTimeout(CORS2(`https://btm.tools/api/torrents/search/${safe}?${qp}`))); 
+        if (result.torrents && result.torrents.length > 0) return result;
+      }
+      catch (e) { LOG('btm hexlet', e); }
+
+      /* 4️⃣ api.sumanjay.cf (публічний) */
+      try {
+        const res = await ok(await fetchWithTimeout(CORS(`https://api.sumanjay.cf/torrent/?query=${safe}`)));
+        if (res && res.length > 0) {
+          return {
+            torrents: res.map(t => ({
+              name   : t.name,
+              magnet : t.magnet,
+              seeders: +t.seeders || 0,
+              size   : parseFloat(t.size) * 1024 * 1024 * 1024 || 0,
+              cached : false
+            }))
+          };
+        }
+      } catch (e) { LOG('sumanjay', e); }
 
       throw new Error('TorBox: усі джерела пошуку недоступні');
     },
@@ -95,7 +136,15 @@
       if (!key) throw new Error('TorBox: API-Key не вказано');
 
       let url = `${this.MAIN}${path}`;
-      const opt = { method, headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } };
+      const opt = { 
+        method, 
+        headers: { 
+          'Authorization': `Bearer ${key}`, 
+          'Accept': 'application/json',
+          'User-Agent': 'Lampa/TorBox-Plugin'
+        },
+        timeout: 15000
+      };
 
       if (method === 'GET' && Object.keys(body).length)
         url += '?' + new URLSearchParams(body).toString();
@@ -104,14 +153,34 @@
         opt.body = JSON.stringify(body);
       }
 
-      const r = await fetch(url, opt);
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`);
-      return j;
+      try {
+        const r = await fetch(url, opt);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const errorMsg = j.error || j.message || j.detail || `HTTP ${r.status}`;
+          LOG(`API Error ${r.status}:`, errorMsg);
+          throw new Error(errorMsg);
+        }
+        return j;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Запит перевищив час очікування');
+        }
+        throw error;
+      }
     },
 
     addMagnet(m)  { return this.main('/torrents/createtorrent', { magnet: m }, 'POST'); },
-    files(id)     { return this.main('/torrents/mylist', { id }).then(r => r.data?.[0]?.files || []); },
+    files(id)     { 
+      return this.main('/torrents/mylist', { id }).then(r => {
+        const torrent = r.data?.[0];
+        if (!torrent) throw new Error('Торрент не знайдено');
+        if (!torrent.files || !Array.isArray(torrent.files)) {
+          throw new Error('Файли торрента недоступні');
+        }
+        return torrent.files;
+      }); 
+    },
     dl(tid, fid)  { return this.main('/torrents/requestdl', { torrent_id: tid, file_id: fid }).then(r => r.data); }
   };
 
@@ -119,28 +188,67 @@
   async function searchAndShow(movie) {
     Lampa.Loading.start('TorBox: пошук…');
     try {
-      const term  = movie?.imdb_id ? `imdb:${movie.imdb_id}` : movie.title;
-      const res   = await API.search(term);
-      const list  = res.data?.torrents || res.torrents || res || [];
-      if (!list.length) { Lampa.Noty.show('TorBox: нічого не знайдено'); return; }
+      // Формуємо пошуковий запит
+      let term = movie?.title || '';
+      if (movie?.imdb_id) {
+        term = `imdb:${movie.imdb_id}`;
+      } else if (movie?.original_title && movie.original_title !== movie.title) {
+        term = movie.original_title;
+      }
+      
+      if (!term.trim()) {
+        Lampa.Noty.show('Не вдалося визначити назву для пошуку', { type: 'error' });
+        return;
+      }
 
-      const show  = CFG.cachedOnly ? list.filter(t => t.cached) : list;
-      if (!show.length) { Lampa.Noty.show('Немає кешованих'); return; }
+      LOG('Searching for:', term);
+      const res = await API.search(term);
+      const list = res.data?.torrents || res.torrents || res || [];
+      
+      if (!Array.isArray(list) || !list.length) { 
+        Lampa.Noty.show('TorBox: нічого не знайдено'); 
+        return; 
+      }
 
-      const items = show.sort((a,b)=>(b.seeders||0)-(a.seeders||0)).map(t => ({
-        title   : `${t.cached ? '⚡' : '☁️'} ${t.name || t.title}`,
-        subtitle: `${(t.size/2**30).toFixed(2)} GB | 🟢${t.seeders||0}`,
-        torrent : t
-      }));
+      LOG(`Found ${list.length} torrents`);
+      
+      // Фільтруємо за налаштуваннями
+      const show = CFG.cachedOnly ? list.filter(t => t.cached) : list;
+      if (!show.length) { 
+        const msg = CFG.cachedOnly ? 'Немає кешованих торрентів' : 'Немає доступних торрентів';
+        Lampa.Noty.show(msg); 
+        return; 
+      }
+
+      // Сортуємо та форматуємо
+      const items = show
+        .sort((a,b) => (b.seeders||0) - (a.seeders||0))
+        .slice(0, 50) // Обмежуємо кількість результатів
+        .map(t => {
+          const size = t.size ? (t.size / (1024**3)).toFixed(2) : '?';
+          const quality = ql(t.name || t.title || '');
+          const qualityStr = quality ? ` [${quality}]` : '';
+          
+          return {
+            title: `${t.cached ? '⚡' : '☁️'} ${(t.name || t.title || 'Невідомо').substring(0, 80)}${qualityStr}`,
+            subtitle: `${size} GB | 🟢${t.seeders||0} | 🔴${t.leechers||0}`,
+            torrent: t
+          };
+        });
 
       Lampa.Select.show({
-        title   : 'TorBox',
+        title: `TorBox (${items.length})`,
         items,
         onSelect: i => handleTorrent(i.torrent, movie),
-        onBack  : () => Lampa.Controller.toggle('content')
+        onBack: () => Lampa.Controller.toggle('content')
       });
     } catch (e) {
-      Lampa.Noty.show(e.message, { type: 'error' });
+      LOG('Search error:', e);
+      let errorMsg = e.message;
+      if (e.message.includes('недоступні')) {
+        errorMsg = 'Всі джерела пошуку недоступні. Перевірте інтернет-з\'єднання.';
+      }
+      Lampa.Noty.show(errorMsg, { type: 'error' });
     } finally {
       Lampa.Loading.stop();
     }
@@ -149,12 +257,24 @@
   async function handleTorrent(t, movie) {
     Lampa.Loading.start('TorBox…');
     try {
-      if (t.cached) {
-        const files = await API.files(t.id);
-        const vids  = files.filter(f => /\\.(mkv|mp4|avi)$/i.test(f.name));
-        if (!vids.length) { Lampa.Noty.show('Відео не знайдено'); return; }
+      // Перевіряємо наявність API ключа
+      const key = Store.get('torbox_api_key', '');
+      if (!key) {
+        Lampa.Noty.show('Потрібен API ключ TorBox в налаштуваннях', { type: 'error' });
+        return;
+      }
 
-        if (vids.length === 1) { play(t.id, vids[0], movie); return; }
+      if (t.cached && (t.torbox_id || t.id)) {
+        // Для кешованих торрентів з TorBox ID
+        const torrentId = t.torbox_id || t.id;
+        const files = await API.files(torrentId);
+        const vids  = files.filter(f => f.name && /\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$/i.test(f.name) && f.size > 50 * 1024 * 1024); // Мінімум 50MB
+        if (!vids.length) { Lampa.Noty.show('Відео файли не знайдено'); return; }
+
+        if (vids.length === 1) { 
+          await play(torrentId, vids[0], movie); 
+          return; 
+        }
 
         vids.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
         Lampa.Select.show({
@@ -164,30 +284,70 @@
             subtitle: `${(f.size/2**30).toFixed(2)} GB ${ql(f.name)}`,
             file    : f
           })),
-          onSelect: i => play(t.id, i.file, movie),
+          onSelect: i => play(torrentId, i.file, movie),
           onBack  : () => searchAndShow(movie)
         });
+      } else if (t.magnet) {
+        // Для некешованих торрентів - додаємо в TorBox
+        const result = await API.addMagnet(t.magnet);
+        if (result && result.data && result.data.torrent_id) {
+          Lampa.Noty.show(`Торрент додано в TorBox (ID: ${result.data.torrent_id}). Очікуйте завершення завантаження.`);
+        } else {
+          Lampa.Noty.show('Торрент відправлено в TorBox, очікуйте кеш');
+        }
       } else {
-        await API.addMagnet(t.magnet);
-        Lampa.Noty.show('Відправлено в TorBox, очікуйте кеш');
+        Lampa.Noty.show('Неможливо обробити торрент: відсутня magnet-посилання', { type: 'error' });
       }
     } catch (e) {
-      Lampa.Noty.show(e.message, { type: 'error' });
+      LOG('handleTorrent error:', e);
+      let errorMsg = e.message;
+      if (e.message.includes('401')) {
+        errorMsg = 'Невірний API ключ TorBox';
+      } else if (e.message.includes('403')) {
+        errorMsg = 'Доступ заборонено. Перевірте API ключ';
+      } else if (e.message.includes('429')) {
+        errorMsg = 'Забагато запитів. Спробуйте пізніше';
+      }
+      Lampa.Noty.show(errorMsg, { type: 'error' });
     } finally {
       Lampa.Loading.stop();
     }
   }
 
   async function play(tid, file, movie) {
-    Lampa.Loading.start('TorBox: лінк…');
+    Lampa.Loading.start('TorBox: отримання посилання…');
     try {
-      const url = await API.dl(tid, file.id);
-      if (!url) throw new Error('Порожній URL');
+      const result = await API.dl(tid, file.id);
+      const url = result?.data || result;
+      
+      if (!url || typeof url !== 'string') {
+        throw new Error('Не вдалося отримати посилання для відтворення');
+      }
 
-      Lampa.Player.play({ url, title: file.name || movie.title, poster: movie.img });
-      Lampa.Player.callback(Lampa.Activity.backward);
+      LOG('Playing:', { url, title: file.name, size: file.size });
+      
+      const playerOptions = {
+        url,
+        title: file.name || movie.title || 'TorBox Video',
+        poster: movie.img || movie.poster,
+        subtitles: [],
+        callback: () => {
+          Lampa.Activity.backward();
+        }
+      };
+
+      Lampa.Player.play(playerOptions);
     } catch (e) {
-      Lampa.Noty.show(e.message, { type: 'error' });
+      LOG('Play error:', e);
+      let errorMsg = e.message;
+      if (e.message.includes('404')) {
+        errorMsg = 'Файл не знайдено на сервері TorBox';
+      } else if (e.message.includes('403')) {
+        errorMsg = 'Доступ до файлу заборонено';
+      } else if (e.message.includes('500')) {
+        errorMsg = 'Помилка сервера TorBox';
+      }
+      Lampa.Noty.show(errorMsg, { type: 'error' });
     } finally {
       Lampa.Loading.stop();
     }
