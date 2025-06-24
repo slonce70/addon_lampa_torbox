@@ -1,17 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.5.4 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v3.5.5 (2025-06-27)
  * ============================================================
- * • REWORK: Повернення до архітектури з проксі-посередником для всіх запитів до api.torbox.app.
- * • EXPLANATION: Це необхідно для обходу обмежень CORS, оскільки плагін працює в браузері.
- * • FIX: Усі операції (пошук, додавання, отримання файлів) тепер використовують ваш особистий API-ключ TorBox через надійний проксі.
- * • REMOVED: Видалено всі згадки про сторонні API (tbm.tools, btm.tools, sumanjay).
+ * • REWORK (Hybrid): Пошук тепер йде через проксі на API tbm.tools, використовуючи ключ користувача.
+ * • FIX: Це має вирішити помилку "Failed to fetch", оскільки tbm.tools є більш доступним.
+ * • NOTE: Операції з файлами (додавання, отримання посилань) все ще йдуть через проксі напряму до api.torbox.app.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v3_5_4';
+  const PLUGIN_ID = 'torbox_enhanced_v3_5_5';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -36,14 +35,13 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-
-  // Using a reliable public proxy to bypass CORS issues.
-  // allorigins.win is generally stable.
   const PROXY = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
 
-  const ok = async r => {
-    if (r.status === 401) throw new Error('API-ключ недійсний або відсутній. Перевірте налаштування.');
-    if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status}`);
+  const processResponse = async r => {
+    if (!r.ok) {
+        if (r.status === 401) throw new Error('API-ключ недійсний. Перевірте налаштування.');
+        throw new Error(`Помилка мережі: HTTP ${r.status}`);
+    }
     const text = await r.text();
     try {
         return JSON.parse(text);
@@ -62,49 +60,57 @@
     return '';
   };
 
-  /* ───── TorBox API wrapper (using user's key via proxy) ───── */
+  /* ───── TorBox API wrapper (Hybrid Approach) ───── */
   const API = {
-    BASE: 'https://api.torbox.app/v1/api',
-
-    // Central function for all API calls
-    async call(path, body = {}, method = 'GET') {
-      const key = Store.get('torbox_api_key', '');
-      if (!key) throw new Error('Для роботи плагіна потрібен ваш особистий API-Key для TorBox.');
-
-      let url = `${this.BASE}${path}`;
-      const options = {
-        method,
-        headers: {
-          'Authorization': `Bearer ${key}`,
-          'Accept': 'application/json'
-        }
-      };
-
-      if (method === 'GET' && Object.keys(body).length) {
-        url += '?' + new URLSearchParams(body).toString();
-      } else if (method !== 'GET') {
-        options.headers['Content-Type'] = 'application/json';
-        options.body = JSON.stringify(body);
-      }
-
-      const proxiedUrl = PROXY(url);
-      LOG(`Calling TorBox API via proxy: ${method} ${url}`);
-      const response = await fetch(proxiedUrl, options);
-      return await ok(response);
-    },
+    TORBOX_DIRECT_API: 'https://api.torbox.app/v1/api',
+    TBM_TOOLS_API: 'https://tbm.tools/api',
 
     async search(term) {
-      const safeTerm = encodeURIComponent(term).replace(/%3A/ig, ':');
-      const res = await this.call(`/torrents/search/${safeTerm}`);
-      return res.data?.torrents || [];
+      const key = Store.get('torbox_api_key', '');
+      if (!key) throw new Error('Для пошуку потрібен ваш особистий API-Key для TorBox.');
+
+      const url = `${this.TBM_TOOLS_API}/torrents/search?query=${encodeURIComponent(term)}&search_user_engines=false`;
+      LOG(`Searching via tbm.tools: ${url}`);
+
+      const response = await fetch(PROXY(url), {
+        headers: { 'X-Api-Key': key }
+      });
+
+      const json = await processResponse(response);
+      if (!json.success || !Array.isArray(json.data?.torrents)) {
+        throw new Error(json.message || 'Не вдалося отримати результати від tbm.tools');
+      }
+      return json.data.torrents;
     },
 
-    addMagnet(m)  { return this.call('/torrents/createtorrent', { magnet: m }, 'POST'); },
-    files(id)     { return this.call('/torrents/mylist', { id }).then(r => r.data?.[0]?.files || []); },
-    dl(tid, fid)  { return this.call('/torrents/requestdl', { torrent_id: tid, file_id: fid }).then(r => r.data); }
+    async torbox_direct_call(path, body = {}, method = 'GET') {
+      const key = Store.get('torbox_api_key', '');
+      if (!key) throw new Error('Для цієї дії потрібен ваш особистий API-Key для TorBox.');
+
+      let url = `${this.TORBOX_DIRECT_API}${path}`;
+      const options = {
+        method,
+        headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+      };
+
+      if (method !== 'GET') {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      } else if (Object.keys(body).length) {
+        url += '?' + new URLSearchParams(body).toString();
+      }
+
+      LOG(`Calling TorBox API directly via proxy: ${method} ${url}`);
+      const response = await fetch(PROXY(url), options);
+      return await processResponse(response);
+    },
+
+    addMagnet(m)  { return this.torbox_direct_call('/torrents/createtorrent', { magnet: m }, 'POST'); },
+    files(id)     { return this.torbox_direct_call('/torrents/mylist', { id }).then(r => r.data?.[0]?.files || []); },
+    dl(tid, fid)  { return this.torbox_direct_call('/torrents/requestdl', { torrent_id: tid, file_id: fid }).then(r => r.data); }
   };
 
-  /* ───── UI flows ───── */
+  /* ───── UI flows (Unchanged) ───── */
   async function searchAndShow(movie) {
     Lampa.Loading.start('TorBox: пошук…');
     try {
@@ -192,7 +198,7 @@
     }
   }
 
-  /* ───── Settings ───── */
+  /* ───── Settings (Unchanged) ───── */
   const COMP = 'torbox_enh';
   function addSettings() {
     if (!Lampa.SettingsApi) return;
@@ -219,7 +225,7 @@
     }));
   }
 
-  /* ───── hook & boot ───── */
+  /* ───── hook & boot (Unchanged) ───── */
   function hook() {
     Lampa.Listener.follow('full', e => {
       if (e.type !== 'complite' || !e.data.movie) return;
@@ -239,7 +245,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v3.5.4 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v3.5.5 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
