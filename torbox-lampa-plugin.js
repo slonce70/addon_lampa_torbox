@@ -1,17 +1,16 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 32.0.0 (Pre-Registered Template Fix)
+ * Version: 33.0.0 (Template Naming Fix)
  * Author: Gemini AI & Your Name
  *
- * CHANGE LOG v32.0.0:
- * - FIX (Template not found): The settings logic has been rewritten according to the approved plan. The HTML template is now defined and registered immediately when the plugin loads, which resolves the "Template not found" race condition.
- * - RESTRUCTURED: The code now follows the reliable pattern of pre-registering templates and then using the 'open' listener to populate and display them, ensuring maximum compatibility.
+ * CHANGE LOG v33.0.0:
+ * - CRITICAL FIX: The 'Template not found' error is resolved by correcting a typo in the template name. The 'data-component' attribute on the button now correctly matches the name used in 'Lampa.Template.add'.
  */
 (function () {
     'use strict';
 
     // Уникальный ID плагина для предотвращения повторной инициализации
-    const PLUGIN_ID = 'torbox_plugin_pre-registered_v32';
+    const PLUGIN_ID = 'torbox_plugin_naming_fix_v33';
     if (window[PLUGIN_ID]) {
         return;
     }
@@ -19,7 +18,7 @@
 
     // 1. Определяем HTML-шаблон для страницы настроек
     const settings_html = `
-        <div class="settings-torbox-manual">
+        <div class="settings-torbox-page">
             <div class="settings-param selector" data-name="api_key">
                 <div class="settings-param__name">API Ключ</div>
                 <div class="settings-param__value"></div>
@@ -38,9 +37,9 @@
             </div>
         </div>`;
     
-    // 2. Немедленно регистрируем шаблон в Lampa
-    // Это ключевое исправление. Теперь Lampa будет "знать" о шаблоне до того, как пользователь попытается его открыть.
-    Lampa.Template.add('settings_torbox_manual', settings_html);
+    // 2. Немедленно регистрируем шаблон с правильным именем
+    // Имя 'torbox_settings_manual' должно совпадать с 'data-component' у кнопки
+    Lampa.Template.add('torbox_settings_manual', settings_html);
 
 
     // --- Логгер и Хранилище ---
@@ -195,14 +194,14 @@
 
     // --- Логика интерфейса ---
 
-    // 3. Упрощенный обработчик 'open', который теперь просто наполняет готовый шаблон
+    // 3. Обработчик события 'open', который наполняет готовый шаблон
     Lampa.Settings.listener.follow('open', function (e) {
         if (e.name !== 'torbox_settings_manual') return;
 
         e.activity.title('TorBox');
 
-        // Получаем предварительно зарегистрированный шаблон
-        let html = $(Lampa.Template.get('settings_torbox_manual'));
+        // Получаем предварительно зарегистрированный шаблон по правильному имени
+        let html = $(Lampa.Template.get('torbox_settings_manual'));
 
         // Заполняем актуальными значениями
         html.find('[data-name="api_key"] .settings-param__value').text(Storage.get('api_key', 'Не указан'));
@@ -260,10 +259,10 @@
     
     // 4. Логика добавления кнопки в главное меню настроек (безопасная)
     function addSettingsButton() {
-        if ($('.settings-main [data-component="torbox_settings_manual"]').length) {
-            return;
-        }
+        if ($('.settings-main [data-component="torbox_settings_manual"]').length) return;
+        
         if (Lampa.Settings.main && Lampa.Settings.main()) {
+            // Используем 'data-component' с тем же именем, что и у шаблона
             const folder = $(`
                 <div class="settings-folder selector" data-component="torbox_settings_manual">
                     <div class="settings-folder__icon">
@@ -280,7 +279,6 @@
     
     // --- Инициализатор плагина ---
     
-    // Кнопка на странице карточки фильма
     Lampa.Listener.follow('full', (e) => {
         if (e.type !== 'complite' || e.object.activity.render().find('.view--torbox').length) return;
         const button = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">
@@ -290,7 +288,6 @@
         e.object.activity.render().find('.view--torrent').after(button);
     });
 
-    // Добавление кнопки в меню настроек
     if (window.appready) {
         addSettingsButton();
     } else {
@@ -301,6 +298,6 @@
         });
     }
     
-    logger('Плагин TorBox v32.0.0 инициализирован.');
+    logger('Плагин TorBox v33.0.0 инициализирован.');
 
 })();
