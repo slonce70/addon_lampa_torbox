@@ -1,34 +1,26 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.0.6 (2025‑06‑25)
+ * TorBox Enhanced – Universal Lampa Plugin v3.0.7 (2025‑06‑25)
  * ============================================================
- * WHY 3.0.6?  «NO_AUTH»
+ * WHY 3.0.7?  «API Endpoint Fix»
  * ─────────────────────────────────────────────────────────────
- *  ▸ search‑api.torbox.app требует авторизации для IMDb‑поиска и
- *    для расширенного («metadata») режима. Поэтому ответ 401/NO_AUTH.
- *  ▸ Одновременно сервер НЕ отдаёт CORS‑заголовки → прямые запросы
- *    с браузера ломаются даже с токеном.
+ *  ▸ Проблема: search-api.torbox.app возвращал NO_AUTH даже с ключом.
+ *    Этот эндпоинт, вероятно, для поиска без авторизации.
+ *  ▸ Решение: Все запросы, включая поиск, должны идти на основной
+ *    домен api.torbox.app.
  *
- *  РЕШЕНИЕ
- *  --------
- *  1. Оставляем один надёжный путь: запрос всегда идёт через CORS‑proxy
- *     **и** несёт заголовок `Authorization: Bearer <API‑Key>`.
- *     proxy → TorBox   (заголовок передаётся)
- *     браузер → proxy  (заголовков «Authorization» НЕТ, значит НЕТ pre‑flight).
- *  2. Формируем proxy‑URL так:
- *       https://corsproxy.io/?url=<ENCODED_URL>&header_Authorization=Bearer%20<KEY>
- *     Так требует corsproxy.io (док: «prefix header_… to set upstream header»).
- *  3. Если у пользователя нет API‑Key → прокси шлёт запрос без заголовка,
- *     сервер отвечает 401, а плагин красиво сообщает «Нужен API‑Key».
- *  4. Убраны прочие запасные ветки: меньше хаоса → легче дебажить.
- *
- *  Проверено в DevTools: pre‑flight исчез, ответ 200 JSON (seed, size и т.д.).
- *  При неверном ключе → 401 + всплывашка.
+ *  ИЗМЕНЕНИЯ
+ *  ----------
+ *  1. URL для поиска изменён на `https://api.torbox.app/v1/api/torrents/search`.
+ *  2. Поисковый термин теперь передаётся как GET-параметр `?query=...`,
+ *     а не как часть пути URL.
+ *  3. Логика с CORS-прокси и передачей заголовка Authorization сохранена,
+ *     так как она верна для работы из браузера.
  */
 
 (function(){
   'use strict';
 
-  const PLUGIN_ID='torbox_enhanced_v3_0_6';
+  const PLUGIN_ID='torbox_enhanced_v3_0_7'; // Версия обновлена для ясности
   if(window[PLUGIN_ID]) return; window[PLUGIN_ID]=true;
 
   // ───────────────────────────── CONFIG ──────────────────────────────
@@ -45,14 +37,15 @@
   const CORS=u=>`https://corsproxy.io/?url=${encodeURIComponent(u)}`;
   const withHeader=(url,key)=>`${CORS(url)}&header_Authorization=Bearer%20${encodeURIComponent(key)}`;
 
-  // ───────────────────────────── API ─────────────────────────────────
+  // ───────────────────────────── API (Исправлено) ─────────────────────────────────
   const API={
-    SEARCH_BASE:'https://search-api.torbox.app/torrents/search/',
+    SEARCH_BASE:'https://api.torbox.app/v1/api/torrents/search', // ИЗМЕНЕНО: Основной API для поиска
     MAIN:'https://api.torbox.app/v1/api',
 
     async search(term){
-      const safe=encodeURIComponent(term).replace(/%3A/ig,':');
-      const raw=`${this.SEARCH_BASE}${safe}`;
+      const safe=encodeURIComponent(term);
+      // ИЗМЕНЕНО: Запрос передаётся как параметр `query`
+      const raw=`${this.SEARCH_BASE}?query=${safe}`;
       const final=CFG.apiKey?withHeader(raw,CFG.apiKey):CORS(raw);
       LOG('Search URL',final);
       const r=await fetch(final); // Accept: by default */*
@@ -69,13 +62,13 @@
       let url=`${this.MAIN}${path}`;
       const opt={method,headers:{Authorization:`Bearer ${CFG.apiKey}`,Accept:'application/json'}};
       if(method==='GET'&&Object.keys(body).length) url+='?'+new URLSearchParams(body).toString();
-      else if(method!=='GET'){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);} 
+      else if(method!=='GET'){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
       const r=await fetch(url,opt);const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||j.message||`HTTP ${r.status}`); return j;
     },
 
     addMagnet(m){return this.main('/torrents/createtorrent',{magnet:m},'POST');},
     files(id){return this.main('/torrents/mylist',{id}).then(r=>r.data?.[0]?.files||[]);},
-    dl(tid,fid){return this.main('/torrents/requestdl',{torrent_id:tid,file_id:fid}).then(r=>r.data);}  
+    dl(tid,fid){return this.main('/torrents/requestdl',{torrent_id:tid,file_id:fid}).then(r=>r.data);}
   };
 
   const ql=n=>{n=n.toLowerCase();if(/(2160|4k)/.test(n))return'4K';if(/1080/.test(n))return'1080p';if(/720/.test(n))return'720p';return'';};
@@ -134,7 +127,7 @@
 
   // ─────────────────────── Boot & hook (same) ──────────────────────────
   let wait=0;const STEP=500,MAX=60000;(function loop(){
-    if(window.Lampa&&window.Lampa.Settings){try{addSettings();hook();LOG('Ready v3.0.6');}catch(e){console.error('[TorBox]',e);}return;}
+    if(window.Lampa&&window.Lampa.Settings){try{addSettings();hook();LOG('Ready v3.0.7');}catch(e){console.error('[TorBox]',e);}return;}
     if((wait+=STEP)>=MAX){console.warn('[TorBox] Lampa not found');return;}
     setTimeout(loop,STEP);
   })();
