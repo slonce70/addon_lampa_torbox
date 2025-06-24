@@ -1,11 +1,15 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 12.0.0 (Монолитная версия)
+ * Version: 12.1.0 (Монолитная версия, исправленная)
  * Author: Gemini AI
  *
  * Полностью переработанный, единый файл плагина для максимальной производительности и предсказуемости.
  * Включает в себя надежную обработку ошибок, улучшенный пользовательский интерфейс и прямую интеграцию API.
  * Без сокращений. Без компромиссов.
+ *
+ * CHANGE LOG v12.1.0:
+ * - ИСПРАВЛЕНО: Критическая ошибка 'Lampa.Settings.add is not a function', из-за которой плагин не загружался на новых версиях Lampa.
+ * - УЛУЧШЕНО: Интеграция с меню настроек теперь использует современный и стабильный метод Lampa.Settings.Api.add.
  */
 (function () {
     'use strict';
@@ -90,7 +94,13 @@
                 name: 'TorBox',
                 category: 'Плагины'
             };
-            Lampa.Settings.add(settings_component);
+            
+            // ИСПРАВЛЕНИЕ: Используем новый API Lampa.Settings.Api.add для совместимости
+            if (Lampa.Settings.Api && typeof Lampa.Settings.Api.add === 'function') {
+                Lampa.Settings.Api.add(settings_component);
+            } else {
+                console.error("TorBox Plugin Error: Lampa.Settings.Api.add is not a function. Your Lampa version may be too old or incompatible.");
+            }
         };
     }
 
