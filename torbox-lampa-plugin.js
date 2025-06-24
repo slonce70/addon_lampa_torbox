@@ -259,8 +259,11 @@
         });
         
         // Also try to build settings immediately if settings are already open
-        if (Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active().component === 'settings') {
-            setTimeout(buildSettings, 100);
+        if (Lampa.Activity && Lampa.Activity.active) {
+            const activeActivity = Lampa.Activity.active();
+            if (activeActivity && activeActivity.component === 'settings') {
+                setTimeout(buildSettings, 100);
+            }
         }
 
         Lampa.Listener.follow('full', function(e) {
