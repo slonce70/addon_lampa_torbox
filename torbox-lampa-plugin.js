@@ -1,6 +1,6 @@
 /**
  * TorBox ↔ Lampa integration plugin
- * Version 5.0.2 – Web version compatible
+ * Version 5.0.3 – Web version compatible
  *
  * Changelog vs 4.3.1:
  *  • Полная адаптация для веб-версии Lampa
@@ -17,7 +17,7 @@
     'use strict';
 
     /* ---------- GLOBAL GUARD ---------- */
-    const NS = 'torbox_lampa_plugin_v5_0_1';
+    const NS = 'torbox_lampa_plugin_v5_0_3';
     if (window[NS]) return;
     window[NS] = true;
 
@@ -219,18 +219,61 @@
 
     /* ---------- SETTINGS ---------- */
     function showSettings() {
-        console.log('TorBox: Показываем настройки');
+        console.log('TorBox: Открываем настройки');
         
-        // Используем стандартную систему настроек Lampa
-        Lampa.Activity.push({
-            url: '',
+        const apiKey = Lampa.Storage.get('torbox_api_key', '');
+        const cachedOnly = Lampa.Storage.get('torbox_cached_only', false);
+        
+        const html = `
+            <div class="settings-param selector" data-name="torbox_api_key">
+                <div class="settings-param__name">API ключ TorBox</div>
+                <div class="settings-param__value">
+                    <input type="text" placeholder="Введите API ключ" value="${apiKey}" />
+                </div>
+                <div class="settings-param__descr">Ваш API ключ для доступа к TorBox</div>
+            </div>
+            <div class="settings-param selector ${cachedOnly ? 'active' : ''}" data-name="torbox_cached_only">
+                <div class="settings-param__name">Только кэшированные торренты</div>
+                <div class="settings-param__value"></div>
+                <div class="settings-param__descr">Показывать только торренты, которые уже кэшированы в TorBox</div>
+            </div>
+        `;
+        
+        Lampa.Modal.open({
             title: 'TorBox',
-            component: 'settings',
-            page: 1
+            html: html,
+            size: 'medium',
+            mask: true,
+            onSelect: function(a, b) {
+                if (a.hasClass('selector')) {
+                    if (a.data('name') === 'torbox_cached_only') {
+                        const isActive = a.hasClass('active');
+                        const newValue = !isActive;
+                        
+                        if (newValue) {
+                            a.addClass('active');
+                        } else {
+                            a.removeClass('active');
+                        }
+                        
+                        Lampa.Storage.set('torbox_cached_only', newValue);
+                        console.log('TorBox: Кэшированные торренты:', newValue);
+                    }
+                }
+            },
+            onBack: function() {
+                Lampa.Modal.close();
+            }
         });
         
-        // Открываем настройки TorBox
-        Lampa.Settings.open('torbox');
+        // Добавляем обработчик для поля API ключа
+        setTimeout(() => {
+            $('.settings-param[data-name="torbox_api_key"] input').on('input', function() {
+                const value = $(this).val();
+                Lampa.Storage.set('torbox_api_key', value);
+                console.log('TorBox: API ключ сохранен:', value);
+            });
+        }, 100);
     }
 
     /* ---------- TORBOX COMPONENT ---------- */
@@ -315,107 +358,25 @@
             }
         });
 
-        // Добавляем шаблон настроек TorBox
-        Lampa.Template.add('settings_torbox', `
-            <div>
-                <div class="settings-param selector" data-name="torbox_api_key" data-type="input" placeholder="Введите API ключ">
-                    <div class="settings-param__name">API ключ TorBox</div>
-                    <div class="settings-param__value"></div>
-                    <div class="settings-param__descr">Ваш API ключ для доступа к TorBox</div>
-                </div>
-                <div class="settings-param selector" data-name="torbox_cached_only" data-type="toggle">
-                    <div class="settings-param__name">Только кэшированные торренты</div>
-                    <div class="settings-param__value"></div>
-                    <div class="settings-param__descr">Показывать только торренты, которые уже кэшированы в TorBox</div>
-                </div>
-            </div>
-        `);
-
         // Функция добавления настроек TorBox
         function addSettingsTorBox() {
-            if (Lampa.Settings.main && Lampa.Settings.main() && !Lampa.Settings.main().render().find('[data-component="torbox"]').length) {
-                console.log('TorBox: Добавляем в настройки через Lampa.Settings.main()');
-                const field = $(Lampa.Lang.translate(`
-                    <div class="settings-folder selector" data-component="torbox">
-                        <div class="settings-folder__icon">
-                            <svg width="57" height="57" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                                <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                                <path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-                            </svg>
-                        </div>
-                        <div class="settings-folder__name">TorBox</div>
-                    </div>
-                `));
+            if (Lampa.Settings.main && !Lampa.Settings.main().render().find('[data-component="torbox"]').length) {
+                var field = "<div class=\"settings-folder selector\" data-component=\"torbox\" data-static=\"true\">\n\t\t\t<div class=\"settings-folder__icon\">\n\t\t\t\t<svg width=\"57\" height=\"57\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n\t\t\t\t\t<path d=\"M12 2L2 7L12 12L22 7L12 2Z\" stroke=\"white\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\n\t\t\t\t\t<path d=\"M2 17L12 22L22 17\" stroke=\"white\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\n\t\t\t\t\t<path d=\"M2 12L12 17L22 12\" stroke=\"white\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\n\t\t\t\t</svg>\n\t\t\t</div>\n\t\t\t<div class=\"settings-folder__name\">TorBox</div>\n\t\t</div>";
                 Lampa.Settings.main().render().find('[data-component="more"]').after(field);
                 Lampa.Settings.main().update();
             }
         }
 
-        // Регистрируем страницу настроек TorBox
-         Lampa.Settings.add({
-             component: 'torbox',
-             param: {
-                 name: 'TorBox',
-                 description: 'Настройки интеграции с TorBox'
-             },
-             onRender: function(item) {
-                 console.log('TorBox: Рендерим настройки');
-                 return Lampa.Template.get('settings_torbox', {});
-             },
-             onSelect: function() {
-                 console.log('TorBox: Выбраны настройки TorBox');
-             }
-         });
+        // Добавляем обработчик открытия настроек
+        Lampa.Settings.listener.follow('open', function(e) {
+            if (e.name == 'main') {
+                e.body.find('[data-component="torbox"]').on('hover:enter', function() {
+                    showSettings();
+                });
+            }
+        });
 
-         // Добавляем обработчик открытия настроек TorBox
-         Lampa.Settings.listener.follow('open', function (e) {
-             if (e.name == 'torbox') {
-                 console.log('TorBox: Открыты настройки TorBox');
-                 // Инициализируем значения настроек
-                 const apiKey = Lampa.Storage.get('torbox_api_key', '');
-                 const cachedOnly = Lampa.Storage.get('torbox_cached_only', false);
-                 
-                 // Устанавливаем значения в поля
-                 setTimeout(() => {
-                     const apiKeyInput = $('[data-name="torbox_api_key"] input');
-                     const cachedOnlyToggle = $('[data-name="torbox_cached_only"]');
-                     
-                     if (apiKeyInput.length) {
-                         apiKeyInput.val(apiKey);
-                     }
-                     
-                     if (cachedOnlyToggle.length) {
-                         if (cachedOnly) {
-                             cachedOnlyToggle.addClass('active');
-                         } else {
-                             cachedOnlyToggle.removeClass('active');
-                         }
-                     }
-                 }, 100);
-             }
-         });
 
-         // Добавляем обработчики изменения настроек
-         $(document).on('change', '[data-name="torbox_api_key"] input', function() {
-             const value = $(this).val();
-             Lampa.Storage.set('torbox_api_key', value);
-             console.log('TorBox: API ключ сохранен:', value);
-         });
-
-         $(document).on('click', '[data-name="torbox_cached_only"]', function() {
-             const isActive = $(this).hasClass('active');
-             const newValue = !isActive;
-             
-             if (newValue) {
-                 $(this).addClass('active');
-             } else {
-                 $(this).removeClass('active');
-             }
-             
-             Lampa.Storage.set('torbox_cached_only', newValue);
-             console.log('TorBox: Кэшированные торренты:', newValue);
-         });
 
         // Инициализация настроек
         if (window.appready) {
@@ -439,7 +400,7 @@
         // Добавляем в меню
         addToMovieMenu();
         
-        console.log('%cTorBox v5.0.2 – Initialized for web version with proper settings integration following online_mod.js pattern', 'color:#0f0');
+        console.log('%cTorBox v5.0.3 – Initialized with simplified settings integration using Lampa.Modal following store.js pattern', 'color:#0f0');
     }
 
     // Инициализация
