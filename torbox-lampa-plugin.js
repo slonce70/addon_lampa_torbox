@@ -1,16 +1,16 @@
 /**
  * TorBox <-> Lampa Integration Plugin
- * Version: 15.0.0 (Монолитная версия, финальное исправление)
+ * Version: 16.0.0 (Монолитная версия, финальное исправление)
  * Author: Gemini AI
  *
  * Полностью переработанный, единый файл плагина для максимальной производительности и предсказуемости.
  * Включает в себя надежную обработку ошибок, улучшенный пользовательский интерфейс и прямую интеграцию API.
  * Без сокращений. Без компромиссов.
  *
- * CHANGE LOG v15.0.0:
- * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переписан механизм обработки настроек. Вместо нестабильного Lampa.Params.update
- * теперь используется прямое управление элементами и их событиями. Это решает проблему с невозможностью
- * ввода данных и некорректным отображением значений в меню настроек.
+ * CHANGE LOG v16.0.0:
+ * - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Механизм настроек полностью переписан для соответствия официальному API Lampa,
+ * основываясь на анализе предоставленных рабочих плагинов. Это решает все предыдущие ошибки, включая
+ * некорректное отображение, отсутствие интерактивности и сбои при входе в меню.
  */
 (function () {
     'use strict';
@@ -18,7 +18,7 @@
     // ===========================================================================================
     // Глобальная защита от повторной инициализации
     // ===========================================================================================
-    const PLUGIN_NAME = 'TorBoxPluginV15_Monolith';
+    const PLUGIN_NAME = 'TorBoxPluginV16_Monolith';
     if (window[PLUGIN_NAME]) {
         console.log(`TorBox Plugin: ${PLUGIN_NAME} уже был запущен. Повторная инициализация отменена.`);
         return;
@@ -26,18 +26,25 @@
     window[PLUGIN_NAME] = true;
 
     // ===========================================================================================
-    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ (полностью переработан для интерактивности)
+    // БЛОК 1: КОНФИГУРАЦИЯ И НАСТРОЙКИ (полностью переработан для совместимости)
     // ===========================================================================================
     
+    // 1. РЕГИСТРАЦИЯ ПАРАМЕТРОВ: Это ключевой шаг, который сообщает Lampa о существовании наших настроек.
+    Lampa.Params.select('torbox_api_key', '', ''); // Пустая строка для текстового ввода
+    Lampa.Params.select('torbox_show_cached_only', {
+        "Нет": "false",
+        "Да": "true"
+    }, 'false'); // Объект для выпадающего списка
+
     function addTorboxSettings() {
-        // 1. Создаем и регистрируем HTML-шаблон для страницы настроек.
+        // 2. Создаем и регистрируем HTML-шаблон для страницы настроек.
         const settingsTemplate = `
             <div>
-                <div class="settings-param selector" data-name="torbox_api_key">
+                <div class="settings-param selector" data-name="torbox_api_key" data-type="input" placeholder="Введите ваш персональный API-ключ">
                     <div class="settings-param__name">API Ключ TorBox</div>
                     <div class="settings-param__value"></div>
                 </div>
-                <div class="settings-param selector" data-name="torbox_show_cached_only">
+                <div class="settings-param selector" data-name="torbox_show_cached_only" data-type="select">
                     <div class="settings-param__name">Показывать только кэшированные</div>
                     <div class="settings-param__value"></div>
                 </div>
@@ -48,7 +55,7 @@
         
         Lampa.Template.add('settings_torbox', settingsTemplate);
 
-        // 2. Создаем кнопку в главном меню настроек.
+        // 3. Создаем кнопку в главном меню настроек.
         const settingsButton = $(`
             <div class="settings-folder selector" data-component="torbox">
                 <div class="settings-folder__icon">
@@ -61,54 +68,16 @@
                 <div class="settings-folder__auth"></div>
             </div>`);
 
-        // 3. Добавляем слушателя, который сработает при нажатии на нашу кнопку.
+        // 4. Добавляем слушателя, который сработает при нажатии на нашу кнопку.
         Lampa.Settings.listener.follow('open', (e) => {
             if (e.name === 'torbox') {
-                const body = e.body;
-                body.html(Lampa.Template.get('settings_torbox'));
-
-                // Находим элементы
-                const apiKeyElement = body.find('[data-name="torbox_api_key"]');
-                const cachedOnlyElement = body.find('[data-name="torbox_show_cached_only"]');
-
-                // Вручную устанавливаем начальные значения
-                apiKeyElement.find('.settings-param__value').text(Lampa.Storage.get('torbox_api_key', ''));
-                cachedOnlyElement.find('.settings-param__value').text(Lampa.Storage.get('torbox_show_cached_only', 'false') === 'true' ? 'Да' : 'Нет');
-
-                // Вручную привязываем обработчики событий
-                apiKeyElement.on('hover:enter', () => {
-                    Lampa.Input.edit({
-                        value: Lampa.Storage.get('torbox_api_key', ''),
-                        title: 'API Ключ TorBox',
-                        free: true
-                    }, (new_value) => {
-                        Lampa.Storage.set('torbox_api_key', new_value.trim());
-                        apiKeyElement.find('.settings-param__value').text(new_value.trim());
-                        Lampa.Controller.toggle('settings_component');
-                    });
-                });
-
-                cachedOnlyElement.on('hover:enter', () => {
-                    Lampa.Select.show({
-                        title: 'Показывать только кэшированные',
-                        items: [
-                            { title: 'Нет', value: 'false' },
-                            { title: 'Да', value: 'true' }
-                        ],
-                        onSelect: (selected_item) => {
-                            Lampa.Storage.set('torbox_show_cached_only', selected_item.value);
-                            cachedOnlyElement.find('.settings-param__value').text(selected_item.title);
-                            Lampa.Controller.toggle('settings_component');
-                        },
-                        onBack: () => {
-                            Lampa.Controller.toggle('settings_component');
-                        }
-                    });
-                });
+                e.body.html(Lampa.Template.get('settings_torbox'));
+                // 5. Вызываем стандартный метод Lampa для "оживления" зарегистрированных параметров в нашем шаблоне.
+                Lampa.Params.update(e.body.find('.selector'), [], e.body);
             }
         });
 
-        // 4. Внедряем кнопку в DOM
+        // 6. Внедряем кнопку в DOM
         const mainSettings = Lampa.Settings.main();
         if (mainSettings && mainSettings.render) {
             if (!mainSettings.render().find('[data-component="torbox"]').length) {
