@@ -94,14 +94,25 @@
       return wrap;
     };
 
-    Lampa.Settings.listener.follow("open", ({ name }) => {
+    /* надёжно подключаемся к событию открытия настроек */
+    const onOpen = ({ name }) => {
       if (name !== "torbox") return;
       const body = $(".settings-body").empty();
       body.append("<div class=\"settings-param__title\">TorBox</div>")
         .append(mk("API‑ключ", "ey…", S.API_KEY))
         .append(mk("Прокси‑URL (optional)", "https://proxy.example.com", S.PROXY))
         .append(mk("Только ⚡кэшированные", "", S.CACHED_ONLY, "checkbox"));
-    });
+    };
+
+    if (Lampa.Settings && Lampa.Settings.listener && typeof Lampa.Settings.listener.follow === "function") {
+      Lampa.Settings.listener.follow("open", onOpen);
+    } else if (Lampa.Settings && typeof Lampa.Settings.on === "function") {
+      /* некоторые сборки экспортируют .on() вместо .listener.follow */
+      Lampa.Settings.on("open", onOpen);
+    } else if (Lampa.Listener && typeof Lampa.Listener.follow === "function") {
+      /* fallback на глобальный Listener */
+      Lampa.Listener.follow("settings", onOpen);
+    }
 
     /* Добавляем пункт в боковое меню настроек.
        В старых версиях Lampa есть Settings.add(), в новых — Settings.menu() */
