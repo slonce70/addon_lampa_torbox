@@ -79,12 +79,17 @@
   /* ********** Settings page ********** */
   function injectSettings() {
     if (injectSettings.done) return; injectSettings.done = true;
-    const mk = (label, field, key, type = "text") => {
-      const wrap = $("<div class=\"settings-param\"></div>");
-      wrap.append(`<div class=\"settings-param__name\">${label}</div>`);
-      const inp = type === "checkbox" ? $("<input type=checkbox>") : $(`<input type=text placeholder='${field}'>`);
-      if (type === "checkbox") inp.prop("checked", !!Lampa.Storage.get(key, false)); else inp.val(Lampa.Storage.get(key, ""));
-      inp.on(type === "checkbox" ? "change" : "input", () => Lampa.Storage.set(key, type === "checkbox" ? inp.is(":checked") : inp.val().trim()));
+    const mk = (label, placeholder, key, type = "text") => {
+      const wrap = $(`<div class="settings-param"></div>`);
+      wrap.append(`<div class="settings-param__name">${label}</div>`);
+      let inp;
+      if (type === "checkbox") {
+        inp = $("<input type=checkbox>").prop("checked", !!Lampa.Storage.get(key, false));
+        inp.on("change", () => Lampa.Storage.set(key, inp.is(":checked")));
+      } else {
+        inp = $(`<input type=text placeholder='${placeholder}'>`).val(Lampa.Storage.get(key, ""));
+        inp.on("input", () => Lampa.Storage.set(key, inp.val().trim()));
+      }
       wrap.append(inp);
       return wrap;
     };
@@ -98,7 +103,14 @@
         .append(mk("Только ⚡кэшированные", "", S.CACHED_ONLY, "checkbox"));
     });
 
-    Lampa.Settings.add({ name: "torbox", title: "TorBox", icon: "fa-cloud-bolt" });
+    /* Добавляем пункт в боковое меню настроек.
+       В старых версиях Lampa есть Settings.add(), в новых — Settings.menu() */
+    if (Lampa.Settings && typeof Lampa.Settings.add === "function") {
+      Lampa.Settings.add({ name: "torbox", title: "TorBox", icon: "fa-cloud-bolt" });
+    } else if (Lampa.Settings && typeof Lampa.Settings.menu === "function") {
+      /* v2.4.4+ */
+      Lampa.Settings.menu().push({ name: "torbox", title: "TorBox", icon: "fa-cloud-bolt" });
+    }
   }
 
   /* ********** Source registration ********** */
