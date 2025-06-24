@@ -1,7 +1,7 @@
 /*
  * TorBox Enhanced – Universal Lampa Plugin v3.5.0 (2025-06-26)
  * ============================================================
- * • Пошук: btm.tools (cors → thingproxy) → api.sumanjay.cf → TorBox native.
+ * • Пошук: btm.tools (cors → thingproxy) → api.sumanjay.cf → apibay → TorBox native.
  * • Флаги «Тільки кеш» / Debug зберігаються як "1" / "0".
  * • Стабільний fallback — помилки 530 / 525 більше не ламають плагін.
  */
@@ -127,6 +127,23 @@
           };
         }
       } catch (e) { LOG('sumanjay', e); }
+
+      /* 5️⃣ apibay.org (публічний) */
+      try {
+        const res = await ok(await fetchWithTimeout(CORS(`https://apibay.org/q.php?q=${safe}`)));
+        if (Array.isArray(res) && res.length > 0 && !res.error) {
+          return {
+            torrents: res.map(t => ({
+              name   : t.name,
+              magnet : `magnet:?xt=urn:btih:${t.info_hash}&dn=${encodeURIComponent(t.name)}`,
+              seeders: +t.seeders || 0,
+              size   : +t.size || 0,
+              cached : false
+            }))
+          };
+        }
+      }
+      catch (e) { LOG('apibay', e); }
 
       throw new Error('TorBox: усі джерела пошуку недоступні');
     },
