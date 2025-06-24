@@ -1,19 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.5.1 (2025-06-26)
+ * TorBox Enhanced – Universal Lampa Plugin v3.5.2 (2025-06-27)
  * ============================================================
- * • Пошук: btm.tools (cors → thingproxy) → api.sumanjay.cf → TorBox native.
- * • Флаги «Тільки кеш» / Debug зберігаються як "1" / "0".
- * • Стабільний fallback — помилки 530 / 525 більше не ламають плагін.
- * • FIX: Виправлено критичну помилку фільтрації відеофайлів (regex).
- * • IMPROVE: Покращено обробку помилок API та надійність парсингу.
- * • FEATURE: Додано відображення якості (4K, 1080p) у головний список торентів.
+ * • FIX: Повністю перероблено мережеву логіку для обходу CORS.
+ * • FIX: Усі запити (включно з нативним API) тепер йдуть через проксі.
+ * • FEATURE: Впроваджено систему ротації CORS-проксі для підвищення надійності.
+ * • FEATURE: Покращено діагностику помилок, особливо для невірного API-ключа (401).
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v3_5_1'; // Updated version
+  const PLUGIN_ID = 'torbox_enhanced_v3_5_2';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -38,95 +36,104 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-  const CORS =  u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`;
-  const CORS2 = u => `https://thingproxy.freeboard.io/fetch/${u}`;
-  const ok   = async r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };
-  const ql   = n => {
+
+  /* ───── NEW: Resilient Proxy System ───── */
+  const PROXIES = [
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+  ];
+
+  let currentProxyIndex = 0;
+
+  async function proxiedFetch(url, options = {}) {
+    for (let i = 0; i < PROXIES.length; i++) {
+      const proxyIndex = (currentProxyIndex + i) % PROXIES.length;
+      const proxy = PROXIES[proxyIndex];
+      const proxiedUrl = proxy(url);
+      LOG(`Trying fetch via proxy #${proxyIndex}: ${proxiedUrl}`);
+      try {
+        const response = await fetch(proxiedUrl, options);
+        if (!response.ok) {
+            if (response.status >= 500 && response.status <= 599) {
+                throw new Error(`Proxy returned HTTP ${response.status}`);
+            }
+            return response;
+        }
+        currentProxyIndex = proxyIndex;
+        return response;
+      } catch (e) {
+        LOG(`Proxy #${proxyIndex} failed:`, e.message);
+      }
+    }
+    throw new Error('Усі CORS-проксі недоступні.');
+  }
+
+  const ok = async r => {
+    if (r.status === 401) throw new Error('API-ключ недійсний або відсутній. Перевірте налаштування.');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json().catch(() => ({}));
+  };
+
+  const ql = n => {
     if (!n) return '';
     const name = n.toLowerCase();
     if (/(2160|4k|uhd)/.test(name)) return '4K';
-    if (/1080/.test(name))      return '1080p';
-    if (/720/.test(name))       return '720p';
+    if (/1080/.test(name)) return '1080p';
+    if (/720/.test(name)) return '720p';
     return '';
   };
 
-  /* ───── TorBox API wrapper ───── */
+  /* ───── TorBox API wrapper (now with proxies) ───── */
   const API = {
     MAIN: 'https://api.torbox.app/v1/api',
 
     async search(term) {
       const safe = encodeURIComponent(term).replace(/%3A/ig, ':');
-      const qp   = 'metadata=true&search_user_engines=true';
+      const qp = 'metadata=true&search_user_engines=true';
 
-      /* 1️⃣ btm.tools → corsproxy */
       try {
-        LOG('Trying btm.tools via corsproxy...');
-        const res = await ok(await fetch(CORS(`https://btm.tools/api/torrents/search/${safe}?${qp}`)));
+        const res = await proxiedFetch(`https://btm.tools/api/torrents/search/${safe}?${qp}`).then(ok);
         if (res && Array.isArray(res.data?.torrents)) return res.data.torrents;
-        LOG('btm corsproxy response is not valid', res);
-      }
-      catch (e) { LOG('btm corsproxy failed', e); }
+      } catch (e) { LOG('btm.tools failed:', e.message); }
 
-      /* 2️⃣ btm.tools → thingproxy */
       try {
-        LOG('Trying btm.tools via thingproxy...');
-        const res = await ok(await fetch(CORS2(`https://btm.tools/api/torrents/search/${safe}?${qp}`)));
-        if (res && Array.isArray(res.data?.torrents)) return res.data.torrents;
-        LOG('btm thingproxy response is not valid', res);
-      }
-      catch (e) { LOG('btm thingproxy failed', e); }
-
-      /* 3️⃣ api.sumanjay.cf (публічний) */
-      try {
-        LOG('Trying api.sumanjay.cf...');
-        const res = await ok(await fetch(CORS(`https://api.sumanjay.cf/torrent/?query=${safe}`)));
+        const res = await proxiedFetch(`https://api.sumanjay.cf/torrent/?query=${safe}`).then(ok);
         if (res && Array.isArray(res)) {
-            return res.map(t => ({
-                name   : t.name,
-                magnet : t.magnet,
-                seeders: +t.seeders || 0,
-                size   : parseFloat(t.size) * 1024 * 1024 * 1024 || 0,
-                cached : false // This API doesn't provide cache status
-            }));
+            return res.map(t => ({ name: t.name, magnet: t.magnet, seeders: +t.seeders || 0, size: parseFloat(t.size) * 1024 * 1024 * 1024 || 0, cached: false }));
         }
-        LOG('sumanjay response is not valid', res);
-      } catch (e) { LOG('sumanjay failed', e); }
+      } catch (e) { LOG('sumanjay.cf failed:', e.message); }
 
-      /* 4️⃣ Вбудований пошук TorBox (потрібен API-Key) */
       const key = Store.get('torbox_api_key', '');
       if (key) {
         try {
-          LOG('Trying TorBox native search...');
-          const r = await fetch(`${this.MAIN}/torrents/search/${safe}`, {
-            headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }
-          });
-          const res = await ok(r);
-          if (res && Array.isArray(res.data?.torrents)) return res.data.torrents;
-          LOG('TorBox native response is not valid', res);
-        } catch (e) { LOG('TorBox native failed', e); }
+          const res = await this.main('/torrents/search/' + safe);
+          return res.data?.torrents || [];
+        } catch (e) {
+            LOG('TorBox native search failed:', e.message);
+            throw e;
+        }
       }
 
-      throw new Error('Усі джерела пошуку недоступні або не повернули результатів.');
+      throw new Error('Усі джерела пошуку недоступні.');
     },
 
     async main(path, body = {}, method = 'GET') {
       const key = Store.get('torbox_api_key', '');
-      if (!key) throw new Error('API-Key для TorBox не вказано у налаштуваннях.');
+      if (!key) throw new Error('API-Key для TorBox не вказано.');
 
       let url = `${this.MAIN}${path}`;
       const opt = { method, headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } };
 
-      if (method === 'GET' && Object.keys(body).length)
+      if (method === 'GET' && Object.keys(body).length) {
         url += '?' + new URLSearchParams(body).toString();
-      else if (method !== 'GET') {
+      } else if (method !== 'GET') {
         opt.headers['Content-Type'] = 'application/json';
         opt.body = JSON.stringify(body);
       }
 
-      const r = await fetch(url, opt);
-      const j = await r.json().catch(() => ({})); // Avoid crash on empty/invalid JSON
-      if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`);
-      return j;
+      const response = await proxiedFetch(url, opt);
+      return await ok(response);
     },
 
     addMagnet(m)  { return this.main('/torrents/createtorrent', { magnet: m }, 'POST'); },
@@ -153,21 +160,17 @@
 
       const items = showList
         .sort((a,b) => (b.seeders || 0) - (a.seeders || 0))
-        .map(t => {
-          const quality = ql(t.name || t.title);
-          const sizeGB = (t.size / 2**30).toFixed(2);
-          return {
-            title   : `${t.cached ? '⚡' : '☁️'} ${t.name || t.title}`,
-            subtitle: `[${quality}] ${sizeGB} GB | 🟢 ${t.seeders || 0}`,
-            torrent : t
-          };
-        });
+        .map(t => ({
+            title: `${t.cached ? '⚡' : '☁️'} ${t.name || t.title}`,
+            subtitle: `[${ql(t.name || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.seeders || 0}`,
+            torrent: t
+        }));
 
       Lampa.Select.show({
-        title   : 'TorBox',
+        title: 'TorBox',
         items,
         onSelect: i => handleTorrent(i.torrent, movie),
-        onBack  : () => Lampa.Controller.toggle('content')
+        onBack: () => Lampa.Controller.toggle('content')
       });
     } catch (e) {
       LOG('SearchAndShow Error:', e);
@@ -182,33 +185,25 @@
     try {
       if (t.cached) {
         const files = await API.files(t.id);
-        // CRITICAL FIX: The regex was wrong. `\\.` should be `\.` inside a regex literal.
         const vids  = files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
 
-        if (!vids.length) {
-          Lampa.Noty.show('Відеофайли в цьому торенті не знайдено.');
-          return;
-        }
+        if (!vids.length) { Lampa.Noty.show('Відеофайли не знайдено.'); return; }
+        if (vids.length === 1) { play(t.id, vids[0], movie); return; }
 
-        if (vids.length === 1) {
-          play(t.id, vids[0], movie);
-          return;
-        }
-
-        vids.sort((a,b) => b.size - a.size); // IMPROVEMENT: Sort by size descending, largest is likely main file.
+        vids.sort((a,b) => b.size - a.size);
         Lampa.Select.show({
-          title   : 'TorBox: вибір файлу',
-          items   : vids.map(f => ({
-            title   : f.name,
+          title: 'TorBox: вибір файлу',
+          items: vids.map(f => ({
+            title: f.name,
             subtitle: `${(f.size/2**30).toFixed(2)} GB | ${ql(f.name)}`,
-            file    : f
+            file: f
           })),
           onSelect: i => play(t.id, i.file, movie),
-          onBack  : () => searchAndShow(movie)
+          onBack: () => searchAndShow(movie)
         });
       } else {
         await API.addMagnet(t.magnet);
-        Lampa.Noty.show('Надіслано в TorBox. Очікуйте на завершення завантаження.');
+        Lampa.Noty.show('Надіслано в TorBox. Очікуйте на кешування.');
       }
     } catch (e) {
       LOG('HandleTorrent Error:', e);
@@ -222,13 +217,9 @@
     Lampa.Loading.start('TorBox: отримання посилання…');
     try {
       const url = await API.dl(tid, file.id);
-      if (!url) throw new Error('Не вдалося отримати посилання на файл.');
+      if (!url) throw new Error('Не вдалося отримати посилання.');
 
-      Lampa.Player.play({
-        url,
-        title: file.name || movie.title,
-        poster: movie.img
-      });
+      Lampa.Player.play({ url, title: file.name || movie.title, poster: movie.img });
       Lampa.Player.callback(Lampa.Activity.backward);
     } catch (e) {
       LOG('Play Error:', e);
@@ -256,11 +247,11 @@
       param    : { name: p.k, type: p.t, values: '', default: p.def },
       field    : { name: p.n, description: p.d },
       onChange : v => {
-        const value = typeof v === 'object' ? v.value : v; // Handle Lampa's inconsistent onChange value
+        const value = typeof v === 'object' ? v.value : v;
         if (p.k === 'torbox_api_key')     Store.set(p.k, String(value).trim());
         if (p.k === 'torbox_cached_only') CFG.cachedOnly = Boolean(value);
         if (p.k === 'torbox_debug')       CFG.debug = Boolean(value);
-        Lampa.Settings.update();
+        if (Lampa.Settings) Lampa.Settings.update();
       }
     }));
   }
@@ -285,7 +276,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v3.5.1 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v3.5.2 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
@@ -295,4 +286,5 @@
     }
     setTimeout(bootLoop, STEP);
   })();
+
 })();
