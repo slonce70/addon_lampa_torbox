@@ -7,11 +7,11 @@
      * • Registers a new source „TorBox“
      * • Adds a settings page & 24h search-cache
      * • Streams cached torrents directly, non-cached are added to downloads
-     * @version 2.0.0
+     * @version 2.1.0 - With robust source registration
      * @author GOD MODE
      */
 
-    const PLUGIN_NS = "torbox_lampa_plugin_v2_ready";
+    const PLUGIN_NS = "torbox_lampa_plugin_v2_1_ready";
     if (window[PLUGIN_NS]) return; // Protect from double-load
     window[PLUGIN_NS] = true;
 
@@ -22,10 +22,11 @@
         CACHED_ONLY: "torbox_show_cached_only",
     };
 
+    // Note: Using relative paths for proxy. Proxy URL should be the base path to TorBox API.
     const EP = {
-        SEARCH: "/torrents/search/", // Note: Using relative paths for proxy
+        SEARCH: "/torrents/search/",
         ADD: "/torrents/createtorrent",
-        DETAILS: "/torrents/mylist?id=", // Torbox API uses mylist with an ID to get details
+        DETAILS: "/torrents/mylist?id=",
         DOWNLOAD: "/torrents/requestdl"
     };
 
@@ -58,9 +59,6 @@
             this.loadSettings();
         }
 
-        /**
-         * Loads settings from Lampa's storage.
-         */
         loadSettings() {
             this.settings.api_key = Lampa.Storage.get(S.API_KEY, '');
             let proxy = Lampa.Storage.get(S.PROXY, '');
@@ -70,84 +68,93 @@
             this.settings.proxy_url = proxy;
         }
 
-        /**
-         * The main initialization method for the plugin.
-         */
         init() {
             // Register this class as a Lampa component
             Lampa.Component.add('torbox_parser', this);
-
-            // Add the filter (source) to the Lampa interface
+            
+            // --- Reliable source registration ---
+            // Different Lampa builds use different APIs for this.
+            // We will try them all to ensure maximum compatibility.
             const filter = {
                 title: 'TorBox',
                 name: 'torbox_parser',
-                wait: true // Tell Lampa our parser is asynchronous
+                wait: true
             };
-            if(Lampa.Filter) {
-                Lampa.Filter.add('torrents', filter);
-            } else if (Lampa.Sources) {
-                Lampa.Sources.add(filter);
+    
+            let registered = false;
+            try {
+                if (typeof Lampa.Filter?.add === 'function') {
+                    Lampa.Filter.add('torrents', filter);
+                    registered = true;
+                    console.log('TorBox: Registered with Lampa.Filter.add');
+                } else if (typeof Lampa.Source?.add === 'function') {
+                    Lampa.Source.add('torbox', filter); // Some versions require a name here
+                    registered = true;
+                    console.log('TorBox: Registered with Lampa.Source.add');
+                } else if (typeof Lampa.Sources?.add === 'function') {
+                    Lampa.Sources.add(filter);
+                    registered = true;
+                    console.log('TorBox: Registered with Lampa.Sources.add');
+                }
+            } catch(e) {
+                console.error("TorBox Plugin: Registration error", e);
             }
+    
+            if (!registered) {
+                console.error('TorBox Plugin: Could not find a valid method to register the source (Lampa.Filter.add, Lampa.Source.add, Lampa.Sources.add are all missing).');
+                Lampa.Noty.show('TorBox: Incompatible Lampa version.', { type: 'error' });
+            }
+            // --- End of registration block ---
 
             // Inject the settings panel
             this.addSettingsPanel();
         }
 
-        /**
-         * Centralized method for making API calls to Torbox via the proxy.
-         * @param {string} endpoint - The key for the endpoint from the EP object.
-         * @param {object} params - Request parameters (query for GET, body for POST).
-         * @param {string} method - HTTP method ('GET' or 'POST').
-         * @param {string} path_param - Additional path parameter (e.g., torrent ID).
-         * @returns {Promise<object>} - A promise that resolves with the API response.
-         */
-        async apiCall(endpoint, params = {}, method = 'GET', path_param = '') {
+        async apiCall(endpointKey, params = {}, method = 'GET', path_param = '') {
             this.loadSettings();
             if (!this.settings.api_key || !this.settings.proxy_url) {
                 return Promise.reject('TorBox API Key and Proxy URL must be set.');
             }
+            
+            const real_api_host = 'https://api.torbox.app/v1/api';
+            const search_api_host = 'https://search-api.torbox.app';
+            
+            const isSearch = ['SEARCH'].includes(endpointKey);
+            const base_url = isSearch ? search_api_host : real_api_host;
 
-            let url = this.settings.proxy_url + EP[endpoint] + path_param;
+            const final_url = this.settings.proxy_url + base_url.replace(/^https?:\/\//, '') + EP[endpointKey] + path_param;
+
             const options = {
                 headers: { 'x-api-key': this.settings.api_key },
-                timeout: 20000, // 20 seconds
+                timeout: 20000,
             };
 
             if (method.toUpperCase() === 'GET') {
                 if (Object.keys(params).length > 0) {
-                    url += (url.includes('?') ? '&' : '?') + new URLSearchParams(params).toString();
+                     url += (url.includes('?') ? '&' : '?') + new URLSearchParams(params).toString();
                 }
             } else { // POST
                 options.method = 'POST';
                 options.body = JSON.stringify(params);
                 options.headers['Content-Type'] = 'application/json';
             }
-
-            try {
-                const response = await fetch(url, options);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
-                }
-                const data = await response.json();
+             
+            // Using Lampa's built-in network wrapper
+            return new Promise((resolve, reject) => {
+                 Lampa.Network.native(final_url, resolve, reject, options);
+            }).then(JSON.parse).then(data => {
                 if (data.success === false) {
                     throw new Error(data.error || data.detail || 'Unknown API error');
                 }
                 return data;
-            } catch (error) {
-                console.error("TorBox API Call Failed:", error);
-                throw error;
-            }
+            }).catch(err => {
+                 console.error("TorBox API Call Failed:", err);
+                 throw err;
+            });
         }
 
-        /**
-         * Method called by Lampa to start the search.
-         * @param {object} movie - Movie information object (title, year, imdb_id).
-         * @param {function} on_data - Callback to return results.
-         */
         async start(movie, on_data) {
             const query = movie.imdb_id ? `imdb:${movie.imdb_id}` : `${movie.title} ${movie.year || ''}`.trim();
-
             const cached = SearchCache.get(query);
             if (cached) {
                 on_data(cached);
@@ -155,7 +162,6 @@
             }
 
             try {
-                // The search API from jittarao/torbox-app is a GET request with the query in the path
                 const searchPath = encodeURIComponent(query);
                 const response = await this.apiCall('SEARCH', { metadata: 1, check_cache: 1, check_owned: 1 }, 'GET', searchPath);
 
@@ -164,23 +170,17 @@
                     SearchCache.set(query, torrents);
                     on_data(torrents);
                 } else {
-                    on_data([]); // Return empty array if no torrents found
+                    on_data([]);
                 }
             } catch (error) {
                 Lampa.Noty.show(error.toString(), { type: 'error' });
-                on_data([]); // Return empty array on error
+                on_data([]);
             }
         }
         
-        /**
-         * Lampa's entry point for handling a user's selection.
-         * @param {object} torrent_data - Data of the selected torrent.
-         * @param {function} call_callback - Callback to start the player.
-         */
         async select(torrent_data, call_callback) {
             Lampa.Controller.loading(true);
             try {
-                // Scenario dispatcher
                 if (torrent_data._torbox.cached || torrent_data._torbox.owned) {
                     await this.playCachedTorrent(torrent_data, call_callback);
                 } else {
@@ -193,11 +193,6 @@
             }
         }
 
-        /**
-         * Processes search results and formats them for display in Lampa.
-         * @param {Array} torrents - Array of torrents from the API.
-         * @returns {Array} - Formatted array for Lampa.
-         */
         processResults(torrents) {
             if (Lampa.Storage.get(S.CACHED_ONLY, false)) {
                 torrents = torrents.filter(t => t.cached);
@@ -208,7 +203,6 @@
                 quality: torrent.resolution || torrent.quality || "—",
                 size: torrent.size,
                 magnet: torrent.magnet,
-                // Custom data for further processing
                 _torbox: {
                     id: torrent.id,
                     cached: !!torrent.cached,
@@ -217,9 +211,6 @@
             }));
         }
 
-        /**
-         * Logic for playing a cached torrent.
-         */
         async playCachedTorrent(torrent_data, call_callback) {
             Lampa.Noty.show('Requesting files from cache...');
             const torrent_details = await this.apiCall('DETAILS', {}, 'GET', torrent_data._torbox.id);
@@ -229,12 +220,17 @@
             }
 
             const files = torrent_details.data.files
-                .filter(f => /\.(mkv|mp4|avi)$/i.test(f.name))
+                .filter(f => /\.(mkv|mp4|avi|mov|wmv|flv)$/i.test(f.name))
                 .map(file => ({
                     title: file.name,
                     size: file.size,
+                    info: `${(file.size / (1024**3)).toFixed(2)} GB`,
                     _torbox_file_id: file.id
                 })).sort((a, b) => b.size - a.size);
+
+            if (files.length === 0) {
+                throw new Error('No video files found in this torrent.');
+            }
 
             if (files.length === 1) {
                 await this.getStreamAndPlay(torrent_data._torbox.id, files[0]._torbox_file_id, call_callback);
@@ -243,21 +239,13 @@
                     title: 'Select a file to play',
                     items: files,
                     onSelect: async (selected_file) => {
-                        Lampa.Controller.loading(true);
-                        try {
-                            await this.getStreamAndPlay(torrent_data._torbox.id, selected_file._torbox_file_id, call_callback);
-                        } finally {
-                            Lampa.Controller.loading(false);
-                        }
+                        await this.getStreamAndPlay(torrent_data._torbox.id, selected_file._torbox_file_id, call_callback);
                     },
                     onBack: () => Lampa.Controller.toggle('content')
                 });
             }
         }
 
-        /**
-         * Logic for adding a non-cached torrent to downloads.
-         */
         async addTorrentToDownloads(torrent_data) {
             Lampa.Noty.show('Adding to TorBox downloads...');
             const response = await this.apiCall('ADD', { magnet: torrent_data.magnet }, 'POST');
@@ -269,22 +257,21 @@
             Lampa.Controller.toggle('content');
         }
 
-        /**
-         * Gets the stream link and passes it to the player.
-         */
         async getStreamAndPlay(torrent_id, file_id, call_callback) {
-            Lampa.Noty.show('Requesting stream link...');
-            const response = await this.apiCall('DOWNLOAD', { torrent_id, file_id });
-            if (response.success && response.data) {
-                call_callback({ url: response.data });
-            } else {
-                throw new Error('Failed to get stream link.');
-            }
+             Lampa.Controller.loading(true);
+             Lampa.Noty.show('Requesting stream link...');
+             try {
+                const response = await this.apiCall('DOWNLOAD', { torrent_id, file_id });
+                if (response.success && response.data) {
+                    call_callback({ url: response.data });
+                } else {
+                    throw new Error('Failed to get stream link.');
+                }
+             } finally {
+                Lampa.Controller.loading(false);
+             }
         }
 
-        /**
-         * Adds the settings panel for the plugin.
-         */
         addSettingsPanel() {
             const onOpen = ({ name }) => {
                 if (name !== "torbox") return;
@@ -323,7 +310,7 @@
                 }
 
                 addInput("API Key", "Required. Your key from torbox.app.", S.API_KEY);
-                addInput("Proxy URL", "Required. Your CORS-proxy server address.", S.PROXY);
+                addInput("Proxy URL", "Required. Base URL of TorBox API (e.g., https://api.torbox.app/v1/api)", S.PROXY);
                 addCheckbox("Show cached only", S.CACHED_ONLY);
             };
 
@@ -331,7 +318,6 @@
                 if (type === "open") onOpen(object);
             });
             
-            // Add the menu item
             if(Lampa.Settings.main) {
                 Lampa.Settings.main().add({
                     title: 'TorBox',
@@ -343,7 +329,6 @@
         }
     }
 
-    // Initialize the plugin once Lampa is ready
     function initializePlugin() {
         if (window.appready) {
             new TorBoxPlugin().init();
