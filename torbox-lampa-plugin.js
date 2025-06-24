@@ -1,6 +1,6 @@
 /**
  * TorBox ↔ Lampa integration plugin
- * Version 4.3.0 – API‑agnostic patch
+ * Version 4.3.1 – API‑agnostic patch
  *
  * Changelog vs 4.2:
  *  • Safeguard: gracefully skips Settings panel if <code>Lampa.Settings.add</code> is absent.<br>
@@ -100,34 +100,60 @@
         back(){ Lampa.Controller.toggle?.('content'); }
     };
 
-    /* ---------- SETTINGS PANEL (optional) ---------- */
-    function injectSettings(){
-        /* If Settings API absent – silently skip. */
-        if (typeof Lampa?.Settings?.add !== 'function') { console.warn('[TorBox] Settings panel skipped – API absent'); return; }
-        if (injectSettings.done) return; injectSettings.done = true;
+    /* ---------- SETTINGS PANEL (with fallback) ---------- */
+    function buildUI(body){
+        const addInput=(label,key,ph='')=>{
+            const cur=Lampa.Storage.get?.(key,'')??'';
+            const $i=$(`<div class="settings-param selector"><div class="settings-param__name">${label}</div><div class="settings-param__value">${cur||'—'}</div><div class="settings-param__descr">${ph}</div></div>`);
+            $i.on('hover:enter',()=>{
+                Lampa.Settings?.pget?$i:Lampa.Settings.pget($i,key,(val)=>{
+                    Lampa.Storage.set?.(key,val.trim());
+                    $i.find('.settings-param__value').text(val.trim()||'—');
+                },cur);
+            });
+            body.append($i);
+        };
+        const addCheck=(label,key)=>{
+            const val=Lampa.Storage.get?.(key,false)??false;
+            const $c=$(`<div class="settings-param-checkbox selector"><div class="settings-param-checkbox__body"><div class="settings-param-checkbox__name">${label}</div><div class="settings-param-checkbox__value"></div></div></div>`);
+            const chk=Lampa.Utils?.check?$c:Lampa.Utils.check($c.find('.settings-param-checkbox__value'),val);
+            chk?.on('change',(_,st)=>Lampa.Storage.set?.(key,st));
+            body.append($c);
+        };
+        body.append('<div class="settings-param__title">TorBox</div>');
+        addInput('API Key',S.API_KEY,'Your key from torbox.app');
+        addInput('Proxy URL',S.PROXY_URL,'e.g., https://proxy.cors.sh');
+        addCheck('Show cached only',S.CACHED_ONLY);
+        Lampa.Scroll.update?.(body);
+    }
 
-        Lampa.Settings.add({ name:'torbox_settings', title:'TorBox', icon:'fa-cloud-bolt' });
+    function injectSettings(){
+        if(injectSettings.done) return; injectSettings.done=true;
+        const hasAdd = typeof Lampa?.Settings?.add==='function';
+
+        if(hasAdd){
+            /* Dedicated TorBox section */
+            Lampa.Settings.add({ name:'torbox_settings', title:'TorBox', icon:'fa-cloud-bolt' });
+            Lampa.Listener.follow('settings',(e)=>{
+                if(e.type==='open' && e.name==='torbox_settings'){
+                    e.body.empty();
+                    buildUI(e.body);
+                }
+            });
+            return;
+        }
+
+        console.warn('[TorBox] Settings.add not found – injecting into "extensions" panel');
+        /* fallback: reuse existing category(s) */
         Lampa.Listener.follow('settings',(e)=>{
-            if(e.type!=='open'||e.name!=='torbox_settings') return;
-            e.body.empty();
-            const addInput=(label,key,ph='')=>{
-                const cur=Lampa.Storage.get?.(key,'')??'';
-                const $i=$(`<div class="settings-param selector"><div class="settings-param__name">${label}</div><div class="settings-param__value">${cur}</div><div class="settings-param__descr">${ph}</div></div>`);
-                $i.on('hover:enter',()=>{ Lampa.Settings.pget?.($i,key,(val)=>{Lampa.Storage.set?.(key,val.trim());$i.find('.settings-param__value').text(val.trim()||'—');},cur); });
-                e.body.append($i);
-            };
-            const addCheck=(label,key)=>{
-                const v=Lampa.Storage.get?.(key,false)??false;
-                const $c=$(`<div class="settings-param-checkbox selector"><div class="settings-param-checkbox__body"><div class="settings-param-checkbox__name">${label}</div><div class="settings-param-checkbox__value"></div></div></div>`);
-                const chk=Lampa.Utils.check?.($c.find('.settings-param-checkbox__value'),v);
-                chk?.on('change',(_,st)=>Lampa.Storage.set?.(key,st));
-                e.body.append($c);
-            };
-            e.body.append('<div class="settings-param__title">TorBox</div>');
-            addInput('API Key',S.API_KEY,'Your key from torbox.app');
-            addInput('Proxy URL',S.PROXY_URL,'e.g., https://proxy.cors.sh');
-            addCheck('Show cached only',S.CACHED_ONLY);
-            Lampa.Scroll.update?.(e.body);
+            if(e.type!=='open') return;
+            if(['extensions','parser','other'].includes(e.name)){
+                /* insert only once per open */
+                if(e.body.find('[data-torbox-settings]').length) return;
+                const wrap=$('<div data-torbox-settings></div>');
+                buildUI(wrap);
+                e.body.append(wrap);
+            }
         });
     }
 
