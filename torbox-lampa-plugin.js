@@ -1,16 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v4.0.0 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v5.0.0 (2025-06-27)
  * ============================================================
- * • FINAL SOLUTION: Використовується персональний CORS-проксі для максимальної надійності.
- * • STABILITY: Повністю усунено залежність від ненадійних публічних проксі-серверів.
- * • INSTRUCTIONS: Для роботи потрібен власний проксі, розгорнутий на Cloudflare Workers.
+ * • FINAL ARCHITECTURE: Повністю перероблено логіку пошуку на правильний 2-кроковий процес.
+ * • STEP 1: Отримання 'globalID' з metadata.torbox.app (без ключа).
+ * • STEP 2: Отримання торентів за 'globalID' з api.torbox.app (з ключем).
+ * • STABILITY: Це архітектурно правильне рішення, що відповідає роботі tbm.tools.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v4_0_0';
+  const PLUGIN_ID = 'torbox_enhanced_v5_0_0';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -38,9 +39,9 @@
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
   
-  const processResponse = async r => {
+  const processResponse = async (r, url) => {
     if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, оновіть його.');
-    if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status} для ${url}`);
     const text = await r.text();
     try { return JSON.parse(text); } catch (e) {
         LOG('Invalid JSON response:', text);
@@ -57,60 +58,85 @@
     return '';
   };
 
-  /* ───── TorBox API wrapper ───── */
+  /* ───── TorBox API wrapper (Correct 2-Step Logic) ───── */
   const API = {
-    BASE: 'https://api.torbox.app/v1/api',
+    METADATA_API: 'https://metadata.torbox.app/api/metadata',
+    TORRENT_API: 'https://api.torbox.app/v1/api',
 
-    async call(path, body = {}, method = 'GET') {
-      const proxy = CFG.proxyUrl;
-      if (!proxy) throw new Error('URL вашого персонального проксі не вказано в налаштуваннях.');
-
-      const key = Store.get('torbox_api_key', '');
-      if (!key) throw new Error('API-Key не вказано.');
-
-      let targetUrl = `${this.BASE}${path}`;
-      const options = {
-        method,
-        headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
-      };
-
-      if (method !== 'GET') {
-        options.headers['Content-Type'] = 'application/json';
-        options.body = JSON.stringify(body);
-      } else if (Object.keys(body).length) {
-        targetUrl += '?' + new URLSearchParams(body).toString();
-      }
-      
-      const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-      LOG(`Calling via YOUR proxy: ${proxiedUrl}`);
-
-      const response = await fetch(proxiedUrl, options);
-      return await processResponse(response);
+    async proxiedCall(targetUrl, options = {}) {
+        const proxy = CFG.proxyUrl;
+        if (!proxy) throw new Error('URL вашого персонального проксі не вказано в налаштуваннях.');
+        const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
+        LOG(`Calling via proxy: ${targetUrl}`);
+        const response = await fetch(proxiedUrl, options);
+        return await processResponse(response, targetUrl);
     },
 
-    async search(term) {
-      const safeTerm = encodeURIComponent(term).replace(/%3A/ig, ':');
-      const res = await this.call(`/torrents/search/${safeTerm}`);
-      return res.data?.torrents || [];
+    async getGlobalId(imdbId) {
+        const url = `${this.METADATA_API}/search/${imdbId}`;
+        const res = await this.proxiedCall(url); // No key needed
+        if (!res.success || !res.data?.globalID) {
+            throw new Error('Не вдалося знайти метадані для цього фільму.');
+        }
+        LOG(`Received globalID: ${res.data.globalID}`);
+        return res.data.globalID;
     },
-    addMagnet(m)  { return this.call('/torrents/createtorrent', { magnet: m }, 'POST'); },
-    files(id)     { return this.call('/torrents/mylist', { id }).then(r => r.data?.[0]?.files || []); },
-    dl(tid, fid)  { return this.call('/torrents/requestdl', { torrent_id: tid, file_id: fid }).then(r => r.data); }
+
+    async getTorrentsByGlobalId(globalId) {
+        const key = Store.get('torbox_api_key', '');
+        if (!key) throw new Error('API-Key не вказано.');
+        
+        const url = `${this.TORRENT_API}/torrents/id/${globalId}`;
+        const options = { headers: { 'Authorization': `Bearer ${key}` } };
+        const res = await this.proxiedCall(url, options);
+        return res.data?.torrents || [];
+    },
+
+    // Direct calls for actions still go to the main API
+    async directAction(path, body = {}, method = 'GET') {
+        const key = Store.get('torbox_api_key', '');
+        if (!key) throw new Error('API-Key не вказано.');
+        
+        const url = `${this.TORRENT_API}${path}`;
+        const options = {
+            method,
+            headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+        };
+        if (method !== 'GET') {
+            options.headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(body);
+        } else if (Object.keys(body).length) {
+            url += '?' + new URLSearchParams(body).toString();
+        }
+        return await this.proxiedCall(url, options);
+    },
+
+    addMagnet(m)  { return this.directAction('/torrents/createtorrent', { magnet: m }, 'POST'); },
+    files(id)     { return this.directAction('/torrents/mylist', { id }).then(r => r.data?.[0]?.files || []); },
+    dl(tid, fid)  { return this.directAction('/torrents/requestdl', { torrent_id: tid, file_id: fid }).then(r => r.data); }
   };
 
-  /* ───── UI flows (Unchanged) ───── */
+  /* ───── UI flows (Updated to use 2-step search) ───── */
   async function searchAndShow(movie) {
     Lampa.Loading.start('TorBox: пошук…');
     try {
-      const term  = movie?.imdb_id ? `imdb:${movie.imdb_id}` : movie.title;
-      const list  = await API.search(term);
+      if (!movie.imdb_id) {
+          throw new Error("Для пошуку потрібен IMDb ID.");
+      }
+
+      // STEP 1: Get Global ID
+      const globalId = await API.getGlobalId(movie.imdb_id);
+
+      // STEP 2: Get Torrents by Global ID
+      const list = await API.getTorrentsByGlobalId(globalId);
+
       if (!list || !list.length) {
-        Lampa.Noty.show('TorBox: нічого не знайдено.');
+        Lampa.Noty.show('TorBox: торенти не знайдено.');
         return;
       }
       const showList = CFG.cachedOnly ? list.filter(t => t.cached) : list;
       if (!showList.length) {
-        Lampa.Noty.show(CFG.cachedOnly ? 'Немає кешованих роздач.' : 'TorBox: нічого не знайдено.');
+        Lampa.Noty.show(CFG.cachedOnly ? 'Немає кешованих роздач.' : 'TorBox: торенти не знайдено.');
         return;
       }
       const items = showList
@@ -180,7 +206,7 @@
     }
   }
 
-  /* ───── Settings (NEW FIELD ADDED) ───── */
+  /* ───── Settings (Unchanged from v4) ───── */
   const COMP = 'torbox_enh';
   function addSettings() {
     if (!Lampa.SettingsApi) return;
@@ -222,7 +248,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v4.0.0 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v5.0.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
