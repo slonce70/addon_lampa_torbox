@@ -1,17 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.4
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.5
  * ============================================================
- * • ВАЖНОЕ УЛУЧШЕНИЕ: Добавлен параметр 'bypass_cache=true' при запросе статуса для получения обновлений в реальном времени и решения проблемы "зависшей" загрузки.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка отслеживания статуса для некашированных торрентов. Логика теперь правильно использует поле 'download_state' вместо 'status'.
- * • ИСПРАВЛЕНО: Устранена ошибка при получении ссылки на скачивание (Play Error). Запрос теперь включает обязательный 'token'.
- * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
+ * • ИСПРАВЛЕНО: Корректное отображение скорости загрузки (downoad_speed).
+ * • ИСПРАВЛЕНО: Правильный расчет и отображение процентов прогресса загрузки.
+ * • УЛУЧШЕНО: Интервал обновления статуса увеличен до 20 секунд для снижения нагрузки.
+ * • ВАЖНОЕ УЛУЧШЕНИЕ: Добавлен параметр 'bypass_cache=true' при запросе статуса.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка отслеживания статуса (использование 'download_state').
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_4';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_5';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -148,7 +149,6 @@
         return this.directAction('/torrents/controltorrent', { torrent_id: torrentId, operation: 'pause' }, 'POST');
     },
 
-    // ИСПРАВЛЕНО: Добавлен bypass_cache=true для получения статуса в реальном времени.
     myList(torrentId) {
         return this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }).then(r => {
             if (r && r.data && !Array.isArray(r.data)) {
@@ -371,15 +371,19 @@
               
               const statusText = statusMap[currentStatus.toLowerCase()] || currentStatus;
 
+              // ИСПРАВЛЕНО: Расчет процентов и использование правильного поля для скорости.
+              const progressPercent = (torrentData.progress || 0) * 100;
+
               updateStatusModal({
                   status: statusText,
-                  progress: torrentData.progress,
-                  progressText: `${torrentData.progress}% из ${formatBytes(torrentData.size)}`,
-                  speed: `Скорость: ${formatBytes(torrentData.down_speed, true)}`,
+                  progress: progressPercent,
+                  progressText: `${progressPercent.toFixed(2)}% из ${formatBytes(torrentData.size)}`,
+                  speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`,
                   eta: `Осталось: ${formatTime(torrentData.eta)}`
               });
               
-              const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || torrentData.progress >= 100;
+              // ИСПРАВЛЕНО: Условие завершения теперь сравнивает с 1 (дробное значение).
+              const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || torrentData.progress >= 1;
 
               if (isDownloadFinished) {
                   clearInterval(trackerInterval);
@@ -403,12 +407,20 @@
               Lampa.Noty.show(`Ошибка отслеживания: ${error.message}`, {type: 'error'});
               Lampa.Modal.close();
           }
-      }, 5000);
+      }, 20000); // ИЗМЕНЕНО: Интервал обновления увеличен до 20 секунд.
   }
   
   async function showFileSelection(torrentData, movie) {
       if (!torrentData.files || torrentData.files.length === 0) {
-          return Lampa.Noty.show('Файлы в раздаче еще не определены. Пожалуйста, подождите.', {type: 'info'});
+          // Даем API немного времени на обработку файлов после завершения загрузки.
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const freshTorrentDataResult = await API.myList(torrentData.id);
+          const freshTorrentData = freshTorrentDataResult?.data?.[0];
+          
+          if (!freshTorrentData || !freshTorrentData.files || freshTorrentData.files.length === 0) {
+              return Lampa.Noty.show('Файлы в раздаче не найдены. Попробуйте снова через несколько секунд.', {type: 'info'});
+          }
+          torrentData = freshTorrentData; // Обновляем данные
       }
       
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
@@ -440,8 +452,9 @@
         const initialTorrent = initialStatusResult?.data?.[0];
         
         const initialStatus = initialTorrent ? (initialTorrent.download_state || initialTorrent.status) : null;
-
-        const isAlreadyFinished = initialTorrent && (initialStatus === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 100);
+        
+        // ИСПРАВЛЕНО: Условие завершения теперь сравнивает с 1 (дробное значение).
+        const isAlreadyFinished = initialTorrent && (initialStatus === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 1);
 
         if (isAlreadyFinished) {
             updateStatusModal({status: 'Торрент уже был загружен'});
@@ -515,7 +528,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.4 ready');
+        LOG('TorBox v11.0.5 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
