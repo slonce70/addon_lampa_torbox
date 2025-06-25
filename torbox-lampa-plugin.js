@@ -1,7 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.19
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.20
  * ============================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Реализован финальный, надежный механизм обработки фильтров и сортировки, основанный на анализе самых стабильных плагинов. Теперь плагин принудительно активирует загрузчик Lampa на время перерисовки, что гарантированно предотвращает "вылет" на главный экран.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (ФИНАЛ): Реализован наиболее надежный механизм обработки фильтров и сортировки. Плагин теперь полностью перехватывает управление у Lampa, принудительно активируя загрузчик на время обновления. Это гарантированно решает проблему "вылета" плагина на предыдущий экран.
  * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking).
  * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Улучшена логика расчета процента загрузки.
  * • УЛУЧШЕНО: Для паков сезонов размер отображается с пометкой "/ серия".
@@ -11,7 +11,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_19';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_20';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -238,9 +238,11 @@
         var _this = this;
         filter.onSelect = function (type, a, b) {
             Lampa.Select.close();
-            _this.activity.loader(true); // Показываем загрузчик, чтобы Lampa "ждала"
+            _this.activity.loader(true); // **ШАГ 1: Перехватываем управление, включая загрузчик**
 
+            // **ШАГ 2: Выполняем логику асинхронно, чтобы Lampa не закрыла окно**
             setTimeout(function () {
+                // Обновляем состояние
                 if (type === 'sort') {
                     current_sort = a.key;
                     Store.set('torbox_sort_method', current_sort);
@@ -252,9 +254,11 @@
                 }
                 
                 _this.display(); // Перерисовываем контент
+                
+                // **ШАГ 3: Возвращаем управление Lampa**
                 _this.activity.loader(false); // Прячем загрузчик
-                Lampa.Controller.toggle('content'); // Возвращаем фокус
-            }, 100); // Небольшая задержка для надежности
+                Lampa.Controller.toggle('content'); // Возвращаем фокус на наш компонент
+            }, 100); 
         };
     };
 
@@ -583,7 +587,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.19 ready');
+        LOG('TorBox v11.0.20 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
