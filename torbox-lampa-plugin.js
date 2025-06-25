@@ -1,6 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.17
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.18
  * ============================================================
+ * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking). Теперь в таких случаях отображается корректный статус.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Снова переработан обработчик фильтров, чтобы окончательно решить проблему "вылета" плагина. Теперь используется более надежный метод, который предотвращает закрытие компонента Lampa при применении сортировки или фильтра.
  * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Реализована более надежная логика расчета процента загрузки в модальном окне статуса. Теперь полоса загрузки корректно отображает прогресс, даже если API возвращает данные в разных форматах.
  * • УЛУЧШЕНО: Для торрентов, содержащих сезоны или наборы серий, размер теперь отображается с пометкой "/ серия", чтобы избежать путаницы и точно отражать данные, предоставляемые API.
@@ -10,7 +11,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_17';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_18';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -398,11 +399,12 @@
                   const statusMap = {
                       'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача',
                       'completed': 'Завершен', 'stalled': 'Остановлен', 'error': 'Ошибка',
-                      'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки'
+                      'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки',
+                      'checking': 'Проверка' // Добавляем статус 'checking'
                   };
                   const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
                   
-                  // ИСПРАВЛЕНИЕ: Умный расчет процента загрузки
+                  // Умный расчет процента загрузки
                   let progressValue = parseFloat(torrentData.progress);
                   let progressPercent;
 
@@ -417,8 +419,9 @@
                   const sizeValue = parseInt(torrentData.size, 10);
                   
                   let progressText;
-                  if (isNaN(sizeValue) || sizeValue === 0) {
-                      progressText = "Получение данных...";
+                  // ИСПРАВЛЕНО: Обработка статуса 'checking' и отсутствия данных о размере
+                  if (currentStatus.toLowerCase().startsWith('checking') || isNaN(sizeValue) || sizeValue === 0) {
+                      progressText = "Обработка торрента...";
                   } else {
                       progressText = `${progressPercent.toFixed(2)}% из ${formatBytes(sizeValue)}`;
                   }
@@ -582,7 +585,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.17 ready');
+        LOG('TorBox v11.0.18 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
