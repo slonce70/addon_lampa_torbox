@@ -1,8 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.7
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.8
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена ошибка 422 Unprocessable Entity при запросе ссылки на скачивание.
  * • ИСПРАВЛЕНО: Устранена основная причина ошибки "Торрент не найден", улучшена обработка ответов API.
- * • ИСПРАВЛЕНО: Устранена ошибка 405 Method Not Allowed при запросе ссылки на скачивание.
  * • ОПТИМИЗАЦИЯ: Для уже кешированных торрентов пропускается отслеживание статуса и сразу открывается выбор файлов.
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_7';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_8';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -146,8 +146,16 @@
             return r.data; // It's already an array or null
         });
     },
-    requestDl(torrentId, fid) { 
-        return this.directAction('/torrents/requestdl', { torrent_id: torrentId, file_id: fid }, 'GET'); 
+    requestDl(torrentId, fid) {
+        const body = {
+            token: CFG.apiKey,
+            torrent_id: torrentId,
+            file_id: fid,
+            redirect: true
+        };
+        let url = `${this.MAIN_API}/torrents/requestdl?` + new URLSearchParams(body).toString();
+        // We call proxiedCall directly to avoid the 'Authorization' header from directAction
+        return this.proxiedCall(url, { method: 'GET' });
     }
   };
 
@@ -457,7 +465,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.6 ready');
+        LOG('TorBox v10.0.7 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
