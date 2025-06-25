@@ -85,7 +85,7 @@
     async search(imdbId) {
         const key = Store.get('torbox_api_key', '');
         if (!key) throw new Error('API-Key не указан.');
-        const url = `${this.SEARCH_API}/torrents/imdb:${imdbId}?check_cache=true&check_owned=false&search_user_engines=true`;
+        const url = `${this.SEARCH_API}/torrents/imdb:${imdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         const options = { headers: { 'Authorization': `Bearer ${key}` } };
         const res = await this.proxiedCall(url, options);
         return res.data?.torrents || [];
