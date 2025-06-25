@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.8
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.9
  * ============================================================
  * • ИСПРАВЛЕНО: Устранена ошибка 422 Unprocessable Entity при запросе ссылки на скачивание.
  * • ИСПРАВЛЕНО: Устранена основная причина ошибки "Торрент не найден", улучшена обработка ответов API.
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_8';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_9';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -52,6 +52,10 @@
     if (!r.ok) throw new Error(`Ошибка сети: HTTP ${r.status}`);
     
     try {
+        // Handle redirect URL directly
+        if (r.status === 200 && r.url.startsWith('http') && !responseText.startsWith('{')) {
+            return { success: true, url: r.url };
+        }
         const json = JSON.parse(responseText);
         if (json.success === false && json.detail) {
             if (typeof json.detail === 'string') throw new Error(json.detail);
@@ -138,12 +142,10 @@
     },
     myList(torrentId) {
         return this.directAction('/torrents/mylist', { id: torrentId }).then(r => {
-            // FIX: Normalize API response. API can return a single object or an array.
-            // We always return an array to keep the logic consistent.
             if (r.data && !Array.isArray(r.data)) {
                 return [r.data];
             }
-            return r.data; // It's already an array or null
+            return r.data;
         });
     },
     requestDl(torrentId, fid) {
@@ -154,7 +156,6 @@
             redirect: true
         };
         let url = `${this.MAIN_API}/torrents/requestdl?` + new URLSearchParams(body).toString();
-        // We call proxiedCall directly to avoid the 'Authorization' header from directAction
         return this.proxiedCall(url, { method: 'GET' });
     }
   };
@@ -465,7 +466,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.7 ready');
+        LOG('TorBox v10.0.8 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
