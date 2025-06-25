@@ -1,18 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.14
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.15
  * ============================================================
- * • ФИНАЛЬНАЯ СТАБИЛЬНАЯ ВЕРСИЯ.
- * • ИСПРАВЛЕНО: Параметр 'seed_preference' теперь отправляется с числовым значением '3' в соответствии с последней документацией API.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработана логика жизненного цикла компонента, что устранило "зависание" при нажатии Escape и выход из плагина при сортировке.
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит корректный возврат в плагин.
- * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
+ * • ИСПРАВЛЕНО: Дополнительная стабилизация логики жизненного цикла компонента для предотвращения "вылета" при сортировке.
+ * • УЛУЧШЕНО: Для торрентов, содержащих сезоны или наборы серий, размер теперь отображается с пометкой "/ серия", чтобы избежать путаницы и точно отражать данные, предоставляемые API.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_14';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_15';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -143,7 +140,6 @@
         return this.proxiedCall(url, options);
     },
 
-    // ИСПРАВЛЕНО: 'seed_preference' теперь использует числовое значение 3.
     addMagnet(magnet) {
         return this.directAction('/torrents/createtorrent', { magnet, seed_preference: 3 }, 'POST');
     },
@@ -312,7 +308,12 @@
           return;
       }
       torrents_list.forEach(t => {
-          const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
+          // ИЗМЕНЕНИЕ: Определяем, является ли раздача паком (сезоном или набором серий).
+          const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}|Сезон \d+|Серии \d+-\d+)/i.test(t.raw_title || t.title);
+          // Формируем строку размера: для паков добавляем пометку, для фильмов - просто размер.
+          const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
+          
+          const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
           item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
           item.on('hover:enter', () => handleTorrent(t, this.movie, this));
           scroll.append(item);
@@ -565,7 +566,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.13 ready');
+        LOG('TorBox v11.0.15 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
