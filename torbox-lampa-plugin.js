@@ -566,7 +566,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.12 ready');
+        LOG('TorBox v11.0.13 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
