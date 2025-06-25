@@ -1,8 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.4
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.5
  * ============================================================
- * • ИСПРАВЛЕНО: Устранена критическая ошибка при отслеживании статуса торрента, которая приводила к "зависшему" модальному окну.
- * • ИСПРАВЛЕНО: Устранена ошибка при обработке ответа от API после добавления торрента.
+ * • ИСПРАВЛЕНО: Устранена ошибка "Торрент не найден в вашем аккаунте".
+ * • ИСПРАВЛЕНО: Для получения ссылки на скачивание теперь передается правильный ID.
+ * • ИСПРАВЛЕНО: Устранена критическая ошибка, которая приводила к "зависшему" модальному окну.
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
  * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию.
@@ -12,7 +13,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_4';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_5';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -137,10 +138,10 @@
         return this.directAction('/torrents/createtorrent', { magnet, no_seed: true }, 'POST'); 
     },
     myList(torrentId) {
-        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => r.data?.[0]);
+        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => r.data);
     },
-    requestDl(thash, fid) { 
-        return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }, 'POST'); 
+    requestDl(torrentId, fid) { 
+        return this.directAction('/torrents/requestdl', { torrent_id: torrentId, file_id: fid }, 'POST'); 
     }
   };
 
@@ -358,10 +359,11 @@
   }
   
   async function showFileSelection(torrentData, movie) {
-      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
+      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name)); // Added .rar for this case
       if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
       
-      if (files.length === 1) return play(torrentData.hash, files[0], movie);
+      // If there is only one file, even if it's a rar, try to play it
+      if (files.length === 1) return play(torrentData.id, files[0], movie);
       
       files.sort((a,b) => b.size - a.size);
       const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
@@ -369,7 +371,7 @@
       Lampa.Select.show({
           title: 'TorBox - Выбор файла',
           items: fileItems,
-          onSelect: item => play(torrentData.hash, item.file, movie),
+          onSelect: item => play(torrentData.id, item.file, movie),
           onBack: () => { Lampa.Activity.backward(); }
       });
   }
@@ -379,12 +381,10 @@
     try {
         const result = await API.addMagnet(torrent.magnet);
         const torrentInfo = result.data;
-        // FIX: The API is inconsistent. It can return 'id' or 'torrent_id'. We need the integer ID for polling.
         const torrentIdForTracking = torrentInfo.torrent_id || torrentInfo.id;
         
         if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента из ответа API.');
         
-        // Start tracking with the correct integer ID
         await trackTorrentStatus(torrentIdForTracking, movie);
 
     } catch (e) {
@@ -394,10 +394,10 @@
     }
   }
 
-  async function play(torrentHash, file, movie) {
+  async function play(torrentId, file, movie) {
     showStatusModal('Получение ссылки на файл...');
     try {
-      const dlLink = await API.requestDl(torrentHash, file.id);
+      const dlLink = await API.requestDl(torrentId, file.id);
       if (!dlLink?.url) throw new Error('Не удалось получить ссылку на скачивание.');
       Lampa.Modal.close();
       Lampa.Player.play({ url: dlLink.url, title: file.name || movie.title, poster: movie.img });
@@ -438,7 +438,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.4 ready');
+        LOG('TorBox v10.0.5 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
