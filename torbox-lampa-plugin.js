@@ -2,8 +2,7 @@
  * TorBox Enhanced – Universal Lampa Plugin v11.0.12
  * ============================================================
  * • ФИНАЛЬНАЯ СТАБИЛЬНАЯ ВЕРСИЯ.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена фатальная ошибка "Cannot read properties of undefined (reading 'destroy')", которая блокировала выбор файлов.
- * • УЛУЧШЕНО: Повышена общая стабильность работы модальных окон.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена фатальная ошибка "Cannot read properties of undefined (reading 'destroy')", которая блокировала выбор файлов и вызывала "зависание" окон.
  * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит корректный возврат в плагин.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
@@ -307,7 +306,7 @@
       torrents_list.forEach(t => {
           const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
           item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
-          item.on('hover:enter', () => handleTorrent(t, this.movie, this.activity));
+          item.on('hover:enter', () => handleTorrent(t, this.movie, this));
           scroll.append(item);
       });
     };
@@ -330,12 +329,7 @@
   /* ───── NEW: Full torrent handling logic ───── */
 
   function showStatusModal(title, onBack) {
-      // ИСПРАВЛЕНО: Закрываем окно безопасно, чтобы избежать ошибок.
-      try {
-        if(Lampa.Modal.get()) Lampa.Modal.close();
-      } catch (e) {
-        LOG("Ошибка при закрытии модального окна (не критично):", e);
-      }
+      if ($('.modal').length) Lampa.Modal.close();
       Lampa.Modal.open({
           title: 'TorBox',
           html: $(`<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div><div class="torbox-status__info" data-name="peers"></div></div>`),
@@ -356,7 +350,7 @@
       modalBody.find('[data-name="peers"]').text(data.peers || '');
   }
 
-  function trackTorrentStatus(torrentId, movie, activity) {
+  function trackTorrentStatus(torrentId, movie, component) {
       return new Promise((resolve, reject) => {
           let isTrackingActive = true;
           let pollTimeout;
@@ -443,7 +437,7 @@
       });
   }
   
-  async function showFileSelection(torrentData, movie, activity) {
+  async function showFileSelection(torrentData, movie, component) {
       if (!torrentData.files || torrentData.files.length === 0) {
         return Lampa.Noty.show('Не удалось получить список файлов из раздачи.', {type: 'error'});
       }
@@ -451,7 +445,7 @@
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
       if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
       
-      if (files.length === 1) return play(torrentData.id, files[0], movie, activity);
+      if (files.length === 1) return play(torrentData.id, files[0], movie, component);
       
       files.sort((a,b) => b.size - a.size);
       const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
@@ -459,12 +453,12 @@
       Lampa.Select.show({
           title: 'TorBox - Выбор файла',
           items: fileItems,
-          onSelect: item => play(torrentData.id, item.file, movie, activity),
-          onBack: () => { Lampa.Activity.to(activity); }
+          onSelect: item => play(torrentData.id, item.file, movie, component),
+          onBack: () => component.start() // ИСПРАВЛЕНО: Корректный возврат
       });
   }
 
-  async function handleTorrent(torrent, movie, activity) {
+  async function handleTorrent(torrent, movie, component) {
     showStatusModal('Добавление в TorBox...');
     try {
         const result = await API.addMagnet(torrent.magnet);
@@ -477,9 +471,9 @@
         const initialTorrent = initialStatusResult?.data?.[0];
         
         if (!initialTorrent) {
-            const finalTorrentData = await trackTorrentStatus(torrentIdForTracking, movie, activity);
+            const finalTorrentData = await trackTorrentStatus(torrentIdForTracking, movie, component);
             Lampa.Modal.close();
-            await showFileSelection(finalTorrentData, movie, activity);
+            await showFileSelection(finalTorrentData, movie, component);
             return;
         }
 
@@ -497,11 +491,11 @@
             
             await new Promise(resolve => setTimeout(resolve, 500));
             Lampa.Modal.close();
-            await showFileSelection(initialTorrent, movie, activity);
+            await showFileSelection(initialTorrent, movie, component);
         } else {
-            const finalTorrentData = await trackTorrentStatus(torrentIdForTracking, movie, activity);
+            const finalTorrentData = await trackTorrentStatus(torrentIdForTracking, movie, component);
             Lampa.Modal.close();
-            await showFileSelection(finalTorrentData, movie, activity);
+            await showFileSelection(finalTorrentData, movie, component);
         }
 
     } catch (e) {
@@ -513,7 +507,7 @@
     }
   }
 
-  async function play(torrentId, file, movie, activity) {
+  async function play(torrentId, file, movie, component) {
     showStatusModal('Получение ссылки на файл...');
     try {
       const dlResponse = await API.requestDl(torrentId, file.id);
@@ -526,9 +520,8 @@
 
       Lampa.Modal.close();
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
-      Lampa.Player.callback(() => {
-          Lampa.Activity.to(activity);
-      });
+      // ИСПРАВЛЕНО: Корректный callback для возврата в плагин
+      Lampa.Player.callback(component.start.bind(component));
     } catch (e) {
       LOG('Play Error:', e);
       Lampa.Modal.close();
@@ -565,7 +558,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.11 ready');
+        LOG('TorBox v11.0.12 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
