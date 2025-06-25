@@ -1,10 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.8
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.9
  * ============================================================
+ * • ФИНАЛЬНАЯ ВЕРСИЯ: Максимальная стабильность и исправление всех известных ошибок.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью устранена ошибка 'NaN%' при обновлении статуса. Добавлена проверка и обработка некорректных данных от API.
  * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера теперь происходит возврат в плагин, а не на карточку фильма.
  * • УЛУЧШЕНО: Повышена надежность закрытия модальных окон по кнопке Escape.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранены лишние запросы после завершения загрузки. Механизм опроса заменен на рекурсивный setTimeout.
- * • ИСПРАВЛЕНО: Устранена ошибка 'NaN%' и некорректное отображение времени/скорости.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранены лишние запросы после завершения загрузки.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
 
@@ -12,7 +13,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_8';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_9';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -74,11 +75,12 @@
   };
 
   const formatBytes = (bytes, speed = false) => {
-    if (!bytes) return speed ? '0 KB/s' : '0 B';
+    const B = parseInt(bytes, 10);
+    if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
     const k = 1024;
     const sizes = speed ? ['B/s', 'KB/s', 'MB/s', 'GB/s'] : ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const i = Math.floor(Math.log(B) / Math.log(k));
+    return parseFloat((B / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
   
   const formatTime = (seconds) => {
@@ -180,7 +182,6 @@
     var all_torrents = [];
     var current_sort = Store.get('torbox_sort_method', 'seeders');
     var current_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
-    // ИЗМЕНЕНО: Сохраняем ссылку на объект activity для корректного возврата.
     this.activity = object.activity;
 
     var sort_types = [
@@ -303,7 +304,6 @@
       torrents_list.forEach(t => {
           const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
           item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
-          // ИЗМЕНЕНО: Передаем this.activity в обработчик для корректного возврата из плеера.
           item.on('hover:enter', () => handleTorrent(t, this.movie, this.activity));
           scroll.append(item);
       });
@@ -345,7 +345,6 @@
       modalBody.find('[data-name="peers"]').text(data.peers || '');
   }
   
-  // ИЗМЕНЕНО: Функция теперь принимает activity для корректного возврата из плеера.
   async function trackTorrentStatus(torrentId, movie, activity) {
       showStatusModal('Отслеживание статуса...');
       isTrackingActive = true; 
@@ -375,11 +374,20 @@
               const progressValue = parseFloat(torrentData.progress);
               const progressPercent = (isNaN(progressValue) ? 0 : progressValue) * 100;
               const etaValue = parseInt(torrentData.eta, 10);
+              const sizeValue = parseInt(torrentData.size, 10);
+              
+              // ИСПРАВЛЕНО: Защита от NaN при отображении размера.
+              let progressText;
+              if (isNaN(sizeValue) || sizeValue === 0) {
+                  progressText = "Получение данных...";
+              } else {
+                  progressText = `${progressPercent.toFixed(2)}% из ${formatBytes(sizeValue)}`;
+              }
 
               updateStatusModal({
                   status: statusText,
                   progress: progressPercent,
-                  progressText: `${progressPercent.toFixed(2)}% из ${formatBytes(torrentData.size)}`,
+                  progressText: progressText,
                   speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`,
                   eta: `Осталось: ${formatTime(isNaN(etaValue) ? -1 : etaValue)}`,
                   peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}`
@@ -398,7 +406,6 @@
                   }
                   
                   Lampa.Modal.close();
-                  // ИЗМЕНЕНО: Передаем activity в следующую функцию.
                   await showFileSelection(torrentData, movie, activity);
 
               } else {
@@ -417,7 +424,6 @@
       poll();
   }
   
-  // ИЗМЕНЕНО: Функция теперь принимает activity для корректного возврата из плеера.
   async function showFileSelection(torrentData, movie, activity) {
       if (!torrentData.files || torrentData.files.length === 0) {
         return Lampa.Noty.show('Не удалось получить список файлов из раздачи.', {type: 'error'});
@@ -426,7 +432,6 @@
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
       if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
       
-      // ИЗМЕНЕНО: Передаем activity в play.
       if (files.length === 1) return play(torrentData.id, files[0], movie, activity);
       
       files.sort((a,b) => b.size - a.size);
@@ -435,13 +440,11 @@
       Lampa.Select.show({
           title: 'TorBox - Выбор файла',
           items: fileItems,
-          // ИЗМЕНЕНО: Передаем activity в play.
           onSelect: item => play(torrentData.id, item.file, movie, activity),
-          onBack: () => { Lampa.Activity.backward(); }
+          onBack: () => { Lampa.Activity.to(activity); } // Возврат в активность плагина
       });
   }
 
-  // ИЗМЕНЕНО: Функция теперь принимает activity для корректного возврата из плеера.
   async function handleTorrent(torrent, movie, activity) {
     showStatusModal('Добавление в TorBox...');
     try {
@@ -480,12 +483,13 @@
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
+      // Гарантированно останавливаем цикл и закрываем окно при ошибке
+      isTrackingActive = false;
       Lampa.Modal.close();
       Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
     }
   }
 
-  // ИЗМЕНЕНО: Функция теперь принимает activity и устанавливает правильный callback для плеера.
   async function play(torrentId, file, movie, activity) {
     showStatusModal('Получение ссылки на файл...');
     try {
@@ -499,12 +503,12 @@
 
       Lampa.Modal.close();
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
-      // ИЗМЕНЕНО: Установлен callback для возврата в активность плагина.
       Lampa.Player.callback(() => {
           Lampa.Activity.to(activity);
       });
     } catch (e) {
       LOG('Play Error:', e);
+      isTrackingActive = false;
       Lampa.Modal.close();
       Lampa.Noty.show(`TorBox Play: ${e.message}`, { type: 'error' });
     }
@@ -539,7 +543,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.8 ready');
+        LOG('TorBox v11.0.9 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
