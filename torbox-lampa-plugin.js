@@ -1,17 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.2.1 (2025-06-26)
+ * TorBox Enhanced – Universal Lampa Plugin v9.3.0 (2025-06-26)
  * ============================================================
- * • ВИПРАВЛЕННЯ: Усунуто синтаксичну помилку 'missing ) after argument list' при завантаженні плагіна.
- * • НОВИЙ ІНТЕРФЕЙС: Список торрентів тепер відображається в окремому повноцінному вікні (Activity).
- * • ИСПРАВЛЕННЫЙ ПОИСК: Запросы теперь идут на правильный URL 'search-api.torbox.app/torrents/imdb:...'.
- * • ОБНОВЛЕННАЯ ЛОГИКА: Код адаптирован для обработки новой структуры ответа от API.
+ * • ПОВНІСТЮ ПЕРЕРОБЛЕНИЙ UX: Завантаження тепер відбувається всередині нового вікна, як у найкращих плагінах. Інтерфейс реагує миттєво.
+ * • КОРЕКТНА ОБРОБКА ПОМИЛОК: Мережеві помилки (напр. HTTP 504) тепер відображаються всередині вікна результатів, а не просто спливаючим повідомленням.
+ * • СТАБІЛЬНІСТЬ: Код реструктуризовано для більшої надійності та відповідності до стандартів розробки плагінів Lampa.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_2_1'; // Версія оновлена
+  const PLUGIN_ID = 'torbox_enhanced_v9_3_0'; // Версія оновлена
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -20,12 +19,8 @@
     `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
 
   const Store = {
-    get: (k, d) => {
-      try { return localStorage.getItem(k) ?? d; } catch { return d; }
-    },
-    set: (k, v) => {
-      try { localStorage.setItem(k, String(v)); } catch {}
-    }
+    get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, String(v)); } catch {} }
   };
 
   const CFG = {
@@ -39,19 +34,13 @@
   
   const processResponse = async (r, url) => {
     const responseText = await r.text();
-    if (r.status === 401) throw new Error(`Ошибка авторизации (401) для ${url}. Проверьте ваш API-ключ.`);
-    
-    if (responseText.includes("NO_AUTH")) {
-        throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и ваш тарифный план TorBox.');
-    }
-
-    if (!r.ok) throw new Error(`Ошибка сети: HTTP ${r.status} для ${url}`);
+    if (r.status === 401) throw new Error(`Ошибка авторизации (401). Проверьте ваш API-ключ.`);
+    if (responseText.includes("NO_AUTH")) throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и ваш тарифный план TorBox.');
+    if (!r.ok) throw new Error(`Ошибка сети: HTTP ${r.status}`);
     
     try { 
         const json = JSON.parse(responseText);
-        if (json.success === false) {
-            throw new Error(json.message || 'API вернул ошибку.');
-        }
+        if (json.success === false) throw new Error(json.message || 'API вернул ошибку.');
         return json;
     } catch (e) {
         LOG('Invalid JSON or API error:', responseText, e);
@@ -68,7 +57,7 @@
     return 'SD';
   };
 
-  /* ───── TorBox API wrapper (Corrected Logic) ───── */
+  /* ───── TorBox API wrapper ───── */
   const API = {
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
@@ -113,48 +102,48 @@
     dl(thash, fid){ return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }).then(r => r.data); }
   };
 
-  /* НОВИЙ КОМПОНЕНТ: Створює окреме вікно для списку торрентів */
-  function TorBoxResultsComponent(torrents, movie) {
-    const component = new Lampa.Component.create({
+  /* НОВА ЛОГІКА: Компонент тепер сам завантажує дані */
+  function TorBoxResultsComponent(movie) {
+    let component = new Lampa.Component.create({
         name: 'torbox_results_component',
         template: `<div class="lampa-list"></div>`,
+    });
+
+    let scroll = new Lampa.Scroll({ horizontal: false });
+
+    // Метод для відображення помилки
+    component.error = function(message) {
+        this.render().empty().append(`<div class="empty">${message}</div>`);
+    };
+
+    // Метод для побудови списку з отриманих даних
+    component.populate = function(torrents) {
+        const items = torrents
+            .sort((a, b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
+            .map(t => ({
+                title: `${t.cached ? '⚡' : '☁️'} ${t.raw_title || t.title}`,
+                subtitle: `[${ql(t.raw_title || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.last_known_seeders || 0}`,
+                torrent: t
+            }));
         
-        onSelect: (item) => {
-            handleTorrent(item.torrent, movie);
-        },
-        onBack: () => {
-            Lampa.Activity.backward();
+        if (!items.length) {
+            this.error('TorBox: торренты не найдены.');
+            return;
         }
-    });
 
-    const scroll = new Lampa.Scroll({
-        horizontal: false,
-        onWheel: Lampa.Controller.enabled().wheel
-    });
-
-    const items = torrents
-        .sort((a, b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
-        .map(t => ({
-            title: `${t.cached ? '⚡' : '☁️'} ${t.raw_title || t.title}`,
-            subtitle: `[${ql(t.raw_title || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.last_known_seeders || 0}`,
-            torrent: t
-        }));
-
-    component.build = function() {
         items.forEach(itemData => {
             const card = Lampa.Template.get('list_item', {});
             card.find('.list-item__title').text(itemData.title);
             card.find('.list-item__subtitle').text(itemData.subtitle);
-            card.data('torrent', itemData.torrent);
-            card.on('hover:enter', () => {
-                this.onSelect(itemData);
-            });
+            card.on('hover:enter', () => handleTorrent(itemData.torrent, movie));
             scroll.append(card);
-            this.render().find('.lampa-list').append(scroll.render());
         });
+        
+        this.render().find('.lampa-list').append(scroll.render());
     };
     
-    component.start = function() {
+    // Головний метод, що викликається при запуску Activity
+    component.start = async function() {
         Lampa.Controller.add('content', {
             toggle: () => {
                 Lampa.Controller.collectionSet(this.render());
@@ -162,12 +151,25 @@
             },
             update: () => {},
             left: () => Lampa.Controller.toggle('menu'),
-            right: () => Lampa.Controller.toggle('right'),
+            right: () => {},
             up: () => scroll.move('up'),
             down: () => scroll.move('down'),
-            back: this.onBack
+            back: () => Lampa.Activity.backward()
         });
         Lampa.Controller.toggle('content');
+
+        Lampa.Loading.start(); // Запускаємо завантаження ВЖЕ У НОВОМУ ВІКНІ
+
+        try {
+            if (!movie.imdb_id) throw new Error("Для поиска нужен IMDb ID.");
+            const list = await API.search(movie.imdb_id);
+            this.populate(list); // Передаємо дані для побудови списку
+        } catch (e) {
+            LOG('TorBoxResultsComponent Error:', e);
+            this.error(`TorBox: ${e.message}`); // Показуємо помилку всередині компонента
+        } finally {
+            Lampa.Loading.stop(); // Зупиняємо завантаження
+        }
     };
 
     component.destroy = function() {
@@ -178,46 +180,18 @@
     return component;
   }
 
-  /* НОВИЙ МЕТОД: Запускає Activity з нашим компонентом */
-  function showResultsInNewWindow(list, movie) {
-      const resultsComponent = TorBoxResultsComponent(list, movie);
-      resultsComponent.build();
+  /* ЗМІНЕНО: Функція тепер просто створює і запускає Activity */
+  function searchAndShow(movie) {
+      const resultsComponent = TorBoxResultsComponent(movie);
 
       Lampa.Activity.push({
           title: 'TorBox',
           component: resultsComponent,
           activity: resultsComponent,
-          right: Lampa.Template.get('empty'),
-          left: Lampa.Template.get('empty')
       });
   }
 
-  /* ЗМІНЕНО: searchAndShow тепер запускає нове вікно, а не Lampa.Select */
-  async function searchAndShow(movie) {
-    Lampa.Loading.start('TorBox: поиск…');
-    try {
-      if (!movie.imdb_id) {
-          throw new Error("Для поиска нужен IMDb ID.");
-      }
-      
-      const list = await API.search(movie.imdb_id);
-
-      if (!list || !list.length) {
-        Lampa.Noty.show('TorBox: торренты не найдены.');
-        return;
-      }
-      
-      showResultsInNewWindow(list, movie);
-
-    } catch (e) {
-      LOG('SearchAndShow Error:', e);
-      Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
-    } finally {
-      Lampa.Loading.stop();
-    }
-  }
-
-  /* Ця функція залишається без змін, але тепер викликається з нового компонента */
+  /* Ця функція залишається майже без змін */
   async function handleTorrent(t, movie) {
     Lampa.Loading.start('TorBox: обработка...');
     try {
@@ -238,8 +212,8 @@
             file: f
           })),
           onSelect: i => play(t.hash, i.file, movie),
-          // /* ВИПРАВЛЕНО */ Додано 'async' перед функцією-стрілкою
-          onBack: async () => showResultsInNewWindow(await API.search(movie.imdb_id), movie)
+          // Повернення назад тепер просто закриває вікно вибору файлу, повертаючи до списку торрентів
+          onBack: () => Lampa.Controller.toggle('content')
         });
       } else {
         await API.addMagnet(t.magnet);
@@ -253,7 +227,6 @@
     }
   }
 
-  /* Ця функція залишається без змін */
   async function play(torrentHash, file, movie) {
     Lampa.Loading.start('TorBox: получение ссылки…');
     try {
@@ -310,7 +283,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v9.2.1 ready'); } // Версія оновлена
+      try { addSettings(); hook(); LOG('TorBox v9.3.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
