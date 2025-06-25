@@ -1,10 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.2
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.3
  * ============================================================
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка отслеживания статуса для некашированных торрентов. Логика теперь правильно использует поле 'download_state' вместо 'status'.
  * • ИСПРАВЛЕНО: Устранена ошибка при получении ссылки на скачивание (Play Error). Запрос теперь включает обязательный 'token'.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка HTTP 422 при проверке статуса. Мониторинг возвращен на конечную точку /mylist.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования для гарантированной остановки раздачи.
- * • ИСПРАВЛЕНО: Запросы на добавление торрентов теперь соответствуют официальной документации API.
  * • ОПТИМИЗАЦИЯ: Избыточные параметры удалены из вызовов API.
  */
 
@@ -12,7 +11,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_2';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_3';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -158,7 +157,6 @@
         });
     },
 
-    // ИСПРАВЛЕНО: Запрос ссылки на скачивание теперь включает обязательный параметр 'token'.
     requestDl(torrentId, fid) {
         const body = {
             token: CFG.apiKey,
@@ -356,6 +354,9 @@
                   return;
               }
 
+              // ИСПРАВЛЕНО: Читаем статус из правильного поля 'download_state'.
+              const currentStatus = torrentData.download_state || torrentData.status;
+
               const statusMap = {
                   'queued': 'В очереди',
                   'downloading': 'Загрузка',
@@ -368,7 +369,7 @@
                   'failed': 'Ошибка загрузки'
               };
               
-              const statusText = statusMap[torrentData.status.toLowerCase()] || torrentData.status;
+              const statusText = statusMap[currentStatus.toLowerCase()] || currentStatus;
 
               updateStatusModal({
                   status: statusText,
@@ -377,13 +378,13 @@
                   speed: `Скорость: ${formatBytes(torrentData.down_speed, true)}`,
                   eta: `Осталось: ${formatTime(torrentData.eta)}`
               });
-
-              const isDownloadFinished = torrentData.status === 'completed' || torrentData.download_finished || torrentData.progress >= 100;
+              
+              const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || torrentData.progress >= 100;
 
               if (isDownloadFinished) {
                   clearInterval(trackerInterval);
 
-                  if (torrentData.status === 'uploading') {
+                  if (currentStatus === 'uploading') {
                       updateStatusModal({ status: 'Загрузка завершена. Остановка раздачи...', progress: 100 });
                       try {
                           await API.stopTorrent(torrentData.id);
@@ -437,13 +438,16 @@
 
         const initialStatusResult = await API.myList(torrentIdForTracking);
         const initialTorrent = initialStatusResult?.data?.[0];
+        
+        // ИСПРАВЛЕНО: Читаем статус из правильного поля 'download_state'.
+        const initialStatus = initialTorrent ? (initialTorrent.download_state || initialTorrent.status) : null;
 
-        const isAlreadyFinished = initialTorrent && (initialTorrent.status === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 100);
+        const isAlreadyFinished = initialTorrent && (initialStatus === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 100);
 
         if (isAlreadyFinished) {
             updateStatusModal({status: 'Торрент уже был загружен'});
             
-            if (initialTorrent.status === 'uploading') {
+            if (initialStatus === 'uploading') {
                 updateStatusModal({status: 'Торрент раздается. Остановка...'});
                 await API.stopTorrent(initialTorrent.id);
             }
@@ -462,14 +466,11 @@
     }
   }
 
-  // ИСПРАВЛЕНО: Улучшена логика получения и обработки ссылки для плеера.
   async function play(torrentId, file, movie) {
     showStatusModal('Получение ссылки на файл...');
     try {
       const dlResponse = await API.requestDl(torrentId, file.id);
       
-      // API может вернуть ссылку как в поле 'data' (JSON), так и через редирект (поле 'url').
-      // Эта проверка обрабатывает оба случая.
       const finalUrl = dlResponse?.data || dlResponse?.url;
 
       if (!finalUrl || typeof finalUrl !== 'string') {
@@ -515,7 +516,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.2 ready');
+        LOG('TorBox v11.0.3 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
