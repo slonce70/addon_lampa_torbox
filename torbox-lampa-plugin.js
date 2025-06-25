@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.6.2 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.7.2 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -189,11 +189,13 @@
       
       if (filter.addButtonBack) filter.addButtonBack();
       
-      // Настройка скролла и файлов
+      // Настройка скролла
       scroll.body().addClass('torrent-list');
-      files.appendFiles(scroll.render());
-      files.appendHead(filter.render());
-      scroll.minus(files.render().find('.explorer__files-head'));
+      
+      // Создаем основную структуру
+      var head = filter.render();
+      files.appendHead(head);
+      scroll.minus(head);
       
       Lampa.Controller.enable('content');
       initialized = true;
@@ -216,6 +218,8 @@
           _this.back();
         }
       });
+      
+      Lampa.Controller.enable('content');
     };
 
     this.draw = function(torrents, params) {
@@ -262,12 +266,15 @@
       scroll.clear();
       var empty = $('<div class="empty"><div class="empty__text">Торренты не найдены</div></div>');
       scroll.append(empty);
+      Lampa.Controller.enable('content');
     };
 
     this.loading = function(status) {
       if (status) {
         scroll.clear();
-        scroll.append(Lampa.Template.get('lampac_content_loading'));
+        var loading = $('<div class="broadcast__loading"><div></div><div></div><div></div></div>');
+        scroll.append(loading);
+        Lampa.Controller.enable('content');
       }
     };
 
@@ -276,7 +283,7 @@
     };
 
     this.render = function() {
-      return files.render();
+      return scroll.render();
     };
 
     this.back = function() {
@@ -298,36 +305,28 @@
   /* ───── UI flows (Updated) ───── */
   async function searchAndShow(movie) {
     try {
-      if (!movie.imdb_id) {
-          throw new Error("Для поиска нужен IMDb ID.");
-      }
-      
-      const list = await API.search(movie.imdb_id);
-
-      if (!list || !list.length) {
-        Lampa.Noty.show('TorBox: торренты не найдены.');
-        return;
-      }
-      
-      // Создаем компонент и активность правильным способом
-      var component = new TorBoxComponent({
-        movie: movie,
-        torrents: list
-      });
+      const component = new TorBoxComponent({ movie, torrents: [] });
+      component.initialize();
       
       Lampa.Activity.push({
         url: '',
-        title: 'TorBox',
+        title: 'TorBox - ' + movie.title,
         component: component,
-        page: component
+        page: 1
       });
       
-      component.initialize();
-      component.display(list);
+      // Показываем загрузку
+      component.loading(true);
       
-    } catch (e) {
-      LOG('SearchAndShow Error:', e);
-      Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
+      LOG('Searching torrents for:', movie.title);
+      const torrents = await API.search(movie.title);
+      LOG('Found torrents:', torrents.length);
+      
+      // Отображаем результаты
+      component.display(torrents);
+    } catch (error) {
+      LOG('Search error:', error);
+      Lampa.Noty.show('Ошибка поиска торрентов: ' + error.message);
     }
   }
 
