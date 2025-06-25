@@ -135,13 +135,18 @@
         const key = Store.get('torbox_api_key', '');
         if (!key) throw new Error('API-Key не указан.');
         
-        // Очищаем IMDb ID от префикса 'tt' если он есть и проверяем формат
-        const cleanImdbId = imdbId.replace(/^tt/, '');
-        if (!/^\d+$/.test(cleanImdbId)) {
-            throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
+        // Проверяем формат IMDb ID и добавляем 'tt' префикс если его нет
+        let formattedImdbId = imdbId;
+        if (!/^tt\d+$/.test(imdbId)) {
+            // Если ID содержит только цифры, добавляем префикс 'tt'
+            if (/^\d+$/.test(imdbId)) {
+                formattedImdbId = `tt${imdbId}`;
+            } else {
+                throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
+            }
         }
         
-        const url = `${this.SEARCH_API}/torrents/imdb:${cleanImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         LOG('Search URL:', url);
         
         const options = { headers: { 'Authorization': `Bearer ${key}` } };
