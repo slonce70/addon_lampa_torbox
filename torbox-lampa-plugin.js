@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.1.0 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.2.0 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕННЫЙ ПОИСК: Запросы теперь идут на правильный URL 'search-api.torbox.app/torrents/imdb:...' согласно вашим указаниям.
  * • ОБНОВЛЕННАЯ ЛОГИКА: Код адаптирован для обработки новой структуры ответа от API (используются 'hash', 'raw_title', 'last_known_seeders').
@@ -332,7 +332,7 @@
       
       const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
       btn.on('hover:enter', () => {
-        Lampa.Activity.push({ component: 'torbox_view', movie: e.data.movie });
+        Lampa.Activity.push({ component: 'torbox_view', data: { movie: e.data.movie } });
       });
       root.find('.view--torrent').after(btn);
     });
