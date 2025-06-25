@@ -1,19 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.2
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.3
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена ошибка при обработке ответа от API после добавления торрента.
  * • ИСПРАВЛЕНО: Устранена ошибка 'MISSING_REQUIRED_OPTION' при добавлении торрента в аккаунт.
  * • ИСПРАВЛЕНО: Исправлен метод запроса для получения ссылки на скачивание.
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
  * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию.
- * • НОВОЕ: Добавлены фильтры, сортировка и улучшенный UI.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_2';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_3';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -378,7 +378,7 @@
     showStatusModal('Добавление в TorBox...');
     try {
         const result = await API.addMagnet(torrent.magnet);
-        const torrentHash = result.data.id;
+        const torrentHash = result.data.hash;
         if (!torrentHash) throw new Error('Не удалось получить хеш торрента.');
         
         // Start tracking
@@ -435,7 +435,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.1 ready');
+        LOG('TorBox v10.0.2 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
