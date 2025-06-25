@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.2.0 (2025-06-26)
+ * TorBox Enhanced – Universal Lampa Plugin v9.2.1 (2025-06-26)
  * ============================================================
- * • НОВИЙ ІНТЕРФЕЙС: Список торрентів тепер відображається в окремому повноцінному вікні (Activity), що покращує UX та дає простір для майбутніх функцій.
- * • ИСПРАВЛЕННЫЙ ПОИСК: Запросы теперь идут на правильный URL 'search-api.torbox.app/torrents/imdb:...' согласно вашим указаниям.
- * • ОБНОВЛЕННАЯ ЛОГИКА: Код адаптирован для обработки новой структуры ответа от API (используются 'hash', 'raw_title', 'last_known_seeders').
- * • УДАЛЕНА НАСТРОЙКА "Только кешированные": По вашему желанию, эта опция убрана. Теперь в списке отображаются все найденные торренты.
- * • СТАБИЛЬНОСТЬ: Внесены исправления для более надежной работы с API и обработки данных.
+ * • ВИПРАВЛЕННЯ: Усунуто синтаксичну помилку 'missing ) after argument list' при завантаженні плагіна.
+ * • НОВИЙ ІНТЕРФЕЙС: Список торрентів тепер відображається в окремому повноцінному вікні (Activity).
+ * • ИСПРАВЛЕННЫЙ ПОИСК: Запросы теперь идут на правильный URL 'search-api.torbox.app/torrents/imdb:...'.
+ * • ОБНОВЛЕННАЯ ЛОГИКА: Код адаптирован для обработки новой структуры ответа от API.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_2_0'; // Версія оновлена
+  const PLUGIN_ID = 'torbox_enhanced_v9_2_1'; // Версія оновлена
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -118,10 +117,9 @@
   function TorBoxResultsComponent(torrents, movie) {
     const component = new Lampa.Component.create({
         name: 'torbox_results_component',
-        template: `<div class="lampa-list"></div>`, // Простий контейнер для списку
+        template: `<div class="lampa-list"></div>`,
         
         onSelect: (item) => {
-            // Викликаємо стару логіку обробки торрента
             handleTorrent(item.torrent, movie);
         },
         onBack: () => {
@@ -134,7 +132,6 @@
         onWheel: Lampa.Controller.enabled().wheel
     });
 
-    // Сортуємо та форматуємо елементи для відображення
     const items = torrents
         .sort((a, b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
         .map(t => ({
@@ -143,26 +140,20 @@
             torrent: t
         }));
 
-    // Метод для побудови списку
     component.build = function() {
         items.forEach(itemData => {
-            const card = Lampa.Template.get('list_item', {}); // Стандартний шаблон елемента списку
+            const card = Lampa.Template.get('list_item', {});
             card.find('.list-item__title').text(itemData.title);
             card.find('.list-item__subtitle').text(itemData.subtitle);
-            
-            // Зберігаємо повні дані торрента в елементі
             card.data('torrent', itemData.torrent);
-            
             card.on('hover:enter', () => {
                 this.onSelect(itemData);
             });
-            
             scroll.append(card);
             this.render().find('.lampa-list').append(scroll.render());
         });
     };
     
-    // Метод, що викликається при запуску Activity
     component.start = function() {
         Lampa.Controller.add('content', {
             toggle: () => {
@@ -179,25 +170,23 @@
         Lampa.Controller.toggle('content');
     };
 
-    // Метод для очищення
     component.destroy = function() {
         scroll.destroy();
         this.render().remove();
     };
     
-    // Створюємо та повертаємо компонент
     return component;
   }
 
   /* НОВИЙ МЕТОД: Запускає Activity з нашим компонентом */
   function showResultsInNewWindow(list, movie) {
       const resultsComponent = TorBoxResultsComponent(list, movie);
-      resultsComponent.build(); // Будуємо вміст компонента
+      resultsComponent.build();
 
       Lampa.Activity.push({
           title: 'TorBox',
-          component: resultsComponent, // Наш кастомний компонент
-          activity: resultsComponent,  // Вказуємо, що компонент сам керує своєю логікою
+          component: resultsComponent,
+          activity: resultsComponent,
           right: Lampa.Template.get('empty'),
           left: Lampa.Template.get('empty')
       });
@@ -218,7 +207,6 @@
         return;
       }
       
-      // Запускаємо нове вікно зі списком
       showResultsInNewWindow(list, movie);
 
     } catch (e) {
@@ -250,8 +238,8 @@
             file: f
           })),
           onSelect: i => play(t.hash, i.file, movie),
-          // ЗМІНЕНО: Повернення назад тепер знову показує список торрентів
-          onBack: () => showResultsInNewWindow(await API.search(movie.imdb_id), movie)
+          // /* ВИПРАВЛЕНО */ Додано 'async' перед функцією-стрілкою
+          onBack: async () => showResultsInNewWindow(await API.search(movie.imdb_id), movie)
         });
       } else {
         await API.addMagnet(t.magnet);
@@ -322,7 +310,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v9.2.0 ready'); } // Версія оновлена
+      try { addSettings(); hook(); LOG('TorBox v9.2.1 ready'); } // Версія оновлена
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
