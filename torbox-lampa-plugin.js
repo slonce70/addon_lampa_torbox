@@ -1,9 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.6
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.7
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена основная причина ошибки "Торрент не найден", улучшена обработка ответов API.
  * • ИСПРАВЛЕНО: Устранена ошибка 405 Method Not Allowed при запросе ссылки на скачивание.
  * • ОПТИМИЗАЦИЯ: Для уже кешированных торрентов пропускается отслеживание статуса и сразу открывается выбор файлов.
- * • ИСПРАВЛЕНО: Устранена ошибка "Торрент не найден в вашем аккаунте".
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
  */
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_6';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_7';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -137,10 +137,16 @@
         return this.directAction('/torrents/createtorrent', { magnet, no_seed: true }, 'POST'); 
     },
     myList(torrentId) {
-        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => r.data);
+        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => {
+            // FIX: Normalize API response. API can return a single object or an array.
+            // We always return an array to keep the logic consistent.
+            if (r.data && !Array.isArray(r.data)) {
+                return [r.data];
+            }
+            return r.data; // It's already an array or null
+        });
     },
     requestDl(torrentId, fid) { 
-        // FIX: The API endpoint for requesting a download link uses GET method.
         return this.directAction('/torrents/requestdl', { torrent_id: torrentId, file_id: fid }, 'GET'); 
     }
   };
@@ -322,12 +328,12 @@
       
       trackerInterval = setInterval(async () => {
           try {
-              const torrentData = await API.myList(torrentId);
-              if (!torrentData?.[0]) { // API returns an array, even for a single ID
+              const torrentDataArray = await API.myList(torrentId);
+              if (!torrentDataArray?.[0]) {
                   throw new Error('Торрент не найден в вашем аккаунте.');
               }
               
-              const torrent = torrentData[0];
+              const torrent = torrentDataArray[0];
 
               const statusMap = {
                   'queued': 'В очереди',
@@ -388,11 +394,13 @@
 
         // OPTIMIZATION: Immediately check if the torrent is already downloaded
         const initialStatus = await API.myList(torrentIdForTracking);
-        if (initialStatus?.[0] && (initialStatus[0].status === 'completed' || initialStatus[0].download_finished)) {
+        const initialTorrent = initialStatus?.[0];
+
+        if (initialTorrent && (initialTorrent.status === 'completed' || initialTorrent.download_finished)) {
             updateStatusModal({status: 'Завершен'});
             await new Promise(resolve => setTimeout(resolve, 300)); // Short delay for user to see 'Completed'
             Lampa.Modal.close();
-            await showFileSelection(initialStatus[0], movie);
+            await showFileSelection(initialTorrent, movie);
         } else {
             // If not completed, start tracking
             await trackTorrentStatus(torrentIdForTracking, movie);
@@ -459,3 +467,4 @@
   })();
 
 })();
+" was selected from immersive artifact "torbox_plugin.js (с полной интеграцией
