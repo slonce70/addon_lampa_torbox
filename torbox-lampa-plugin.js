@@ -1,9 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.3
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.4
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена критическая ошибка при отслеживании статуса торрента, которая приводила к "зависшему" модальному окну.
  * • ИСПРАВЛЕНО: Устранена ошибка при обработке ответа от API после добавления торрента.
- * • ИСПРАВЛЕНО: Устранена ошибка 'MISSING_REQUIRED_OPTION' при добавлении торрента в аккаунт.
- * • ИСПРАВЛЕНО: Исправлен метод запроса для получения ссылки на скачивание.
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
  * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию.
@@ -13,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_3';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_4';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -133,8 +132,8 @@
     addMagnet(magnet) { 
         return this.directAction('/torrents/createtorrent', { magnet, no_seed: true }, 'POST'); 
     },
-    myList(hash) {
-        return this.directAction('/torrents/mylist', { id: hash }).then(r => r.data?.[0]);
+    myList(torrentId) {
+        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => r.data?.[0]);
     },
     requestDl(thash, fid) { 
         return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }, 'POST'); 
@@ -313,12 +312,14 @@
       modalBody.find('[data-name="eta"]').text(data.eta || '');
   }
   
-  async function trackTorrentStatus(hash, movie) {
+  async function trackTorrentStatus(torrentInfo, movie) {
       showStatusModal('Отслеживание статуса...');
+      
+      const torrentId = torrentInfo.torrent_id;
       
       trackerInterval = setInterval(async () => {
           try {
-              const torrentData = await API.myList(hash);
+              const torrentData = await API.myList(torrentId);
               if (!torrentData) {
                   clearInterval(trackerInterval);
                   Lampa.Modal.close();
@@ -361,7 +362,7 @@
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
       if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
       
-      if (files.length === 1) return play(torrentData.id, files[0], movie);
+      if (files.length === 1) return play(torrentData.hash, files[0], movie);
       
       files.sort((a,b) => b.size - a.size);
       const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
@@ -369,7 +370,7 @@
       Lampa.Select.show({
           title: 'TorBox - Выбор файла',
           items: fileItems,
-          onSelect: item => play(torrentData.id, item.file, movie),
+          onSelect: item => play(torrentData.hash, item.file, movie),
           onBack: () => { Lampa.Activity.backward(); }
       });
   }
@@ -378,11 +379,11 @@
     showStatusModal('Добавление в TorBox...');
     try {
         const result = await API.addMagnet(torrent.magnet);
-        const torrentHash = result.data.hash;
-        if (!torrentHash) throw new Error('Не удалось получить хеш торрента.');
+        const torrentInfo = result.data;
+        if (!torrentInfo?.torrent_id || !torrentInfo?.hash) throw new Error('Не удалось получить данные торрента из ответа API.');
         
         // Start tracking
-        await trackTorrentStatus(torrentHash, movie);
+        await trackTorrentStatus(torrentInfo, movie);
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
@@ -435,7 +436,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.2 ready');
+        LOG('TorBox v10.0.3 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
