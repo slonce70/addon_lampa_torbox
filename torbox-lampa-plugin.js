@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.7.2 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.6.1 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -122,8 +122,12 @@
         const proxy = CFG.proxyUrl;
         if (!proxy) throw new Error('URL вашего персонального прокси не указано в настройках.');
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-        LOG(`Calling via proxy: ${targetUrl}`);
+        LOG('Calling via proxy:', proxiedUrl);
+        LOG('Target URL:', targetUrl);
+        LOG('Options:', JSON.stringify(options, null, 2));
+        
         const response = await fetch(proxiedUrl, options);
+        LOG('Response status:', response.status, response.statusText);
         return await processResponse(response, targetUrl);
     },
 
@@ -131,7 +135,14 @@
         const key = Store.get('torbox_api_key', '');
         if (!key) throw new Error('API-Key не указан.');
         
-        const url = `${this.SEARCH_API}/torrents/imdb:${imdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        // Очищаем IMDb ID от префикса 'tt' если он есть и проверяем формат
+        const cleanImdbId = imdbId.replace(/^tt/, '');
+        if (!/^\d+$/.test(cleanImdbId)) {
+            throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
+        }
+        
+        const url = `${this.SEARCH_API}/torrents/imdb:${cleanImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        LOG('Search URL:', url);
         
         const options = { headers: { 'Authorization': `Bearer ${key}` } };
         const res = await this.proxiedCall(url, options);
@@ -318,9 +329,21 @@
       // Показываем загрузку
       component.loading(true);
       
-      LOG('Searching torrents for:', movie.title);
-      const torrents = await API.search(movie.title);
+      if (!movie.imdb_id) {
+        component.empty();
+        Lampa.Noty.show('IMDb ID не найден для фильма: ' + movie.title);
+        return;
+      }
+      
+      LOG('Searching torrents for:', movie.title, 'IMDb ID:', movie.imdb_id);
+      const torrents = await API.search(movie.imdb_id);
       LOG('Found torrents:', torrents.length);
+      
+      if (!torrents || torrents.length === 0) {
+        component.empty();
+        Lampa.Noty.show('Торренты не найдены для: ' + movie.title);
+        return;
+      }
       
       // Отображаем результаты
       component.display(torrents);
@@ -427,7 +450,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings && window.Lampa.Modal) {
-      try { addSettings(); hook(); LOG('TorBox v9.1.1 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v9.6.2 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
