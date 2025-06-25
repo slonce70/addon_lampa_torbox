@@ -1,7 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.16
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.17
  * ============================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработан обработчик фильтров и сортировки. Это решает проблему, когда плагин "вылетал" на главный экран при попытке отфильтровать или отсортировать результаты. Теперь используется асинхронный подход, который предотвращает закрытие компонента по умолчанию.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Снова переработан обработчик фильтров, чтобы окончательно решить проблему "вылета" плагина. Теперь используется более надежный метод, который предотвращает закрытие компонента Lampa при применении сортировки или фильтра.
+ * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Реализована более надежная логика расчета процента загрузки в модальном окне статуса. Теперь полоса загрузки корректно отображает прогресс, даже если API возвращает данные в разных форматах.
  * • УЛУЧШЕНО: Для торрентов, содержащих сезоны или наборы серий, размер теперь отображается с пометкой "/ серия", чтобы избежать путаницы и точно отражать данные, предоставляемые API.
  */
 
@@ -9,7 +10,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_16';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_17';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -204,8 +205,8 @@
                 down: ()=>{Navigator.move('down')},
                 left: ()=>{Lampa.Controller.toggle('menu');},
                 right: ()=>{
-                    if(Navigator.canmove('right')) Navigator.move('right');
-                    else Lampa.Controller.toggle('head');
+                    if(Navigator.canmove('right')) Lampa.Controller.toggle('head');
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
                 back: this.back.bind(this)
             });
@@ -235,6 +236,7 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
+            // 1. Немедленно обновляем состояние
             if (type === 'sort') {
                 current_sort = a.key;
                 Store.set('torbox_sort_method', current_sort);
@@ -245,13 +247,15 @@
                 Store.set('torbox_filters', JSON.stringify(current_filters));
             }
     
-            // Оборачиваем в setTimeout, чтобы прервать синхронный поток выполнения
-            // и не дать Lampa закрыть активность по умолчанию.
-            setTimeout(() => {
-                Lampa.Select.close();
-                _this.display();
-                Lampa.Controller.toggle('content');
-            }, 50); // Небольшая задержка
+            // 2. Закрываем окно выбора
+            Lampa.Select.close();
+            
+            // 3. Откладываем перерисовку и фокусировку, чтобы Lampa не уничтожила активность
+            setTimeout(function() {
+                _this.display(); // Перерисовываем список
+                // Убеждаемся, что фокус установлен правильно
+                Lampa.Controller.collectionFocus(last || scroll.render().find('.selector:first')[0], scroll.render());
+            }, 5); 
         };
     };
 
@@ -313,9 +317,7 @@
           return;
       }
       torrents_list.forEach(t => {
-          // ИЗМЕНЕНИЕ: Определяем, является ли раздача паком (сезоном или набором серий).
           const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}|Сезон \d+|Серии \d+-\d+)/i.test(t.raw_title || t.title);
-          // Формируем строку размера: для паков добавляем пометку, для фильмов - просто размер.
           const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
           
           const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
@@ -340,7 +342,7 @@
     };
   }
   
-  /* ───── NEW: Full torrent handling logic ───── */
+  /* ───── Full torrent handling logic ───── */
 
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
@@ -400,8 +402,17 @@
                   };
                   const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
                   
-                  const progressValue = parseFloat(torrentData.progress);
-                  const progressPercent = (isNaN(progressValue) ? 0 : progressValue) * 100;
+                  // ИСПРАВЛЕНИЕ: Умный расчет процента загрузки
+                  let progressValue = parseFloat(torrentData.progress);
+                  let progressPercent;
+
+                  if (isNaN(progressValue)) {
+                      progressPercent = 0;
+                  } else {
+                      progressPercent = progressValue > 1 ? progressValue : progressValue * 100;
+                  }
+                  progressPercent = Math.max(0, Math.min(100, progressPercent));
+
                   const etaValue = parseInt(torrentData.eta, 10);
                   const sizeValue = parseInt(torrentData.size, 10);
                   
@@ -421,7 +432,7 @@
                       peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}`
                   });
                   
-                  const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || (!isNaN(progressValue) && progressValue >= 1);
+                  const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
                   const filesAreReady = torrentData.files && torrentData.files.length > 0;
 
                   if (isDownloadFinished && filesAreReady) {
@@ -571,7 +582,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.16 ready');
+        LOG('TorBox v11.0.17 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
