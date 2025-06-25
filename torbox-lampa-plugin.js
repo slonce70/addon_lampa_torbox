@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.6.1 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.6.2 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -211,6 +211,7 @@
       // Создаем основную структуру
       var head = filter.render();
       files.appendHead(head);
+      files.appendBody(scroll.render());
       scroll.minus(head);
       
       Lampa.Controller.enable('content');
@@ -299,7 +300,7 @@
     };
 
     this.render = function() {
-      return scroll.render();
+      return files.render();
     };
 
     this.back = function() {
