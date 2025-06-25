@@ -10,42 +10,10 @@
 (function () {
   'use strict';
 
-  const CONSTANTS = {
-    PLUGIN_ID: 'torbox_enhanced_v9_1_0',
-    API_SEARCH: 'https://search-api.torbox.app',
-    API_MAIN: 'https://api.torbox.app/v1/api',
-    SETTINGS_KEYS: {
-        DEBUG: 'torbox_debug',
-        PROXY_URL: 'torbox_proxy_url',
-        API_KEY: 'torbox_api_key',
-    },
-    REQUEST_TIMEOUT_MS: 15000, // 15 секунд
-  };
   /* ───── Guard double-load ───── */
-  if (window[CONSTANTS.PLUGIN_ID]) return;
-  window[CONSTANTS.PLUGIN_ID] = true;
-
-  /* ───── Templates ───── */
-  Lampa.Template.add('torbox_view_template', `
-    <div class="torbox-view layer--wheight">
-        <div class="torbox-view__content">
-            <div class="torbox-view__list"></div>
-        </div>
-        <div class="torbox-view__empty selector" style="display: none; height: 100%;">
-            <div class="empty">
-                <p>Торренты не найдены</p>
-                <p>Попробуйте поискать на другом ресурсе</p>
-            </div>
-        </div>
-    </div>
-  `);
-
-  Lampa.Template.add('torbox_card_template', `
-      <div class="full-item selector">
-          <div class="full-item__title">{title}</div>
-          <div class="full-item__sub">{subtitle}</div>
-      </div>
-  `);
+  const PLUGIN_ID = 'torbox_enhanced_v9_1_0';
+  if (window[PLUGIN_ID]) return;
+  window[PLUGIN_ID] = true;
 
   /* ───── Helpers ───── */
   const ICON =
@@ -62,60 +30,34 @@
 
   // Конфигурация: настройка 'cachedOnly' была удалена.
   const CFG = {
-    get debug()      { return Store.get(CONSTANTS.SETTINGS_KEYS.DEBUG, '0') === '1'; },
-    set debug(v)     { Store.set(CONSTANTS.SETTINGS_KEYS.DEBUG, v ? '1' : '0');    },
-    get proxyUrl()   { return Store.get(CONSTANTS.SETTINGS_KEYS.PROXY_URL, ''); },
-    set proxyUrl(v)  { Store.set(CONSTANTS.SETTINGS_KEYS.PROXY_URL, v); }
+    get debug()      { return Store.get('torbox_debug', '0') === '1'; },
+    set debug(v)     { Store.set('torbox_debug', v ? '1' : '0');    },
+    get proxyUrl()   { return Store.get('torbox_proxy_url', ''); },
+    set proxyUrl(v)  { Store.set('torbox_proxy_url', v); }
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
   
-  async function fetchWithTimeout(resource, options = {}) {
-      const { timeout = CONSTANTS.REQUEST_TIMEOUT_MS } = options;
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
-      try {
-        const response = await fetch(resource, { ...options, signal: controller.signal });
-        return response;
-      } catch (e) {
-        if (e.name === 'AbortError') {
-            throw new Error(`Запрос превысил время ожидания (${timeout / 1000}с)`);
-        }
-        throw e;
-      } finally {
-        clearTimeout(id);
-      }
-  }
-
   const processResponse = async (r, url) => {
-    if (r.status === 401) {
-        throw new Error(`Ошибка авторизации (401) для ${url}. Проверьте ваш API-ключ.`);
-    }
-    if (!r.ok) {
-        try {
-            const errorBody = await r.json();
-            const errorMessage = errorBody.message || JSON.stringify(errorBody);
-            throw new Error(`Ошибка сети: HTTP ${r.status} - ${errorMessage} для ${url}`);
-        } catch (e) {
-            throw new Error(`Ошибка сети: HTTP ${r.status} для ${url}`);
-        }
-    }
-
     const responseText = await r.text();
+    if (r.status === 401) throw new Error(`Ошибка авторизации (401) для ${url}. Проверьте ваш API-ключ.`);
+    
     if (responseText.includes("NO_AUTH")) {
         throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и ваш тарифный план TorBox.');
     }
 
+    if (!r.ok) throw new Error(`Ошибка сети: HTTP ${r.status} для ${url}`);
+    
     try { 
         const json = JSON.parse(responseText);
+        // Проверка на 'success: false' в ответе API
         if (json.success === false) {
-            throw new Error(json.message || 'API вернул ошибку без сообщения.');
+            throw new Error(json.message || 'API вернул ошибку.');
         }
         return json;
     } catch (e) {
         LOG('Invalid JSON or API error:', responseText, e);
-        if (e instanceof Error) throw e;
-        throw new Error('Получен некорректный JSON от сервера.');
+        throw new Error(e.message || 'Получен некорректный ответ от сервера.');
     }
   };
 
@@ -130,126 +72,97 @@
 
   /* ───── TorBox API wrapper (Corrected Logic) ───── */
   const API = {
-    async _call(path, options = {}, apiType = 'search') {
-        const key = Store.get(CONSTANTS.SETTINGS_KEYS.API_KEY, '');
-        if (!key) throw new Error('API-Key не указан в настройках.');
+    SEARCH_API: 'https://search-api.torbox.app',
+    MAIN_API: 'https://api.torbox.app/v1/api',
 
+    async proxiedCall(targetUrl, options = {}) {
         const proxy = CFG.proxyUrl;
         if (!proxy) throw new Error('URL вашего персонального прокси не указано в настройках.');
-
-        const baseUrl = apiType === 'main' ? CONSTANTS.API_MAIN : CONSTANTS.API_SEARCH;
-        const targetUrl = `${baseUrl}${path}`;
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-        
-        const fetchOptions = {
-            ...options,
-            headers: {
-                'Authorization': `Bearer ${key}`,
-                'Accept': 'application/json',
-                ...options.headers,
-            },
-            timeout: CONSTANTS.REQUEST_TIMEOUT_MS,
-        };
-
         LOG(`Calling via proxy: ${targetUrl}`);
-        const response = await fetchWithTimeout(proxiedUrl, fetchOptions);
+        const response = await fetch(proxiedUrl, options);
         return await processResponse(response, targetUrl);
     },
 
     async search(imdbId) {
-        const path = `/torrents/imdb:${imdbId}?check_cache=true&check_owned=false&search_user_engines=true`;
-        const res = await this._call(path, {}, 'search');
+        const key = Store.get('torbox_api_key', '');
+        if (!key) throw new Error('API-Key не указан.');
+        
+        // ИСПРАВЛЕНО: Правильный URL для поиска согласно вашим требованиям.
+        const url = `${this.SEARCH_API}/torrents/imdb:${imdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        
+        const options = { headers: { 'Authorization': `Bearer ${key}` } };
+        const res = await this.proxiedCall(url, options);
+        
+        // ИСПРАВЛЕНО: Путь к торрентам в новой структуре ответа.
         return res.data?.torrents || [];
     },
 
-    async _directAction(path, body = {}, method = 'GET') {
-        let fullPath = path;
-        const options = { method };
+    // Action calls use the MAIN_API
+    async directAction(path, body = {}, method = 'GET') {
+        const key = Store.get('torbox_api_key', '');
+        if (!key) throw new Error('API-Key не указан.');
+        
+        let url = `${this.MAIN_API}${path}`;
+        const options = {
+            method,
+            headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+        };
         if (method !== 'GET') {
-            options.headers = { 'Content-Type': 'application/json' };
+            options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(body);
         } else if (Object.keys(body).length) {
-            fullPath += '?' + new URLSearchParams(body).toString();
+            url += '?' + new URLSearchParams(body).toString();
         }
-        return this._call(fullPath, options, 'main');
+        return await this.proxiedCall(url, options);
     },
 
-    addMagnet(m)  { return this._directAction('/torrents/createtorrent', { magnet: m }, 'POST'); },
-    files(hash)   { return this._directAction('/torrents/mylist', { id: hash }).then(r => r.data?.[0]?.files || []); },
-    dl(thash, fid){ return this._directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }).then(r => r.data); }
+    // ИСПРАВЛЕНО: API может требовать 'hash' вместо 'id'. Будем использовать 'hash'.
+    addMagnet(m)  { return this.directAction('/torrents/createtorrent', { magnet: m }, 'POST'); },
+    files(hash)   { return this.directAction('/torrents/mylist', { id: hash }).then(r => r.data?.[0]?.files || []); },
+    dl(thash, fid){ return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }).then(r => r.data); }
   };
 
-  /* ───── Component for results screen ───── */
-  function TorboxView() {
-    this.component = Lampa.Template.js('torbox_view_template');
-    this.movie = {};
+  /* ───── UI flows ───── */
+  async function searchAndShow(movie) {
+    Lampa.Loading.start('TorBox: поиск…');
+    try {
+      if (!movie.imdb_id) {
+          throw new Error("Для поиска нужен IMDb ID.");
+      }
+      
+      const list = await API.search(movie.imdb_id);
 
-    this.create = function () {
-        this.activity.loader(true);
-        // The 'create' method is for initialization only.
-        // The component's DOM element should be returned by the 'render' method.
-    };
-
-    this.render = function () {
-        return this.component;
-    };
-
-    this.start = function (data) {
-        this.movie = data.movie;
-        Lampa.Head.title('TorBox');
-        Lampa.Head.subtitle(this.movie.title || this.movie.name);
-        this.search();
-    };
-
-    this.search = async function() {
-        try {
-            if (!this.movie || !this.movie.imdb_id) throw new Error("Для поиска нужен IMDb ID.");
-            
-            const list = await API.search(this.movie.imdb_id);
-
-            if (!list || !list.length) {
-                this.component.find('.torbox-view__empty').show();
-            } else {
-                const items = list
-                    .sort((a,b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
-                    .map(t => ({
-                        title: `${t.cached ? '⚡' : '☁️'} ${t.raw_title || t.title}`,
-                        subtitle: `[${ql(t.raw_title || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.last_known_seeders || 0}`,
-                        torrent: t
-                    }));
-                this.build(items);
-            }
-            
-            this.activity.loader(false);
-            Lampa.Controller.enable(this.activity.render());
-
-        } catch (e) {
-            LOG('TorboxView Search Error:', e);
-            this.activity.loader(false);
-            Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
-            Lampa.Activity.backward();
-        }
-    };
-
-    this.build = function(items) {
-        const list = this.component.find('.torbox-view__list');
-        items.forEach(item => {
-            let card = Lampa.Template.js('torbox_card_template', item);
-            card.on('hover:enter', () => {
-                handleTorrent(item.torrent, this.movie);
-            });
-            list.append(card);
-        });
-    };
-
-    this.pause = function () { Lampa.Controller.toggle('content'); };
-    this.stop = function () {};
-    this.destroy = function () {
-        this.component.find('.torbox-view__list').empty();
+      if (!list || !list.length) {
+        Lampa.Noty.show('TorBox: торренты не найдены.');
+        return;
+      }
+      
+      // ИЗМЕНЕНО: Фильтр 'cachedOnly' убран. Отображаются все результаты.
+      // ИЗМЕНЕНО: Сортировка по 'last_known_seeders'
+      const items = list
+        .sort((a,b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
+        .map(t => ({
+            // ИЗМЕНЕНО: Используем 'raw_title' для полного названия и 'last_known_seeders' для сидов.
+            title: `${t.cached ? '⚡' : '☁️'} ${t.raw_title || t.title}`,
+            subtitle: `[${ql(t.raw_title || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.last_known_seeders || 0}`,
+            torrent: t
+        }));
+        
+      Lampa.Select.show({
+        title: 'TorBox',
+        items,
+        onSelect: i => handleTorrent(i.torrent, movie),
+        onBack: () => Lampa.Controller.toggle('content')
+      });
+    } catch (e) {
+      LOG('SearchAndShow Error:', e);
+      Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
+    } finally {
+      Lampa.Loading.stop();
     }
   }
 
-  /* ───── UI flows ───── */
   async function handleTorrent(t, movie) {
     Lampa.Loading.start('TorBox: обработка...');
     try {
@@ -271,8 +184,8 @@
             subtitle: `${(f.size/2**30).toFixed(2)} GB | ${ql(f.name)}`,
             file: f
           })),
-          onSelect: i => play(t.hash, i.file, movie),
-          onBack: () => Lampa.Controller.toggle('content') // ИСПРАВЛЕНО: Возврат на экран с результатами
+          onSelect: i => play(t.hash, i.file, movie), // ИСПРАВЛЕНО: Передаем 't.hash'
+          onBack: () => searchAndShow(movie)
         });
       } else {
         await API.addMagnet(t.magnet);
@@ -310,19 +223,20 @@
     
     // ИЗМЕНЕНО: Настройка 'torbox_cached_only' удалена.
     const fields = [
-      { k: CONSTANTS.SETTINGS_KEYS.PROXY_URL, n: 'URL вашего CORS-прокси', d: 'Вставьте сюда URL вашего воркера с Cloudflare', t: 'input', def: CFG.proxyUrl },
-      { k: CONSTANTS.SETTINGS_KEYS.API_KEY,   n: 'Ваш личный API-Key',    d: 'Обязательно. Взять на сайте TorBox.', t: 'input',   def: Store.get(CONSTANTS.SETTINGS_KEYS.API_KEY,'') },
-      { k: CONSTANTS.SETTINGS_KEYS.DEBUG,     n: 'Режим отладки',         d: 'Записывать подробную информацию в консоль разработчика (F12)', t: 'trigger', def: CFG.debug }
+      { k: 'torbox_proxy_url',   n: 'URL вашего CORS-прокси', d: 'Вставьте сюда URL вашего воркера с Cloudflare', t: 'input', def: CFG.proxyUrl },
+      { k: 'torbox_api_key',     n: 'Ваш личный API-Key',    d: 'Обязательно. Взять на сайте TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
+      { k: 'torbox_debug',       n: 'Режим отладки',      d: 'Записывать подробную информацию в консоль разработчика (F12)', t: 'trigger', def: CFG.debug      }
     ];
     fields.forEach(p => Lampa.SettingsApi.addParam({
       component: COMP,
       param    : { name: p.k, type: p.t, values: '', default: p.def },
       field    : { name: p.n, description: p.d },
       onChange : v => {
-        const value = String(typeof v === 'object' ? v.value : v);
-        if (p.k === CONSTANTS.SETTINGS_KEYS.PROXY_URL) CFG.proxyUrl = value.trim();
-        if (p.k === CONSTANTS.SETTINGS_KEYS.API_KEY)   Store.set(p.k, value.trim());
-        if (p.k === CONSTANTS.SETTINGS_KEYS.DEBUG)     CFG.debug = Boolean(v);
+        const value = String(typeof v === 'object' ? v.value : v).trim();
+        // Логика обновлена, т.к. одна из настроек убрана
+        if (p.k === 'torbox_proxy_url')   CFG.proxyUrl = value;
+        if (p.k === 'torbox_api_key')     Store.set(p.k, value);
+        if (p.k === 'torbox_debug')       CFG.debug = Boolean(v);
         if (Lampa.Settings) Lampa.Settings.update();
       }
     }));
@@ -334,11 +248,8 @@
       if (e.type !== 'complite' || !e.data.movie) return;
       const root = e.object.activity.render();
       if (root.find('.view--torbox').length) return;
-      
       const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
-      btn.on('hover:enter', () => {
-        Lampa.Activity.push({ component: 'torbox_view', data: { movie: e.data.movie } });
-      });
+      btn.on('hover:enter', () => searchAndShow(e.data.movie));
       root.find('.view--torrent').after(btn);
     });
   }
@@ -346,8 +257,7 @@
   let waited = 0;
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
-    if (window.Lampa && window.Lampa.Settings && window.Lampa.Component) {
-      Lampa.Component.add('torbox_view', TorboxView);
+    if (window.Lampa && window.Lampa.Settings) {
       try { addSettings(); hook(); LOG('TorBox v9.1.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
