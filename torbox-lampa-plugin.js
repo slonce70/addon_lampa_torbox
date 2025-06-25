@@ -335,6 +335,7 @@
       
       modalBody.find('[data-name="status"]').text(data.status || '...');
       modalBody.find('[data-name="progress-text"]').text(data.progressText || '');
+      // ИЗМЕНЕНО: Ширина прогресс-бара теперь устанавливается в процентах.
       modalBody.find('.torbox-status__progress-bar > div').css('width', (data.progress || 0) + '%');
       modalBody.find('[data-name="speed"]').text(data.speed || '');
       modalBody.find('[data-name="eta"]').text(data.eta || '');
@@ -371,7 +372,6 @@
               
               const statusText = statusMap[currentStatus.toLowerCase()] || currentStatus;
 
-              // ИСПРАВЛЕНО: Расчет процентов и использование правильного поля для скорости.
               const progressPercent = (torrentData.progress || 0) * 100;
 
               updateStatusModal({
@@ -382,7 +382,6 @@
                   eta: `Осталось: ${formatTime(torrentData.eta)}`
               });
               
-              // ИСПРАВЛЕНО: Условие завершения теперь сравнивает с 1 (дробное значение).
               const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || torrentData.progress >= 1;
 
               if (isDownloadFinished) {
@@ -407,12 +406,11 @@
               Lampa.Noty.show(`Ошибка отслеживания: ${error.message}`, {type: 'error'});
               Lampa.Modal.close();
           }
-      }, 10000); // ИЗМЕНЕНО: Интервал обновления увеличен до 20 секунд.
+      }, 10000); 
   }
   
   async function showFileSelection(torrentData, movie) {
       if (!torrentData.files || torrentData.files.length === 0) {
-          // Даем API немного времени на обработку файлов после завершения загрузки.
           await new Promise(resolve => setTimeout(resolve, 2000));
           const freshTorrentDataResult = await API.myList(torrentData.id);
           const freshTorrentData = freshTorrentDataResult?.data?.[0];
@@ -420,7 +418,7 @@
           if (!freshTorrentData || !freshTorrentData.files || freshTorrentData.files.length === 0) {
               return Lampa.Noty.show('Файлы в раздаче не найдены. Попробуйте снова через несколько секунд.', {type: 'info'});
           }
-          torrentData = freshTorrentData; // Обновляем данные
+          torrentData = freshTorrentData;
       }
       
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
@@ -453,7 +451,6 @@
         
         const initialStatus = initialTorrent ? (initialTorrent.download_state || initialTorrent.status) : null;
         
-        // ИСПРАВЛЕНО: Условие завершения теперь сравнивает с 1 (дробное значение).
         const isAlreadyFinished = initialTorrent && (initialStatus === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 1);
 
         if (isAlreadyFinished) {
