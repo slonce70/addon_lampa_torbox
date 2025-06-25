@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.18
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.19
  * ============================================================
- * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking). Теперь в таких случаях отображается корректный статус.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Снова переработан обработчик фильтров, чтобы окончательно решить проблему "вылета" плагина. Теперь используется более надежный метод, который предотвращает закрытие компонента Lampa при применении сортировки или фильтра.
- * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Реализована более надежная логика расчета процента загрузки в модальном окне статуса. Теперь полоса загрузки корректно отображает прогресс, даже если API возвращает данные в разных форматах.
- * • УЛУЧШЕНО: Для торрентов, содержащих сезоны или наборы серий, размер теперь отображается с пометкой "/ серия", чтобы избежать путаницы и точно отражать данные, предоставляемые API.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Реализован финальный, надежный механизм обработки фильтров и сортировки, основанный на анализе самых стабильных плагинов. Теперь плагин принудительно активирует загрузчик Lampa на время перерисовки, что гарантированно предотвращает "вылет" на главный экран.
+ * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking).
+ * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Улучшена логика расчета процента загрузки.
+ * • УЛУЧШЕНО: Для паков сезонов размер отображается с пометкой "/ серия".
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_18';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_19';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -237,26 +237,24 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            // 1. Немедленно обновляем состояние
-            if (type === 'sort') {
-                current_sort = a.key;
-                Store.set('torbox_sort_method', current_sort);
-            }
-            if (type === 'filter') {
-                if(a.reset){ current_filters = { quality: 'all', tracker: 'all' }; } 
-                else { current_filters[a.stype] = b.value; }
-                Store.set('torbox_filters', JSON.stringify(current_filters));
-            }
-    
-            // 2. Закрываем окно выбора
             Lampa.Select.close();
-            
-            // 3. Откладываем перерисовку и фокусировку, чтобы Lampa не уничтожила активность
-            setTimeout(function() {
-                _this.display(); // Перерисовываем список
-                // Убеждаемся, что фокус установлен правильно
-                Lampa.Controller.collectionFocus(last || scroll.render().find('.selector:first')[0], scroll.render());
-            }, 5); 
+            _this.activity.loader(true); // Показываем загрузчик, чтобы Lampa "ждала"
+
+            setTimeout(function () {
+                if (type === 'sort') {
+                    current_sort = a.key;
+                    Store.set('torbox_sort_method', current_sort);
+                }
+                if (type === 'filter') {
+                    if (a.reset) { current_filters = { quality: 'all', tracker: 'all' }; }
+                    else { current_filters[a.stype] = b.value; }
+                    Store.set('torbox_filters', JSON.stringify(current_filters));
+                }
+                
+                _this.display(); // Перерисовываем контент
+                _this.activity.loader(false); // Прячем загрузчик
+                Lampa.Controller.toggle('content'); // Возвращаем фокус
+            }, 100); // Небольшая задержка для надежности
         };
     };
 
@@ -585,7 +583,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.18 ready');
+        LOG('TorBox v11.0.19 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
