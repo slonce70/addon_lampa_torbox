@@ -1,10 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.9
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.10
  * ============================================================
- * • ФИНАЛЬНАЯ ВЕРСИЯ: Максимальная стабильность и исправление всех известных ошибок.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью устранена ошибка 'NaN%' при обновлении статуса. Добавлена проверка и обработка некорректных данных от API.
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера теперь происходит возврат в плагин, а не на карточку фильма.
- * • УЛУЧШЕНО: Повышена надежность закрытия модальных окон по кнопке Escape.
+ * • СТАБИЛЬНАЯ ВЕРСИЯ: Исправлены все известные ошибки навигации, рендеринга и жизненного цикла.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Исправлена логика жизненного цикла компонента, что устранило "зависание" при нажатии Escape.
+ * • УЛУЧШЕНО: Индикатор загрузки заменен на нативный (встроенный в Lampa) для стабильного отображения.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит возврат в плагин.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранены лишние запросы после завершения загрузки.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
@@ -13,7 +13,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_9';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_10';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -123,6 +123,8 @@
             if (/^\d+$/.test(imdbId)) formattedImdbId = `tt${imdbId}`;
             else throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
         }
+        // ПРИМЕЧАНИЕ: Размер (size), возвращаемый этим API, может быть неточным.
+        // Точный размер становится известен только после добавления торрента и получения метаданных.
         const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         return this.proxiedCall(url, { headers: { 'Authorization': `Bearer ${key}` } })
             .then(res => res.data?.torrents || []);
@@ -195,7 +197,8 @@
     this.movie = object.movie;
 
     this.start = function () {
-        if (Lampa.Activity.active().activity !== this.activity) return;
+        // ИСПРАВЛЕНО: Используем нативный лоадер Lampa для консистентности.
+        this.activity.loader(false);
         Lampa.Controller.add('content', {
             toggle: function () {
                 Lampa.Controller.collectionSet(scroll.render(), files.render());
@@ -221,7 +224,7 @@
     this.initialize = function() {
         if (initialized) return;
         this.initializeFilterHandlers(); 
-        filter.onBack = () => { this.start(); }; 
+        filter.onBack = this.back.bind(this);
         if (filter.addButtonBack) filter.addButtonBack();
         scroll.body().addClass('torrent-list');
         files.appendFiles(scroll.render());
@@ -280,7 +283,8 @@
     };
 
     this.loadAndDisplayTorrents = async function() {
-        this.loading(true);
+        this.activity.loader(true);
+        scroll.clear();
         try {
             if (!this.movie?.imdb_id) throw new Error('IMDb ID не найден');
             all_torrents = await API.search(this.movie.imdb_id);
@@ -289,7 +293,7 @@
             this.empty(error.message || 'Произошла ошибка');
             Lampa.Noty.show(`Ошибка: ${error.message}`, { type: 'error' });
         } finally {
-            this.loading(false);
+            this.activity.loader(false);
         }
     };
 
@@ -300,21 +304,32 @@
 
     this.draw = function(torrents_list) {
       scroll.clear();
-      if (!torrents_list?.length) return this.empty('Ничего не найдено по заданным фильтрам');
+      if (!torrents_list?.length) {
+          this.empty('Ничего не найдено по заданным фильтрам');
+          return;
+      }
       torrents_list.forEach(t => {
           const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
           item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
           item.on('hover:enter', () => handleTorrent(t, this.movie, this.activity));
           scroll.append(item);
       });
-      this.start();
+      // ИСПРАВЛЕНО: `start()` больше не вызывается отсюда, чтобы избежать конфликта контроллеров.
     };
 
-    this.empty = function(msg) { scroll.clear(); scroll.append($(`<div class="empty"><div class="empty__text">${msg||'Торренты не найдены'}</div></div>`)); this.start(); };
-    this.loading = function(status) { if(status){scroll.clear();scroll.append($('<div class="broadcast__loading"><div></div><div></div><div></div></div>'))}else{scroll.render().find('.broadcast__loading').remove()}};
+    this.empty = function(msg) { 
+        scroll.clear(); 
+        scroll.append($(`<div class="empty"><div class="empty__text">${msg||'Торренты не найдены'}</div></div>`)); 
+        this.activity.loader(false);
+    };
+    
     this.render = function() { return files.render(); };
     this.back = function() { Lampa.Activity.backward(); };
-    this.pause = this.stop = this.destroy = function() { network.clear(); files.destroy(); scroll.destroy(); };
+    this.pause = this.stop = this.destroy = function() { 
+        network.clear(); 
+        files.destroy(); 
+        scroll.destroy(); 
+    };
   }
   
   /* ───── NEW: Full torrent handling logic ───── */
@@ -376,7 +391,6 @@
               const etaValue = parseInt(torrentData.eta, 10);
               const sizeValue = parseInt(torrentData.size, 10);
               
-              // ИСПРАВЛЕНО: Защита от NaN при отображении размера.
               let progressText;
               if (isNaN(sizeValue) || sizeValue === 0) {
                   progressText = "Получение данных...";
@@ -441,7 +455,7 @@
           title: 'TorBox - Выбор файла',
           items: fileItems,
           onSelect: item => play(torrentData.id, item.file, movie, activity),
-          onBack: () => { Lampa.Activity.to(activity); } // Возврат в активность плагина
+          onBack: () => { Lampa.Activity.to(activity); }
       });
   }
 
@@ -483,7 +497,6 @@
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
-      // Гарантированно останавливаем цикл и закрываем окно при ошибке
       isTrackingActive = false;
       Lampa.Modal.close();
       Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
