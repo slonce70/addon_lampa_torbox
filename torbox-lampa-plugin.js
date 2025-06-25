@@ -205,14 +205,11 @@
       
       if (filter.addButtonBack) filter.addButtonBack();
       
-      // Настройка скролла
-      scroll.body().addClass('torrent-list');
-      
       // Создаем основную структуру
-      var head = filter.render();
-      files.appendHead(head);
-      files.append(scroll.render());
-      scroll.minus(head);
+      scroll.body().addClass('torrent-list');
+      files.appendFiles(scroll.render());
+      files.appendHead(filter.render());
+      scroll.minus(files.render().find('.explorer__files-head'));
       
       Lampa.Controller.enable('content');
       initialized = true;
