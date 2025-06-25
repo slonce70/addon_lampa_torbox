@@ -1,19 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.5
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.6
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена ошибка 405 Method Not Allowed при запросе ссылки на скачивание.
+ * • ОПТИМИЗАЦИЯ: Для уже кешированных торрентов пропускается отслеживание статуса и сразу открывается выбор файлов.
  * • ИСПРАВЛЕНО: Устранена ошибка "Торрент не найден в вашем аккаунте".
- * • ИСПРАВЛЕНО: Для получения ссылки на скачивание теперь передается правильный ID.
- * • ИСПРАВЛЕНО: Устранена критическая ошибка, которая приводила к "зависшему" модальному окну.
  * • НОВОЕ: Полная интеграция с TorBox!
  * • НОВОЕ: Информативное модальное окно со статусом загрузки.
- * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_5';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_6';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -141,7 +140,8 @@
         return this.directAction('/torrents/mylist', { id: torrentId }).then(r => r.data);
     },
     requestDl(torrentId, fid) { 
-        return this.directAction('/torrents/requestdl', { torrent_id: torrentId, file_id: fid }, 'POST'); 
+        // FIX: The API endpoint for requesting a download link uses GET method.
+        return this.directAction('/torrents/requestdl', { torrent_id: torrentId, file_id: fid }, 'GET'); 
     }
   };
 
@@ -323,9 +323,11 @@
       trackerInterval = setInterval(async () => {
           try {
               const torrentData = await API.myList(torrentId);
-              if (!torrentData) {
+              if (!torrentData?.[0]) { // API returns an array, even for a single ID
                   throw new Error('Торрент не найден в вашем аккаунте.');
               }
+              
+              const torrent = torrentData[0];
 
               const statusMap = {
                   'queued': 'В очереди',
@@ -335,20 +337,20 @@
                   'error': 'Ошибка'
               };
               
-              let statusText = statusMap[torrentData.status] || torrentData.status;
+              let statusText = statusMap[torrent.status] || torrent.status;
 
               updateStatusModal({
                   status: statusText,
-                  progress: torrentData.progress,
-                  progressText: `${torrentData.progress}% из ${formatBytes(torrentData.size)}`,
-                  speed: `Скорость: ${formatBytes(torrentData.down_speed, true)}`,
-                  eta: `Осталось: ${formatTime(torrentData.eta)}`
+                  progress: torrent.progress,
+                  progressText: `${torrent.progress}% из ${formatBytes(torrent.size)}`,
+                  speed: `Скорость: ${formatBytes(torrent.down_speed, true)}`,
+                  eta: `Осталось: ${formatTime(torrent.eta)}`
               });
 
-              if (torrentData.status === 'completed' || torrentData.download_finished) {
+              if (torrent.status === 'completed' || torrent.download_finished) {
                   clearInterval(trackerInterval);
                   Lampa.Modal.close();
-                  await showFileSelection(torrentData, movie);
+                  await showFileSelection(torrent, movie);
               }
           } catch (error) {
               clearInterval(trackerInterval);
@@ -359,10 +361,9 @@
   }
   
   async function showFileSelection(torrentData, movie) {
-      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name)); // Added .rar for this case
+      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
       if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
       
-      // If there is only one file, even if it's a rar, try to play it
       if (files.length === 1) return play(torrentData.id, files[0], movie);
       
       files.sort((a,b) => b.size - a.size);
@@ -384,8 +385,18 @@
         const torrentIdForTracking = torrentInfo.torrent_id || torrentInfo.id;
         
         if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента из ответа API.');
-        
-        await trackTorrentStatus(torrentIdForTracking, movie);
+
+        // OPTIMIZATION: Immediately check if the torrent is already downloaded
+        const initialStatus = await API.myList(torrentIdForTracking);
+        if (initialStatus?.[0] && (initialStatus[0].status === 'completed' || initialStatus[0].download_finished)) {
+            updateStatusModal({status: 'Завершен'});
+            await new Promise(resolve => setTimeout(resolve, 300)); // Short delay for user to see 'Completed'
+            Lampa.Modal.close();
+            await showFileSelection(initialStatus[0], movie);
+        } else {
+            // If not completed, start tracking
+            await trackTorrentStatus(torrentIdForTracking, movie);
+        }
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
@@ -438,7 +449,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.5 ready');
+        LOG('TorBox v10.0.6 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
