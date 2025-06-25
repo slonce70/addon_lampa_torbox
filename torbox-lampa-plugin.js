@@ -1,7 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.15
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.16
  * ============================================================
- * • ИСПРАВЛЕНО: Дополнительная стабилизация логики жизненного цикла компонента для предотвращения "вылета" при сортировке.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработан обработчик фильтров и сортировки. Это решает проблему, когда плагин "вылетал" на главный экран при попытке отфильтровать или отсортировать результаты. Теперь используется асинхронный подход, который предотвращает закрытие компонента по умолчанию.
  * • УЛУЧШЕНО: Для торрентов, содержащих сезоны или наборы серий, размер теперь отображается с пометкой "/ серия", чтобы избежать путаницы и точно отражать данные, предоставляемые API.
  */
 
@@ -9,7 +9,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_15';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_16';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -235,7 +235,6 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            Lampa.Select.close();
             if (type === 'sort') {
                 current_sort = a.key;
                 Store.set('torbox_sort_method', current_sort);
@@ -245,8 +244,14 @@
                 else { current_filters[a.stype] = b.value; }
                 Store.set('torbox_filters', JSON.stringify(current_filters));
             }
-            _this.display();
-            Lampa.Controller.toggle('content');
+    
+            // Оборачиваем в setTimeout, чтобы прервать синхронный поток выполнения
+            // и не дать Lampa закрыть активность по умолчанию.
+            setTimeout(() => {
+                Lampa.Select.close();
+                _this.display();
+                Lampa.Controller.toggle('content');
+            }, 50); // Небольшая задержка
         };
     };
 
@@ -566,7 +571,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.15 ready');
+        LOG('TorBox v11.0.16 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
