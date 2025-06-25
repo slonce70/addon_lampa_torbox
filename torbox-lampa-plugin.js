@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v5.0.0 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v6.0.0 (2025-06-27)
  * ============================================================
- * • FINAL ARCHITECTURE: Повністю перероблено логіку пошуку на правильний 2-кроковий процес.
- * • STEP 1: Отримання 'globalID' з metadata.torbox.app (без ключа).
- * • STEP 2: Отримання торентів за 'globalID' з api.torbox.app (з ключем).
- * • STABILITY: Це архітектурно правильне рішення, що відповідає роботі tbm.tools.
+ * • FINAL ARCHITECTURE: Повністю перероблено на основі офіційної документації Postman.
+ * • STEP 1: Запит на 'search-api.torbox.app/meta/imdb:...' для отримання globalID.
+ * • STEP 2: Запит на 'api.torbox.app/v1/api/torrents/id/...' для отримання торентів.
+ * • STABILITY: Використовується персональний проксі для всіх запитів. Це фінальне рішення.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v5_0_0';
+  const PLUGIN_ID = 'torbox_enhanced_v6_0_0';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -58,9 +58,9 @@
     return '';
   };
 
-  /* ───── TorBox API wrapper (Correct 2-Step Logic) ───── */
+  /* ───── TorBox API wrapper (Correct 2-Step Logic based on Postman) ───── */
   const API = {
-    METADATA_API: 'https://metadata.torbox.app/api/metadata',
+    METADATA_API: 'https://search-api.torbox.app',
     TORRENT_API: 'https://api.torbox.app/v1/api',
 
     async proxiedCall(targetUrl, options = {}) {
@@ -73,8 +73,8 @@
     },
 
     async getGlobalId(imdbId) {
-        const url = `${this.METADATA_API}/search/${imdbId}`;
-        const res = await this.proxiedCall(url); // No key needed
+        const url = `${this.METADATA_API}/meta/${imdbId}`;
+        const res = await this.proxiedCall(url); // No key needed for this call
         if (!res.success || !res.data?.globalID) {
             throw new Error('Не вдалося знайти метадані для цього фільму.');
         }
@@ -92,12 +92,11 @@
         return res.data?.torrents || [];
     },
 
-    // Direct calls for actions still go to the main API
     async directAction(path, body = {}, method = 'GET') {
         const key = Store.get('torbox_api_key', '');
         if (!key) throw new Error('API-Key не вказано.');
         
-        const url = `${this.TORRENT_API}${path}`;
+        let url = `${this.TORRENT_API}${path}`;
         const options = {
             method,
             headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
@@ -124,10 +123,7 @@
           throw new Error("Для пошуку потрібен IMDb ID.");
       }
 
-      // STEP 1: Get Global ID
       const globalId = await API.getGlobalId(movie.imdb_id);
-
-      // STEP 2: Get Torrents by Global ID
       const list = await API.getTorrentsByGlobalId(globalId);
 
       if (!list || !list.length) {
@@ -248,7 +244,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v5.0.0 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v6.0.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
