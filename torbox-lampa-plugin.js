@@ -1,19 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.0
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.1
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена критическая ошибка, приводившая к падению плагина при открытии модального окна статуса.
  * • НОВОЕ: Полная интеграция с TorBox! Теперь плагин добавляет торренты в ваш аккаунт, отслеживает загрузку и запускает воспроизведение.
  * • НОВОЕ: Информативное модальное окно со статусом загрузки (прогресс, скорость, время).
  * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию для работы "из коробки".
- * • ИСПРАВЛЕНО: Меню фильтра теперь корректно отображает выбранные параметры.
- * • НОВОЕ: Добавлены фильтры по качеству и трекеру.
- * • НОВОЕ: Добавлена сортировка по сидам, размеру и дате.
+ * • НОВОЕ: Добавлены фильтры по качеству и трекеру и сортировка.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_0';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_1';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -143,8 +142,6 @@
 
   /* ───── TorBox Component ───── */
   function TorBoxComponent(object) {
-    // ... (rest of the component code from previous version remains largely the same)
-    // The main logic will be moved to the new functions below
     var network = new Lampa.Reguest();
     var scroll = new Lampa.Scroll({ mask: true, over: true });
     var files = new Lampa.Explorer(object);
@@ -295,7 +292,7 @@
   function showStatusModal(title) {
       Lampa.Modal.open({
           title: 'TorBox',
-          html: `<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div></div>`,
+          html: $(`<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div></div>`),
           size: 'medium',
           onBack: () => {
               clearInterval(trackerInterval);
@@ -437,7 +434,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.0 ready');
+        LOG('TorBox v10.0.1 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
