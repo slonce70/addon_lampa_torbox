@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.5.2 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.5.3 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -56,15 +56,6 @@
         LOG('Invalid JSON or API error:', responseText, e);
         throw new Error(e.message || 'Получен некорректный ответ от сервера.');
     }
-  };
-
-  const ql = n => {
-    if (!n) return '';
-    const name = n.toLowerCase();
-    if (/(2160|4k|uhd)/.test(name)) return '4K';
-    if (/1080/.test(name)) return '1080p';
-    if (/720/.test(name)) return '720p';
-    return 'SD';
   };
 
   const formatBytes = (bytes) => {
