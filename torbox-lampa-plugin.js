@@ -1,6 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.7.1
+ * TorBox Enhanced – Universal Lampa Plugin v9.8.0
  * ============================================================
+ * • НОВОЕ: Добавлены фильтры по качеству и трекеру.
+ * • ИСПРАВЛЕНО: Восстановлена кнопка "Фильтр" и улучшена навигация.
  * • ИСПРАВЛЕНО: Закрытие окна сортировки/фильтра больше не возвращает на предыдущий экран.
  * • НОВОЕ: Добавлена сортировка по сидам, размеру и дате.
  * • НОВОЕ: Отображение пиров, трекера и даты добавления торрента.
@@ -12,7 +14,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_7_1'; // Increased version to prevent conflicts
+  const PLUGIN_ID = 'torbox_enhanced_v9_8_0'; // Increased version to prevent conflicts
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -186,8 +188,10 @@
     var filter = new Lampa.Filter(object);
     var last;
     var initialized = false;
-    var torrents = [];
+    var all_torrents = [];
     var current_sort = Store.get('torbox_sort_method', 'seeders');
+    var current_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
+
     var sort_types = [
         { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
         { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
@@ -207,11 +211,10 @@
             },
             up: ()=>{Navigator.move('up')},
             down: ()=>{Navigator.move('down')},
-            left: ()=>{
-                Lampa.Controller.toggle('menu');
-            },
+            left: ()=>{Lampa.Controller.toggle('menu');},
             right: ()=>{
-                filter.show(Lampa.Lang.translate('title_filter'), 'sort');
+                if(Navigator.canmove('right')) Navigator.move('right');
+                else Lampa.Controller.toggle('head');
             },
             back: this.back.bind(this)
         });
@@ -227,11 +230,8 @@
         if (initialized) return;
         var _this = this;
 
-        // FIX: Re-focus the controller on back, not exit the activity
         filter.onBack = function() { _this.start(); }; 
         if (filter.addButtonBack) filter.addButtonBack();
-        
-        this.buildFilter();
 
         scroll.body().addClass('torrent-list');
         files.appendFiles(scroll.render());
@@ -242,60 +242,108 @@
         initialized = true;
     };
 
-    this.sortTorrents = function() {
-        var sort_method = sort_types.find(s => s.key === current_sort);
-        if (!sort_method) return;
+    this.applyFiltersAndSort = function() {
+        let filtered = all_torrents.slice();
 
-        const parseAge = (ageStr) => {
-            if (!ageStr) return Infinity;
-            const value = parseInt(ageStr) || 0;
-            if (ageStr.includes('s')) return value;
-            if (ageStr.includes('m')) return value * 60;
-            if (ageStr.includes('h')) return value * 3600;
-            if (ageStr.includes('d')) return value * 86400;
-            if (ageStr.includes('w')) return value * 604800;
-            if (ageStr.includes('y')) return value * 31536000;
-            return Infinity;
-        };
-
-        torrents.sort((a, b) => {
-            let valA, valB;
-            if (sort_method.field === 'age') {
-                valA = parseAge(a.age);
-                valB = parseAge(b.age);
-            } else {
-                valA = a[sort_method.field] || 0;
-                valB = b[sort_method.field] || 0;
-            }
-
-            if (valA < valB) return -1;
-            if (valA > valB) return 1;
-            return 0;
-        });
-
-        if (sort_method.reverse) {
-            torrents.reverse();
+        // Apply filters
+        if (current_filters.quality !== 'all') {
+            filtered = filtered.filter(t => ql(t.raw_title) === current_filters.quality);
         }
+        if (current_filters.tracker !== 'all') {
+            filtered = filtered.filter(t => t.tracker === current_filters.tracker);
+        }
+
+        // Apply sort
+        var sort_method = sort_types.find(s => s.key === current_sort);
+        if (sort_method) {
+            const parseAge = (ageStr) => {
+                if (!ageStr) return Infinity;
+                const value = parseInt(ageStr) || 0;
+                if (ageStr.includes('s')) return value;
+                if (ageStr.includes('m')) return value * 60;
+                if (ageStr.includes('h')) return value * 3600;
+                if (ageStr.includes('d')) return value * 86400;
+                if (ageStr.includes('w')) return value * 604800;
+                if (ageStr.includes('y')) return value * 31536000;
+                return Infinity;
+            };
+
+            filtered.sort((a, b) => {
+                let valA, valB;
+                if (sort_method.field === 'age') {
+                    valA = parseAge(a.age);
+                    valB = parseAge(b.age);
+                } else {
+                    valA = a[sort_method.field] || 0;
+                    valB = b[sort_method.field] || 0;
+                }
+                if (valA < valB) return -1;
+                if (valA > valB) return 1;
+                return 0;
+            });
+
+            if (sort_method.reverse) {
+                filtered.reverse();
+            }
+        }
+        return filtered;
     };
 
     this.buildFilter = function() {
         var _this = this;
-        filter.onSelect = function (type, a) {
+        filter.onSelect = function (type, a, b) {
+            Lampa.Select.close();
             if (type == 'sort') {
-                Lampa.Select.close();
                 current_sort = a.key;
                 Store.set('torbox_sort_method', current_sort);
-                _this.display();
             }
+            if (type == 'filter') {
+                if(a.reset){
+                    current_filters = { quality: 'all', tracker: 'all' };
+                } else {
+                    current_filters[a.stype] = b.value;
+                }
+                Store.set('torbox_filters', JSON.stringify(current_filters));
+            }
+            _this.display();
         };
 
-        var items = sort_types.map(function(item) {
+        // Build Sort
+        var sort_items = sort_types.map(function(item) {
             item.selected = item.key === current_sort;
             return item;
         });
-        
-        filter.set('sort', items);
+        filter.set('sort', sort_items);
         filter.render().find('.filter--sort span').text('Сортировка');
+
+        // Build Filter
+        const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
+        const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
+
+        const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: current_filters.quality === q }));
+        const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: current_filters.tracker === t }));
+
+        var filter_items = [
+            {
+                title: 'Сбросить',
+                reset: true
+            },
+            {
+                title: 'Качество',
+                subtitle: current_filters.quality === 'all' ? 'Все' : current_filters.quality,
+                items: quality_items,
+                stype: 'quality'
+            },
+            {
+                title: 'Трекер',
+                subtitle: current_filters.tracker === 'all' ? 'Все' : current_filters.tracker,
+                items: tracker_items,
+                stype: 'tracker'
+            }
+        ];
+        
+        filter.set('filter', filter_items);
+        filter.render().find('.filter--filter span').text('Фильтр');
     };
 
     this.loadAndDisplayTorrents = async function() {
@@ -305,10 +353,12 @@
                 throw new Error('IMDb ID не найден');
             }
             LOG('Searching torrents for:', this.movie.title, 'IMDb ID:', this.movie.imdb_id);
-            torrents = await API.search(this.movie.imdb_id);
-            LOG('Found torrents:', torrents.length);
-
+            all_torrents = await API.search(this.movie.imdb_id);
+            LOG('Found torrents:', all_torrents.length);
+            
+            this.buildFilter();
             this.display();
+
         } catch (error) {
             LOG('Load/Display Error:', error);
             this.empty(error.message || 'Произошла ошибка');
@@ -319,12 +369,16 @@
     };
 
     this.display = function() {
-        if (!torrents || torrents.length === 0) {
-            return this.empty();
-        }
-        this.sortTorrents();
+        const torrents_to_display = this.applyFiltersAndSort();
+        
         filter.chosen('sort', [ (sort_types.find(s => s.key === current_sort) || {title:''}).title ]);
-        this.draw(torrents, { onEnter: (item) => this.select(item) });
+        
+        const filter_titles = [];
+        if(current_filters.quality !== 'all') filter_titles.push(`Качество: ${current_filters.quality}`);
+        if(current_filters.tracker !== 'all') filter_titles.push(`Трекер: ${current_filters.tracker}`);
+        filter.chosen('filter', filter_titles);
+        
+        this.draw(torrents_to_display, { onEnter: (item) => this.select(item) });
     };
 
     this.draw = function(torrents_list, params) {
@@ -332,7 +386,7 @@
       scroll.clear();
 
       if (!torrents_list || torrents_list.length === 0) {
-          return this.empty();
+          return this.empty('Ничего не найдено по заданным фильтрам');
       }
 
       torrents_list.forEach((torrent) => {
@@ -358,8 +412,8 @@
           });
           scroll.append(item);
       });
-
-      Lampa.Controller.enable('content');
+      
+      this.start();
     };
 
     this.select = function(torrent) {
@@ -371,7 +425,7 @@
       const text = message || 'Торренты не найдены';
       const empty = $(`<div class="empty"><div class="empty__text">${text}</div></div>`);
       scroll.append(empty);
-      Lampa.Controller.enable('content');
+      this.start();
     };
 
     this.loading = function(status) {
@@ -501,7 +555,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         hook();
-        LOG('TorBox v9.7.1 ready');
+        LOG('TorBox v9.8.0 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
