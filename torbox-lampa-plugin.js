@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.6.1 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.8.1 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -239,6 +239,7 @@
     this.draw = function(torrents, params) {
       var _this = this;
       
+      LOG('Drawing torrents:', torrents.length);
       scroll.clear();
       
       if (!torrents || torrents.length === 0) {
@@ -247,6 +248,7 @@
       }
 
       torrents.forEach(function(torrent, index) {
+        LOG('Processing torrent', index + 1, ':', torrent.title || torrent.raw_title);
         var item = $('<div class="torbox-item selector"></div>');
         
         var title = `${torrent.cached ? '⚡' : '☁️'} ${torrent.raw_title || torrent.title}`;
@@ -267,8 +269,10 @@
         });
         
         scroll.append(item);
+        LOG('Added item to scroll, total items:', scroll.render().find('.torbox-item').length);
       });
       
+      LOG('Finished drawing, enabling controller');
       Lampa.Controller.enable('content');
     };
 
@@ -334,6 +338,7 @@
       
       if (!movie.imdb_id) {
         component.empty();
+        component.loading(false);
         Lampa.Noty.show('IMDb ID не найден для фильма: ' + movie.title);
         return;
       }
@@ -341,17 +346,23 @@
       LOG('Searching torrents for:', movie.title, 'IMDb ID:', movie.imdb_id);
       const torrents = await API.search(movie.imdb_id);
       LOG('Found torrents:', torrents.length);
+      if (torrents.length > 0) {
+        LOG('First torrent sample:', JSON.stringify(torrents[0], null, 2));
+      }
       
       if (!torrents || torrents.length === 0) {
         component.empty();
+        component.loading(false);
         Lampa.Noty.show('Торренты не найдены для: ' + movie.title);
         return;
       }
       
       // Отображаем результаты
       component.display(torrents);
+      component.loading(false);
     } catch (error) {
       LOG('Search error:', error);
+      component.loading(false);
       Lampa.Noty.show('Ошибка поиска торрентов: ' + error.message);
     }
   }
