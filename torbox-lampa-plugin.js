@@ -175,9 +175,12 @@
     var items = [];
     var initialized = false;
 
+    // Сохраняем переданные данные
+    this.movie = object.movie;
+    this.torrents = object.torrents;
+
     this.initialize = function() {
       var _this = this;
-      this.loading(true);
       
       // Настройка фильтра
       filter.onBack = function() {
@@ -191,15 +194,19 @@
       files.appendFiles(scroll.render());
       files.appendHead(filter.render());
       scroll.minus(files.render().find('.explorer__files-head'));
-      scroll.body().append(Lampa.Template.get('lampac_content_loading'));
       
       Lampa.Controller.enable('content');
-      this.loading(false);
+      initialized = true;
     };
 
     this.display = function(torrents) {
       var _this = this;
       items = torrents;
+      
+      if (!torrents || torrents.length === 0) {
+        this.empty();
+        return;
+      }
       
       this.draw(torrents, {
         onEnter: function(item, html) {
@@ -248,18 +255,13 @@
     };
 
     this.select = function(torrent) {
-      handleTorrent(torrent, object.movie);
+      handleTorrent(torrent, this.movie);
     };
 
     this.empty = function() {
-      var empty = Lampa.Template.get('lampac_does_not_answer', {
-        title: 'Нет результатов',
-        text: 'По вашему запросу ничего не найдено'
-      });
-      
       scroll.clear();
+      var empty = $('<div class="empty"><div class="empty__text">Торренты не найдены</div></div>');
       scroll.append(empty);
-      this.loading(false);
     };
 
     this.loading = function(status) {
@@ -313,15 +315,15 @@
         torrents: list
       });
       
-      component.initialize();
-      component.display(list);
-      
       Lampa.Activity.push({
         url: '',
         title: 'TorBox',
         component: component,
         page: component
       });
+      
+      component.initialize();
+      component.display(list);
       
     } catch (e) {
       LOG('SearchAndShow Error:', e);
@@ -347,12 +349,17 @@
           file: f
         }));
         
-        createTorrentModal(
-          'TorBox - Выбор файла',
-          fileItems,
-          (item) => play(t.hash, item.file, movie),
-          () => searchAndShow(movie)
-        );
+        // Создаем простой выбор файлов через Lampa.Select
+        Lampa.Select.show({
+          title: 'TorBox - Выбор файла',
+          items: fileItems,
+          onSelect: function(item) {
+            play(t.hash, item.file, movie);
+          },
+          onBack: function() {
+            searchAndShow(movie);
+          }
+        });
       } else {
         await API.addMagnet(t.magnet);
         Lampa.Noty.show('Отправлено в TorBox. Ожидайте кеширования.');
