@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.7.0 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v4.0.0 (2025-06-27)
  * ============================================================
- * • FINAL: Архітектура повністю відповідає офіційній документації та коду.
- * • DEBUG: Додано розширене логування URL та частини ключа для фінальної діагностики.
- * • CONFIDENCE: Це технічно найкоректніша версія. Подальші помилки 401 вказують виключно на недійсний API-ключ.
+ * • FINAL SOLUTION: Використовується персональний CORS-проксі для максимальної надійності.
+ * • STABILITY: Повністю усунено залежність від ненадійних публічних проксі-серверів.
+ * • INSTRUCTIONS: Для роботи потрібен власний проксі, розгорнутий на Cloudflare Workers.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v3_7_0';
+  const PLUGIN_ID = 'torbox_enhanced_v4_0_0';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -31,15 +31,15 @@
     get debug()      { return Store.get('torbox_debug',       '0') === '1'; },
     set debug(v)     { Store.set('torbox_debug',        v ? '1' : '0');    },
     get cachedOnly() { return Store.get('torbox_cached_only', '0') === '1'; },
-    set cachedOnly(v){ Store.set('torbox_cached_only',   v ? '1' : '0');    }
+    set cachedOnly(v){ Store.set('torbox_cached_only',   v ? '1' : '0');    },
+    get proxyUrl()   { return Store.get('torbox_proxy_url', ''); },
+    set proxyUrl(v)  { Store.set('torbox_proxy_url', v); }
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
   
-  const PROXY = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
-
   const processResponse = async r => {
-    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, згенеруйте новий ключ на сайті TorBox і вставте його в налаштування.');
+    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, оновіть його.');
     if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status}`);
     const text = await r.text();
     try { return JSON.parse(text); } catch (e) {
@@ -62,29 +62,29 @@
     BASE: 'https://api.torbox.app/v1/api',
 
     async call(path, body = {}, method = 'GET') {
-      const key = Store.get('torbox_api_key', '');
-      if (!key) throw new Error('API-Key не вказано. Будь ласка, додайте його в налаштуваннях плагіна.');
+      const proxy = CFG.proxyUrl;
+      if (!proxy) throw new Error('URL вашого персонального проксі не вказано в налаштуваннях.');
 
-      let url = `${this.BASE}${path}`;
+      const key = Store.get('torbox_api_key', '');
+      if (!key) throw new Error('API-Key не вказано.');
+
+      let targetUrl = `${this.BASE}${path}`;
       const options = {
         method,
-        headers: {
-          'Authorization': `Bearer ${key}`,
-          'Accept': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
       };
 
       if (method !== 'GET') {
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
       } else if (Object.keys(body).length) {
-        url += '?' + new URLSearchParams(body).toString();
+        targetUrl += '?' + new URLSearchParams(body).toString();
       }
       
-      LOG(`Calling URL: ${url}`);
-      LOG(`Using API Key starting with: ${key.substring(0, 4)}...`);
+      const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
+      LOG(`Calling via YOUR proxy: ${proxiedUrl}`);
 
-      const response = await fetch(PROXY(url), options);
+      const response = await fetch(proxiedUrl, options);
       return await processResponse(response);
     },
 
@@ -180,14 +180,15 @@
     }
   }
 
-  /* ───── Settings (Unchanged) ───── */
+  /* ───── Settings (NEW FIELD ADDED) ───── */
   const COMP = 'torbox_enh';
   function addSettings() {
     if (!Lampa.SettingsApi) return;
     Lampa.SettingsApi.addComponent({ component: COMP, name: 'TorBox Enhanced', icon: ICON });
     const fields = [
+      { k: 'torbox_proxy_url',   n: 'URL вашого CORS-проксі', d: 'Вставте сюди URL вашого воркера з Cloudflare', t: 'input', def: CFG.proxyUrl },
+      { k: 'torbox_api_key',     n: 'Ваш особистий API-Key',    d: 'Обов\'язково. Взяти на сайті TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
       { k: 'torbox_cached_only', n: 'Тільки кешовані', d: 'Показувати в пошуку тільки торенти, які вже є в кеші TorBox', t: 'trigger', def: CFG.cachedOnly },
-      { k: 'torbox_api_key',     n: 'Ваш особистий API-Key',    d: 'Обов\'язково для роботи плагіна. Взяти на сайті TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
       { k: 'torbox_debug',       n: 'Режим налагодження',      d: 'Записувати детальну інформацію в консоль розробника (F12)', t: 'trigger', def: CFG.debug      }
     ];
     fields.forEach(p => Lampa.SettingsApi.addParam({
@@ -195,10 +196,11 @@
       param    : { name: p.k, type: p.t, values: '', default: p.def },
       field    : { name: p.n, description: p.d },
       onChange : v => {
-        const value = typeof v === 'object' ? v.value : v;
-        if (p.k === 'torbox_api_key')     Store.set(p.k, String(value).trim());
-        if (p.k === 'torbox_cached_only') CFG.cachedOnly = Boolean(value);
-        if (p.k === 'torbox_debug')       CFG.debug = Boolean(value);
+        const value = String(typeof v === 'object' ? v.value : v).trim();
+        if (p.k === 'torbox_proxy_url')   CFG.proxyUrl = value;
+        if (p.k === 'torbox_api_key')     Store.set(p.k, value);
+        if (p.k === 'torbox_cached_only') CFG.cachedOnly = Boolean(v);
+        if (p.k === 'torbox_debug')       CFG.debug = Boolean(v);
         if (Lampa.Settings) Lampa.Settings.update();
       }
     }));
@@ -220,7 +222,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v3.7.0 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v4.0.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
