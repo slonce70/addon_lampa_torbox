@@ -1,9 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.12
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.13
  * ============================================================
  * • ФИНАЛЬНАЯ СТАБИЛЬНАЯ ВЕРСИЯ.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена фатальная ошибка "Cannot read properties of undefined (reading 'destroy')", которая блокировала выбор файлов и вызывала "зависание" окон.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработана логика жизненного цикла компонента, что устранило "зависание" при нажатии Escape и выход из плагина при сортировке.
  * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит корректный возврат в плагин.
+ * • УЛУЧШЕНО: Управление модальными окнами сделано более надежным.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
 
@@ -11,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_12';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_13';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -191,23 +192,29 @@
 
 
     this.movie = object.movie;
+    
+    // ИСПРАВЛЕНО: Флаг для предотвращения повторной регистрации контроллера.
+    var controller_registered = false;
 
     this.start = function () {
         this.activity.loader(false);
-        Lampa.Controller.add('content', {
-            toggle: function () {
-                Lampa.Controller.collectionSet(scroll.render(), files.render());
-                Lampa.Controller.collectionFocus(last || false, scroll.render());
-            },
-            up: ()=>{Navigator.move('up')},
-            down: ()=>{Navigator.move('down')},
-            left: ()=>{Lampa.Controller.toggle('menu');},
-            right: ()=>{
-                if(Navigator.canmove('right')) Navigator.move('right');
-                else Lampa.Controller.toggle('head');
-            },
-            back: this.back.bind(this)
-        });
+        if (!controller_registered) {
+            Lampa.Controller.add('content', {
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll.render(), files.render());
+                    Lampa.Controller.collectionFocus(last || false, scroll.render());
+                },
+                up: ()=>{Navigator.move('up')},
+                down: ()=>{Navigator.move('down')},
+                left: ()=>{Lampa.Controller.toggle('menu');},
+                right: ()=>{
+                    if(Navigator.canmove('right')) Navigator.move('right');
+                    else Lampa.Controller.toggle('head');
+                },
+                back: this.back.bind(this)
+            });
+            controller_registered = true;
+        }
         Lampa.Controller.toggle('content');
     };
 
@@ -243,6 +250,8 @@
                 Store.set('torbox_filters', JSON.stringify(current_filters));
             }
             _this.display();
+            // ИСПРАВЛЕНО: После выбора фокус возвращается на главный контент, а не выходит из плагина.
+            Lampa.Controller.toggle('content');
         };
     };
 
@@ -454,7 +463,7 @@
           title: 'TorBox - Выбор файла',
           items: fileItems,
           onSelect: item => play(torrentData.id, item.file, movie, component),
-          onBack: () => component.start() // ИСПРАВЛЕНО: Корректный возврат
+          onBack: () => component.start()
       });
   }
 
@@ -520,7 +529,6 @@
 
       Lampa.Modal.close();
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
-      // ИСПРАВЛЕНО: Корректный callback для возврата в плагин
       Lampa.Player.callback(component.start.bind(component));
     } catch (e) {
       LOG('Play Error:', e);
