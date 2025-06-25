@@ -1,21 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.8.1
+ * TorBox Enhanced – Universal Lampa Plugin v9.8.2
  * ============================================================
+ * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию для работы "из коробки".
  * • ИСПРАВЛЕНО: Меню фильтра теперь корректно отображает выбранные параметры.
  * • НОВОЕ: Добавлены фильтры по качеству и трекеру.
  * • ИСПРАВЛЕНО: Восстановлена кнопка "Фильтр" и улучшена навигация.
  * • ИСПРАВЛЕНО: Закрытие окна сортировки/фильтра больше не возвращает на предыдущий экран.
  * • НОВОЕ: Добавлена сортировка по сидам, размеру и дате.
  * • НОВОЕ: Отображение пиров, трекера и даты добавления торрента.
- * • УЛУЧШЕННЫЙ UI: Вся информация сгруппирована для лучшей читаемости.
- * • СТАБИЛЬНОСТЬ: Улучшена обработка ошибок и навигация.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_8_1'; // Increased version to prevent conflicts
+  const PLUGIN_ID = 'torbox_enhanced_v9_8_2'; // Increased version to prevent conflicts
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -31,12 +30,19 @@
       try { localStorage.setItem(k, String(v)); } catch {}
     }
   };
+  
+  const DEFAULTS = {
+    proxyUrl: 'https://my-torbox-proxy.slonce70.workers.dev/',
+    apiKey: '4b7b263b-b5a8-483f-a9a5-53b4127c4bb2'
+  };
 
   const CFG = {
     get debug()      { return Store.get('torbox_debug', '0') === '1'; },
     set debug(v)     { Store.set('torbox_debug', v ? '1' : '0');    },
-    get proxyUrl()   { return Store.get('torbox_proxy_url', ''); },
-    set proxyUrl(v)  { Store.set('torbox_proxy_url', v); }
+    get proxyUrl()   { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
+    set proxyUrl(v)  { Store.set('torbox_proxy_url', v); },
+    get apiKey()     { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
+    set apiKey(v)    { Store.set('torbox_api_key', v); }
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
@@ -125,7 +131,6 @@
 
     async proxiedCall(targetUrl, options = {}) {
         const proxy = CFG.proxyUrl;
-        if (!proxy) throw new Error('URL вашего персонального прокси не указано в настройках.');
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
         LOG('Calling via proxy:', proxiedUrl);
         LOG('Target URL:', targetUrl);
@@ -137,9 +142,7 @@
     },
 
     async search(imdbId) {
-        const key = Store.get('torbox_api_key', '');
-        if (!key) throw new Error('API-Key не указан.');
-
+        const key = CFG.apiKey;
         let formattedImdbId = imdbId;
         if (!/^tt\d+$/.test(imdbId)) {
             if (/^\d+$/.test(imdbId)) {
@@ -159,9 +162,7 @@
     },
 
     async directAction(path, body = {}, method = 'GET') {
-        const key = Store.get('torbox_api_key', '');
-        if (!key) throw new Error('API-Key не указан.');
-
+        const key = CFG.apiKey;
         let url = `${this.MAIN_API}${path}`;
         const options = {
             method,
@@ -513,9 +514,9 @@
     Lampa.SettingsApi.addComponent({ component: COMP, name: 'TorBox Enhanced', icon: ICON });
 
     const fields = [
-      { k: 'torbox_proxy_url',   n: 'URL вашего CORS-прокси', d: 'Вставьте сюда URL вашего воркера с Cloudflare', t: 'input', def: CFG.proxyUrl },
-      { k: 'torbox_api_key',     n: 'Ваш личный API-Key',    d: 'Обязательно. Взять на сайте TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
-      { k: 'torbox_debug',       n: 'Режим отладки',      d: 'Записывать подробную информацию в консоль разработчика (F12)', t: 'trigger', def: CFG.debug      }
+      { k: 'torbox_proxy_url',   n: 'URL вашего CORS-прокси', d: `По умолчанию: ${DEFAULTS.proxyUrl}`, t: 'input', def: Store.get('torbox_proxy_url', '') },
+      { k: 'torbox_api_key',     n: 'Ваш личный API-Key',    d: `По умолчанию используется гостевой ключ`, t: 'input',   def: Store.get('torbox_api_key', '') },
+      { k: 'torbox_debug',       n: 'Режим отладки',      d: 'Записывать подробную информацию в консоль разработчика (F12)', t: 'trigger', def: CFG.debug }
     ];
     fields.forEach(p => Lampa.SettingsApi.addParam({
       component: COMP,
@@ -524,9 +525,8 @@
       onChange : v => {
         const value = String(typeof v === 'object' ? v.value : v).trim();
         if (p.k === 'torbox_proxy_url')   CFG.proxyUrl = value;
-        if (p.k === 'torbox_api_key')     Store.set(p.k, value);
+        if (p.k === 'torbox_api_key')     CFG.apiKey = value;
         if (p.k === 'torbox_debug')       CFG.debug = Boolean(v);
-        if (Lampa.Settings) Lampa.Settings.update();
       }
     }));
   }
@@ -557,7 +557,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         hook();
-        LOG('TorBox v9.8.1 ready');
+        LOG('TorBox v9.8.2 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
