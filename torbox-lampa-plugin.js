@@ -1,10 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.11
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.12
  * ============================================================
- * • СТАБИЛЬНАЯ ВЕРСИЯ: Исправлены все известные ошибки навигации, рендеринга и жизненного цикла.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Переписана логика отслеживания статуса, что полностью устранило "зависание" окон при нажатии Escape.
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера или меню выбора файлов происходит корректный возврат в плагин.
- * • УЛУЧШЕНО: Индикатор загрузки заменен на нативный (встроенный в Lampa) для стабильного отображения.
+ * • ФИНАЛЬНАЯ СТАБИЛЬНАЯ ВЕРСИЯ.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена фатальная ошибка "Cannot read properties of undefined (reading 'destroy')", которая блокировала выбор файлов.
+ * • УЛУЧШЕНО: Повышена общая стабильность работы модальных окон.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит корректный возврат в плагин.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
 
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_11';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_12';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -329,11 +329,13 @@
   
   /* ───── NEW: Full torrent handling logic ───── */
 
-  // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: showStatusModal и updateStatusModal теперь общие функции,
-  // чтобы избежать дублирования и конфликтов.
   function showStatusModal(title, onBack) {
-      // Закрываем любое существующее модальное окно, чтобы избежать дублирования
-      Lampa.Modal.close();
+      // ИСПРАВЛЕНО: Закрываем окно безопасно, чтобы избежать ошибок.
+      try {
+        if(Lampa.Modal.get()) Lampa.Modal.close();
+      } catch (e) {
+        LOG("Ошибка при закрытии модального окна (не критично):", e);
+      }
       Lampa.Modal.open({
           title: 'TorBox',
           html: $(`<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div><div class="torbox-status__info" data-name="peers"></div></div>`),
@@ -354,7 +356,6 @@
       modalBody.find('[data-name="peers"]').text(data.peers || '');
   }
 
-  // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: trackTorrentStatus теперь возвращает Promise для правильной обработки отмены.
   function trackTorrentStatus(torrentId, movie, activity) {
       return new Promise((resolve, reject) => {
           let isTrackingActive = true;
@@ -424,7 +425,7 @@
                           Lampa.Noty.show('Раздача успешно остановлена.', {type: 'success'});
                       }
                       
-                      resolve(torrentData); // Успешно завершаем Promise
+                      resolve(torrentData);
 
                   } else {
                       if (isDownloadFinished && !filesAreReady) {
@@ -434,7 +435,7 @@
                   }
               } catch (error) {
                   isTrackingActive = false;
-                  reject(error); // Передаем ошибку для обработки выше
+                  reject(error);
               }
           };
           
@@ -505,7 +506,6 @@
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
-      // При отмене пользователем не показываем ошибку
       if (e.message !== "Отменено пользователем") {
         Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
       }
