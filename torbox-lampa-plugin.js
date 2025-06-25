@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.5.8 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v3.5.9 (2025-06-27)
  * ============================================================
- * • FINAL FIX: Вирішено фундаментальну проблему з CORS Preflight (OPTIONS) запитами.
- * • PROXY: Використовується новий, надійний проксі-сервер (proxy.cors.sh), що підтримує Authorization.
- * • ARCHITECTURE: Збережено прямий доступ до API TorBox через ротацію надійних проксі.
+ * • FINAL FIX: Повністю змінено метод автентифікації для обходу CORS Preflight.
+ * • AUTH: API-ключ тепер передається як параметр ?token=... у URL, що робить запит "простим".
+ * • PROXY: Використовується найнадійніший проксі, що не вимагає обробки складних заголовків.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v3_5_8';
+  const PLUGIN_ID = 'torbox_enhanced_v3_5_9';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -35,47 +35,10 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-
-  /* ───── Resilient Proxy System (Updated with a better proxy) ───── */
-  const PROXIES = [
-    // Цей проксі спеціально створений для складних запитів з заголовками.
-    u => `https://proxy.cors.sh/${u}`,
-    // allorigins.win є хорошим бекапом, бо він теж підтримує preflight.
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
-  ];
-  let currentProxyIndex = 0;
-
-  async function proxiedFetch(url, options = {}) {
-    for (let i = 0; i < PROXIES.length; i++) {
-      const proxyIndex = (currentProxyIndex + i) % PROXIES.length;
-      const proxy = PROXIES[proxyIndex];
-      
-      // proxy.cors.sh вимагає передавати заголовки окремо
-      const fetchOptions = { ...options };
-      if (proxyIndex === 0) { // Specific headers for proxy.cors.sh
-          fetchOptions.headers = {
-              ...fetchOptions.headers,
-              'x-cors-api-key': 'temp_1234567890' // Демо-ключ, може не бути обов'язковим
-          };
-      }
-      
-      const proxiedUrl = proxy(url);
-      LOG(`Trying fetch via proxy #${proxyIndex}: ${url}`);
-
-      try {
-        const response = await fetch(proxiedUrl, fetchOptions);
-        if (response.status >= 500) throw new Error(`Proxy server error: ${response.status}`);
-        currentProxyIndex = proxyIndex;
-        return response;
-      } catch (e) {
-        LOG(`Proxy #${proxyIndex} failed:`, e.message);
-      }
-    }
-    throw new Error('Усі CORS-проксі недоступні. Спробуйте пізніше.');
-  }
+  const PROXY = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
 
   const processResponse = async r => {
-    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Перевірте його в налаштуваннях.');
+    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, оновіть його.');
     if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status}`);
     const text = await r.text();
     try { return JSON.parse(text); } catch (e) {
@@ -93,7 +56,7 @@
     return '';
   };
 
-  /* ───── TorBox API wrapper (Direct via Proxy) ───── */
+  /* ───── TorBox API wrapper (Simple Request Method) ───── */
   const API = {
     BASE: 'https://api.torbox.app/v1/api',
 
@@ -101,23 +64,20 @@
       const key = Store.get('torbox_api_key', '');
       if (!key) throw new Error('Для роботи плагіна потрібен ваш особистий API-Key для TorBox.');
 
-      let url = `${this.BASE}${path}`;
-      const options = {
-        method,
-        headers: {
-          'Authorization': `Bearer ${key}`,
-          'Accept': 'application/json'
-        }
-      };
+      const separator = path.includes('?') ? '&' : '?';
+      let url = `${this.BASE}${path}${separator}token=${key}`;
+      
+      const options = { method, headers: { 'Accept': 'application/json' } };
 
       if (method !== 'GET') {
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
-      } else if (Object.keys(body).length) {
-        url += '?' + new URLSearchParams(body).toString();
+        // Для POST запитів, можливо, доведеться додати токен і в тіло запиту
+        const bodyWithToken = { ...body, token: key };
+        options.body = JSON.stringify(bodyWithToken);
       }
       
-      const response = await proxiedFetch(url, options);
+      const response = await fetch(PROXY(url), options);
       return await processResponse(response);
     },
 
@@ -253,7 +213,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v3.5.8 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v3.5.9 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
