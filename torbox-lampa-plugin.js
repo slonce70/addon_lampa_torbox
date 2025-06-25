@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.3
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.4
  * ============================================================
+ * • ВАЖНОЕ УЛУЧШЕНИЕ: Добавлен параметр 'bypass_cache=true' при запросе статуса для получения обновлений в реальном времени и решения проблемы "зависшей" загрузки.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка отслеживания статуса для некашированных торрентов. Логика теперь правильно использует поле 'download_state' вместо 'status'.
  * • ИСПРАВЛЕНО: Устранена ошибка при получении ссылки на скачивание (Play Error). Запрос теперь включает обязательный 'token'.
- * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования для гарантированной остановки раздачи.
- * • ОПТИМИЗАЦИЯ: Избыточные параметры удалены из вызовов API.
+ * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_3';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_4';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -148,8 +148,9 @@
         return this.directAction('/torrents/controltorrent', { torrent_id: torrentId, operation: 'pause' }, 'POST');
     },
 
+    // ИСПРАВЛЕНО: Добавлен bypass_cache=true для получения статуса в реальном времени.
     myList(torrentId) {
-        return this.directAction('/torrents/mylist', { id: torrentId }).then(r => {
+        return this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }).then(r => {
             if (r && r.data && !Array.isArray(r.data)) {
                 r.data = [r.data];
             }
@@ -354,7 +355,6 @@
                   return;
               }
 
-              // ИСПРАВЛЕНО: Читаем статус из правильного поля 'download_state'.
               const currentStatus = torrentData.download_state || torrentData.status;
 
               const statusMap = {
@@ -439,7 +439,6 @@
         const initialStatusResult = await API.myList(torrentIdForTracking);
         const initialTorrent = initialStatusResult?.data?.[0];
         
-        // ИСПРАВЛЕНО: Читаем статус из правильного поля 'download_state'.
         const initialStatus = initialTorrent ? (initialTorrent.download_state || initialTorrent.status) : null;
 
         const isAlreadyFinished = initialTorrent && (initialStatus === 'completed' || initialTorrent.download_finished || initialTorrent.progress >= 100);
@@ -516,7 +515,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.3 ready');
+        LOG('TorBox v11.0.4 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
