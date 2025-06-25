@@ -1,18 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v10.0.1
+ * TorBox Enhanced – Universal Lampa Plugin v10.0.2
  * ============================================================
- * • ИСПРАВЛЕНО: Устранена критическая ошибка, приводившая к падению плагина при открытии модального окна статуса.
- * • НОВОЕ: Полная интеграция с TorBox! Теперь плагин добавляет торренты в ваш аккаунт, отслеживает загрузку и запускает воспроизведение.
- * • НОВОЕ: Информативное модальное окно со статусом загрузки (прогресс, скорость, время).
- * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию для работы "из коробки".
- * • НОВОЕ: Добавлены фильтры по качеству и трекеру и сортировка.
+ * • ИСПРАВЛЕНО: Устранена ошибка 'MISSING_REQUIRED_OPTION' при добавлении торрента в аккаунт.
+ * • ИСПРАВЛЕНО: Исправлен метод запроса для получения ссылки на скачивание.
+ * • НОВОЕ: Полная интеграция с TorBox!
+ * • НОВОЕ: Информативное модальное окно со статусом загрузки.
+ * • НОВОЕ: Добавлены прокси и API-ключ по умолчанию.
+ * • НОВОЕ: Добавлены фильтры, сортировка и улучшенный UI.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v10_0_1';
+  const PLUGIN_ID = 'torbox_enhanced_v10_0_2';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -121,8 +122,8 @@
             headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
         };
         if (method !== 'GET') {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(body);
+            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            options.body = new URLSearchParams(body).toString();
         } else if (Object.keys(body).length) {
             url += '?' + new URLSearchParams(body).toString();
         }
@@ -136,7 +137,7 @@
         return this.directAction('/torrents/mylist', { id: hash }).then(r => r.data?.[0]);
     },
     requestDl(thash, fid) { 
-        return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }).then(r => r.data); 
+        return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }, 'POST'); 
     }
   };
 
