@@ -1,8 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.6.2 (fix)
+ * TorBox Enhanced – Universal Lampa Plugin v9.7.0
  * ============================================================
- * • ИСПРАВЛЕНИЕ: Полностью переработан жизненный цикл компонента для соответствия архитектуре Lampa, что решает проблему "пустого экрана".
- * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение.
+ * • НОВОЕ: Добавлена сортировка по сидам, размеру и дате.
+ * • НОВОЕ: Отображение пиров, трекера и даты добавления торрента.
+ * • УЛУЧШЕННЫЙ UI: Вся информация сгруппирована для лучшей читаемости.
  * • СТАБИЛЬНОСТЬ: Улучшена обработка ошибок и навигация.
  */
 
@@ -10,7 +11,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_2_0'; // Increased version to prevent conflicts
+  const PLUGIN_ID = 'torbox_enhanced_v9_7_0'; // Increased version to prevent conflicts
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -104,7 +105,7 @@
         .torbox-item__subtitle {
           font-size: 0.95em;
           opacity: 0.8;
-          line-height: 1.3;
+          line-height: 1.4;
         }
         .torrent-list {
           padding: 1em;
@@ -184,6 +185,15 @@
     var filter = new Lampa.Filter(object);
     var last;
     var initialized = false;
+    var torrents = [];
+    var current_sort = Store.get('torbox_sort_method', 'seeders');
+    var sort_types = [
+        { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
+        { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
+        { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
+        { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
+    ];
+
 
     this.movie = object.movie;
 
@@ -196,8 +206,12 @@
             },
             up: ()=>{Navigator.move('up')},
             down: ()=>{Navigator.move('down')},
-            left: ()=>{Navigator.move('left')},
-            right: ()=>{Navigator.move('right')},
+            left: ()=>{
+                Lampa.Controller.toggle('menu');
+            },
+            right: ()=>{
+                filter.show(Lampa.Lang.translate('title_filter'), 'sort');
+            },
             back: this.back.bind(this)
         });
         Lampa.Controller.toggle('content');
@@ -214,6 +228,8 @@
 
         filter.onBack = function() { _this.back(); };
         if (filter.addButtonBack) filter.addButtonBack();
+        
+        this.buildFilter();
 
         scroll.body().addClass('torrent-list');
         files.appendFiles(scroll.render());
@@ -224,6 +240,62 @@
         initialized = true;
     };
 
+    this.sortTorrents = function() {
+        var sort_method = sort_types.find(s => s.key === current_sort);
+        if (!sort_method) return;
+
+        const parseAge = (ageStr) => {
+            if (!ageStr) return Infinity;
+            const value = parseInt(ageStr) || 0;
+            if (ageStr.includes('s')) return value;
+            if (ageStr.includes('m')) return value * 60;
+            if (ageStr.includes('h')) return value * 3600;
+            if (ageStr.includes('d')) return value * 86400;
+            if (ageStr.includes('w')) return value * 604800;
+            if (ageStr.includes('y')) return value * 31536000;
+            return Infinity;
+        };
+
+        torrents.sort((a, b) => {
+            let valA, valB;
+            if (sort_method.field === 'age') {
+                valA = parseAge(a.age);
+                valB = parseAge(b.age);
+            } else {
+                valA = a[sort_method.field] || 0;
+                valB = b[sort_method.field] || 0;
+            }
+
+            if (valA < valB) return -1;
+            if (valA > valB) return 1;
+            return 0;
+        });
+
+        if (sort_method.reverse) {
+            torrents.reverse();
+        }
+    };
+
+    this.buildFilter = function() {
+        var _this = this;
+        filter.onSelect = function (type, a) {
+            if (type == 'sort') {
+                Lampa.Select.close();
+                current_sort = a.key;
+                Store.set('torbox_sort_method', current_sort);
+                _this.display();
+            }
+        };
+
+        var items = sort_types.map(function(item) {
+            item.selected = item.key === current_sort;
+            return item;
+        });
+        
+        filter.set('sort', items);
+        filter.render().find('.filter--sort span').text('Сортировка');
+    };
+
     this.loadAndDisplayTorrents = async function() {
         this.loading(true);
         try {
@@ -231,10 +303,10 @@
                 throw new Error('IMDb ID не найден');
             }
             LOG('Searching torrents for:', this.movie.title, 'IMDb ID:', this.movie.imdb_id);
-            const torrents = await API.search(this.movie.imdb_id);
+            torrents = await API.search(this.movie.imdb_id);
             LOG('Found torrents:', torrents.length);
 
-            this.display(torrents);
+            this.display();
         } catch (error) {
             LOG('Load/Display Error:', error);
             this.empty(error.message || 'Произошла ошибка');
@@ -244,27 +316,37 @@
         }
     };
 
-    this.display = function(torrents) {
+    this.display = function() {
         if (!torrents || torrents.length === 0) {
             return this.empty();
         }
+        this.sortTorrents();
+        filter.chosen('sort', [ (sort_types.find(s => s.key === current_sort) || {title:''}).title ]);
         this.draw(torrents, { onEnter: (item) => this.select(item) });
     };
 
-    this.draw = function(torrents, params) {
-      LOG('Drawing torrents:', torrents.length);
+    this.draw = function(torrents_list, params) {
+      LOG('Drawing torrents:', torrents_list.length);
       scroll.clear();
 
-      if (!torrents || torrents.length === 0) {
+      if (!torrents_list || torrents_list.length === 0) {
           return this.empty();
       }
 
-      torrents.forEach((torrent) => {
+      torrents_list.forEach((torrent) => {
           const item = $('<div class="torbox-item selector"></div>');
           const title = `${torrent.cached ? '⚡' : '☁️'} ${torrent.raw_title || torrent.title}`;
-          const subtitle = `[${ql(torrent.raw_title || torrent.title)}] ${formatBytes(torrent.size)} | 🟢 ${torrent.last_known_seeders || 0}`;
+          
+          const peers = `<span style="color:var(--color-bad);">${torrent.last_known_peers || 0}</span>`;
+          const seeders = `<span style="color:var(--color-good);">${torrent.last_known_seeders || 0}</span>`;
 
-          item.html(`<div class="torbox-item__title">${title}</div><div class="torbox-item__subtitle">${subtitle}</div>`);
+          const line1 = `[${ql(torrent.raw_title || torrent.title)}] ${formatBytes(torrent.size)} | 🟢 ${seeders} / 🔴 ${peers}`;
+          const line2 = `<span style="opacity:0.7;">Трекер: ${torrent.tracker || 'н/д'} | Добавлено: ${torrent.age || 'н/д'}</span>`;
+
+          item.html(
+            `<div class="torbox-item__title">${title}</div><div class="torbox-item__subtitle">${line1}<br>${line2}</div>`
+          );
+
           item.data('torrent', torrent);
           item.on('hover:focus', function() {
               last = item[0];
@@ -295,6 +377,8 @@
             scroll.clear();
             const loading = $('<div class="broadcast__loading"><div></div><div></div><div></div></div>');
             scroll.append(loading);
+        } else {
+            scroll.render().find('.broadcast__loading').remove();
         }
     };
 
@@ -415,7 +499,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         hook();
-        LOG('TorBox v9.6.2 (fix) ready');
+        LOG('TorBox v9.7.0 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
