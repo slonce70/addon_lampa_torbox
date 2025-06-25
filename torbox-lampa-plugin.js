@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.3.0 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.1.0 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕННЫЙ ПОИСК: Запросы теперь идут на правильный URL 'search-api.torbox.app/torrents/imdb:...' согласно вашим указаниям.
  * • ОБНОВЛЕННАЯ ЛОГИКА: Код адаптирован для обработки новой структуры ответа от API (используются 'hash', 'raw_title', 'last_known_seeders').
@@ -181,29 +181,34 @@
 
   /* ───── Component for results screen ───── */
   function TorboxView() {
-    let component = Lampa.Template.js('torbox_view_template');
-    let movie;
+    this.component = Lampa.Template.js('torbox_view_template');
+    this.movie = {};
 
     this.create = function () {
         this.activity.loader(true);
-        return component;
+        // The 'create' method is for initialization only.
+        // The component's DOM element should be returned by the 'render' method.
+    };
+
+    this.render = function () {
+        return this.component;
     };
 
     this.start = function (data) {
-        movie = data.movie;
+        this.movie = data.movie;
         Lampa.Head.title('TorBox');
-        Lampa.Head.subtitle(movie.title || movie.name);
+        Lampa.Head.subtitle(this.movie.title || this.movie.name);
         this.search();
     };
 
     this.search = async function() {
         try {
-            if (!movie || !movie.imdb_id) throw new Error("Для поиска нужен IMDb ID.");
+            if (!this.movie || !this.movie.imdb_id) throw new Error("Для поиска нужен IMDb ID.");
             
-            const list = await API.search(movie.imdb_id);
+            const list = await API.search(this.movie.imdb_id);
 
             if (!list || !list.length) {
-                component.find('.torbox-view__empty').show();
+                this.component.find('.torbox-view__empty').show();
             } else {
                 const items = list
                     .sort((a,b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
@@ -227,11 +232,11 @@
     };
 
     this.build = function(items) {
-        const list = component.find('.torbox-view__list');
+        const list = this.component.find('.torbox-view__list');
         items.forEach(item => {
             let card = Lampa.Template.js('torbox_card_template', item);
             card.on('hover:enter', () => {
-                handleTorrent(item.torrent, movie);
+                handleTorrent(item.torrent, this.movie);
             });
             list.append(card);
         });
@@ -240,7 +245,7 @@
     this.pause = function () { Lampa.Controller.toggle('content'); };
     this.stop = function () {};
     this.destroy = function () {
-        component.find('.torbox-view__list').empty();
+        this.component.find('.torbox-view__list').empty();
     }
   }
 
