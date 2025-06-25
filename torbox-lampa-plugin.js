@@ -467,4 +467,3 @@
   })();
 
 })();
-" was selected from immersive artifact "torbox_plugin.js (с полной интеграцией
