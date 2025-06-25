@@ -1,10 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.13
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.14
  * ============================================================
  * • ФИНАЛЬНАЯ СТАБИЛЬНАЯ ВЕРСИЯ.
+ * • ИСПРАВЛЕНО: Параметр 'seed_preference' теперь отправляется с числовым значением '3' в соответствии с последней документацией API.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработана логика жизненного цикла компонента, что устранило "зависание" при нажатии Escape и выход из плагина при сортировке.
  * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: После выхода из плеера происходит корректный возврат в плагин.
- * • УЛУЧШЕНО: Управление модальными окнами сделано более надежным.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования.
  */
 
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_13';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_14';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -143,8 +143,9 @@
         return this.proxiedCall(url, options);
     },
 
+    // ИСПРАВЛЕНО: 'seed_preference' теперь использует числовое значение 3.
     addMagnet(magnet) {
-        return this.directAction('/torrents/createtorrent', { magnet, seed_preference: "is don't seed" }, 'POST');
+        return this.directAction('/torrents/createtorrent', { magnet, seed_preference: 3 }, 'POST');
     },
 
     stopTorrent(torrentId) {
@@ -193,7 +194,6 @@
 
     this.movie = object.movie;
     
-    // ИСПРАВЛЕНО: Флаг для предотвращения повторной регистрации контроллера.
     var controller_registered = false;
 
     this.start = function () {
@@ -250,7 +250,6 @@
                 Store.set('torbox_filters', JSON.stringify(current_filters));
             }
             _this.display();
-            // ИСПРАВЛЕНО: После выбора фокус возвращается на главный контент, а не выходит из плагина.
             Lampa.Controller.toggle('content');
         };
     };
