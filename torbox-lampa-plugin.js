@@ -53,6 +53,10 @@
     
     try {
         const json = JSON.parse(responseText);
+        if (json.success === false && json.detail) {
+            if (typeof json.detail === 'string') throw new Error(json.detail);
+            if (Array.isArray(json.detail) && json.detail[0]?.msg) throw new Error(json.detail[0].msg);
+        }
         if (json.success === false) throw new Error(json.message || 'API вернул ошибку.');
         return json;
     } catch (e) {
@@ -312,19 +316,14 @@
       modalBody.find('[data-name="eta"]').text(data.eta || '');
   }
   
-  async function trackTorrentStatus(torrentInfo, movie) {
+  async function trackTorrentStatus(torrentId, movie) {
       showStatusModal('Отслеживание статуса...');
-      
-      const torrentId = torrentInfo.torrent_id;
       
       trackerInterval = setInterval(async () => {
           try {
               const torrentData = await API.myList(torrentId);
               if (!torrentData) {
-                  clearInterval(trackerInterval);
-                  Lampa.Modal.close();
-                  Lampa.Noty.show('Торрент не найден в вашем аккаунте.', {type: 'error'});
-                  return;
+                  throw new Error('Торрент не найден в вашем аккаунте.');
               }
 
               const statusMap = {
@@ -345,7 +344,7 @@
                   eta: `Осталось: ${formatTime(torrentData.eta)}`
               });
 
-              if (torrentData.status === 'completed') {
+              if (torrentData.status === 'completed' || torrentData.download_finished) {
                   clearInterval(trackerInterval);
                   Lampa.Modal.close();
                   await showFileSelection(torrentData, movie);
@@ -380,10 +379,13 @@
     try {
         const result = await API.addMagnet(torrent.magnet);
         const torrentInfo = result.data;
-        if (!torrentInfo?.torrent_id || !torrentInfo?.hash) throw new Error('Не удалось получить данные торрента из ответа API.');
+        // FIX: The API is inconsistent. It can return 'id' or 'torrent_id'. We need the integer ID for polling.
+        const torrentIdForTracking = torrentInfo.torrent_id || torrentInfo.id;
         
-        // Start tracking
-        await trackTorrentStatus(torrentInfo, movie);
+        if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента из ответа API.');
+        
+        // Start tracking with the correct integer ID
+        await trackTorrentStatus(torrentIdForTracking, movie);
 
     } catch (e) {
       LOG('HandleTorrent Error:', e);
@@ -436,7 +438,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v10.0.3 ready');
+        LOG('TorBox v10.0.4 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
