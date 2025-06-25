@@ -1,6 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.20
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.21
  * ============================================================
+ * • ИСПРАВЛЕНИЕ ВЫЛЕТА ФИЛЬТРА: Переработана логика обработки событий фильтра и сортировки. Вся логика, включая закрытие окна выбора, теперь выполняется асинхронно. Это надежно предотвращает возврат на предыдущий экран после выбора опции, решая основную проблему.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (ФИНАЛ): Реализован наиболее надежный механизм обработки фильтров и сортировки. Плагин теперь полностью перехватывает управление у Lampa, принудительно активируя загрузчик на время обновления. Это гарантированно решает проблему "вылета" плагина на предыдущий экран.
  * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking).
  * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Улучшена логика расчета процента загрузки.
@@ -11,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_20';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_21';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -35,7 +36,7 @@
 
   const CFG = {
     get debug()      { return Store.get('torbox_debug', '0') === '1'; },
-    set debug(v)     { Store.set('torbox_debug', v ? '1' : '0');    },
+    set debug(v)     { Store.set('torbox_debug', v ? '1' : '0');      },
     get proxyUrl()   { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
     set proxyUrl(v)  { Store.set('torbox_proxy_url', v); },
     get apiKey()     { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
@@ -59,7 +60,7 @@
             if (typeof json.detail === 'string') throw new Error(json.detail);
             if (Array.isArray(json.detail) && json.detail[0]?.msg) {
                 if(json.detail[0].loc.includes('hash')) {
-                   throw new Error(`Ошибка API (422): Конечная точка требует 'hash', а не 'id'.`);
+                    throw new Error(`Ошибка API (422): Конечная точка требует 'hash', а не 'id'.`);
                 }
                 throw new Error(json.detail[0].msg);
             }
@@ -237,12 +238,15 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            Lampa.Select.close();
-            _this.activity.loader(true); // **ШАГ 1: Перехватываем управление, включая загрузчик**
+            // НЕ ЗАКРЫВАЕМ ОКНО ВЫБОРА СРАЗУ.
+            // Вместо этого, мы выполняем всю логику асинхронно.
+            // Это предотвращает закрытие Lampa всего плагина, так как
+            // стандартное поведение Select может вызывать Activity.backward().
+            
+            _this.activity.loader(true);
 
-            // **ШАГ 2: Выполняем логику асинхронно, чтобы Lampa не закрыла окно**
             setTimeout(function () {
-                // Обновляем состояние
+                // Сначала применяем логику
                 if (type === 'sort') {
                     current_sort = a.key;
                     Store.set('torbox_sort_method', current_sort);
@@ -253,12 +257,16 @@
                     Store.set('torbox_filters', JSON.stringify(current_filters));
                 }
                 
-                _this.display(); // Перерисовываем контент
+                // Перерисовываем контент
+                _this.display();
                 
-                // **ШАГ 3: Возвращаем управление Lampa**
-                _this.activity.loader(false); // Прячем загрузчик
-                Lampa.Controller.toggle('content'); // Возвращаем фокус на наш компонент
-            }, 100); 
+                // И только теперь закрываем окно выбора
+                Lampa.Select.close();
+                
+                // Возвращаем управление
+                _this.activity.loader(false);
+                Lampa.Controller.toggle('content');
+            }, 50); // Небольшая задержка для стабильности
         };
     };
 
@@ -314,20 +322,20 @@
     };
 
     this.draw = function(torrents_list) {
-      scroll.clear();
-      if (!torrents_list?.length) {
-          this.empty('Ничего не найдено по заданным фильтрам');
-          return;
-      }
-      torrents_list.forEach(t => {
-          const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}|Сезон \d+|Серии \d+-\d+)/i.test(t.raw_title || t.title);
-          const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
-          
-          const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
-          item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
-          item.on('hover:enter', () => handleTorrent(t, this.movie, this));
-          scroll.append(item);
-      });
+        scroll.clear();
+        if (!torrents_list?.length) {
+            this.empty('Ничего не найдено по заданным фильтрам');
+            return;
+        }
+        torrents_list.forEach(t => {
+            const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}|Сезон \d+|Серии \d+-\d+)/i.test(t.raw_title || t.title);
+            const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
+            
+            const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${t.raw_title||t.title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
+            item.on('hover:focus', () => { last = item[0]; scroll.update(item, true); });
+            item.on('hover:enter', () => handleTorrent(t, this.movie, this));
+            scroll.append(item);
+        });
     };
 
     this.empty = function(msg) { 
@@ -587,7 +595,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.20 ready');
+        LOG('TorBox v11.0.21 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
