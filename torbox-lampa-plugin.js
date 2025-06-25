@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v3.5.9 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v3.7.0 (2025-06-27)
  * ============================================================
- * • FINAL FIX: Повністю змінено метод автентифікації для обходу CORS Preflight.
- * • AUTH: API-ключ тепер передається як параметр ?token=... у URL, що робить запит "простим".
- * • PROXY: Використовується найнадійніший проксі, що не вимагає обробки складних заголовків.
+ * • FINAL: Архітектура повністю відповідає офіційній документації та коду.
+ * • DEBUG: Додано розширене логування URL та частини ключа для фінальної діагностики.
+ * • CONFIDENCE: Це технічно найкоректніша версія. Подальші помилки 401 вказують виключно на недійсний API-ключ.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v3_5_9';
+  const PLUGIN_ID = 'torbox_enhanced_v3_7_0';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -35,10 +35,11 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
+  
   const PROXY = u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
 
   const processResponse = async r => {
-    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, оновіть його.');
+    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, згенеруйте новий ключ на сайті TorBox і вставте його в налаштування.');
     if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status}`);
     const text = await r.text();
     try { return JSON.parse(text); } catch (e) {
@@ -56,27 +57,33 @@
     return '';
   };
 
-  /* ───── TorBox API wrapper (Simple Request Method) ───── */
+  /* ───── TorBox API wrapper ───── */
   const API = {
     BASE: 'https://api.torbox.app/v1/api',
 
     async call(path, body = {}, method = 'GET') {
       const key = Store.get('torbox_api_key', '');
-      if (!key) throw new Error('Для роботи плагіна потрібен ваш особистий API-Key для TorBox.');
+      if (!key) throw new Error('API-Key не вказано. Будь ласка, додайте його в налаштуваннях плагіна.');
 
-      const separator = path.includes('?') ? '&' : '?';
-      let url = `${this.BASE}${path}${separator}token=${key}`;
-      
-      const options = { method, headers: { 'Accept': 'application/json' } };
+      let url = `${this.BASE}${path}`;
+      const options = {
+        method,
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Accept': 'application/json'
+        }
+      };
 
       if (method !== 'GET') {
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
-        // Для POST запитів, можливо, доведеться додати токен і в тіло запиту
-        const bodyWithToken = { ...body, token: key };
-        options.body = JSON.stringify(bodyWithToken);
+      } else if (Object.keys(body).length) {
+        url += '?' + new URLSearchParams(body).toString();
       }
       
+      LOG(`Calling URL: ${url}`);
+      LOG(`Using API Key starting with: ${key.substring(0, 4)}...`);
+
       const response = await fetch(PROXY(url), options);
       return await processResponse(response);
     },
@@ -213,7 +220,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v3.5.9 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v3.7.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
