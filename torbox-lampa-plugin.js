@@ -1,6 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.7.0
+ * TorBox Enhanced – Universal Lampa Plugin v9.7.1
  * ============================================================
+ * • ИСПРАВЛЕНО: Закрытие окна сортировки/фильтра больше не возвращает на предыдущий экран.
  * • НОВОЕ: Добавлена сортировка по сидам, размеру и дате.
  * • НОВОЕ: Отображение пиров, трекера и даты добавления торрента.
  * • УЛУЧШЕННЫЙ UI: Вся информация сгруппирована для лучшей читаемости.
@@ -11,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_7_0'; // Increased version to prevent conflicts
+  const PLUGIN_ID = 'torbox_enhanced_v9_7_1'; // Increased version to prevent conflicts
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -226,7 +227,8 @@
         if (initialized) return;
         var _this = this;
 
-        filter.onBack = function() { _this.back(); };
+        // FIX: Re-focus the controller on back, not exit the activity
+        filter.onBack = function() { _this.start(); }; 
         if (filter.addButtonBack) filter.addButtonBack();
         
         this.buildFilter();
@@ -499,7 +501,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         hook();
-        LOG('TorBox v9.7.0 ready');
+        LOG('TorBox v9.7.1 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
