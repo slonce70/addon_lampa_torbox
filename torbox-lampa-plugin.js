@@ -67,6 +67,61 @@
     return 'SD';
   };
 
+  const formatBytes = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const ql = (title) => {
+    if (!title) return 'SD';
+    if (title.match(/2160p|4K|UHD/i)) return '4K';
+    if (title.match(/1080p|FHD/i)) return 'FHD';
+    if (title.match(/720p|HD/i)) return 'HD';
+    return 'SD';
+  };
+
+  // Добавляем стили для TorBox компонента
+  if (!$('#torbox-component-styles').length) {
+    $('head').append(`
+      <style id="torbox-component-styles">
+        .torbox-item {
+          padding: 1.2em;
+          margin: 0.5em 0;
+          border-radius: 0.8em;
+          background: var(--color-background-light);
+          cursor: pointer;
+          transition: all 0.3s ease;
+          border: 2px solid transparent;
+        }
+        .torbox-item:hover,
+        .torbox-item.focus {
+          background: var(--color-primary);
+          color: var(--color-background);
+          transform: translateX(0.8em);
+          border-color: rgba(255, 255, 255, 0.3);
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .torbox-item__title {
+          font-weight: 600;
+          margin-bottom: 0.5em;
+          font-size: 1.1em;
+          line-height: 1.3;
+        }
+        .torbox-item__subtitle {
+          font-size: 0.95em;
+          opacity: 0.8;
+          line-height: 1.3;
+        }
+        .torrent-list {
+          padding: 1em;
+        }
+      </style>
+    `);
+  }
+
   /* ───── TorBox API wrapper ───── */
   const API = {
     SEARCH_API: 'https://search-api.torbox.app',
@@ -116,179 +171,139 @@
     dl(thash, fid){ return this.directAction('/torrents/requestdl', { torrent_id: thash, file_id: fid }).then(r => r.data); }
   };
 
-  /* ───── Modal Creation Helper ───── */
-  function createTorrentModal(title, items, onSelect, onBack) {
-    const modal = $(`
-      <div class="modal torbox-modal">
-        <div class="modal__content">
-          <div class="modal__title">
-            ${ICON}
-            <span>${title}</span>
-          </div>
-          <div class="modal__body">
-            <div class="torbox-list">
-              ${items.map((item, index) => `
-                <div class="torbox-item selector" data-index="${index}">
-                  <div class="torbox-item__title">${item.title}</div>
-                  <div class="torbox-item__subtitle">${item.subtitle}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-          <div class="modal__footer">
-            <div class="torbox-controls">
-              <span>↑↓ Навигация • Enter Выбор • Escape Назад</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `);
-
-    // Добавляем стили
-    if (!$('#torbox-modal-styles').length) {
-      $('head').append(`
-        <style id="torbox-modal-styles">
-          .torbox-modal .modal__content {
-            max-width: 95%;
-            max-height: 90%;
-            background: var(--color-background);
-            border-radius: 0.8em;
-          }
-          .torbox-modal .modal__title {
-            display: flex;
-            align-items: center;
-            gap: 1em;
-            padding: 1.5em;
-            border-bottom: 1px solid var(--color-border);
-            font-size: 1.4em;
-            font-weight: 600;
-          }
-          .torbox-modal .modal__title svg {
-            width: 2em;
-            height: 2em;
-            color: var(--color-primary);
-          }
-          .torbox-modal .modal__body {
-            padding: 1em;
-            max-height: 70vh;
-            overflow-y: auto;
-          }
-          .torbox-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.8em;
-          }
-          .torbox-item {
-            padding: 1.2em;
-            border-radius: 0.8em;
-            background: var(--color-background-light);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-          }
-          .torbox-item:hover,
-          .torbox-item.focus {
-            background: var(--color-primary);
-            color: var(--color-background);
-            transform: translateX(0.8em);
-            border-color: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-          }
-          .torbox-item__title {
-            font-weight: 600;
-            margin-bottom: 0.5em;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-size: 1.1em;
-          }
-          .torbox-item__subtitle {
-            font-size: 0.95em;
-            opacity: 0.8;
-            line-height: 1.3;
-          }
-          .torbox-modal .modal__footer {
-            padding: 1em 1.5em;
-            border-top: 1px solid var(--color-border);
-            text-align: center;
-          }
-          .torbox-controls {
-            font-size: 0.9em;
-            opacity: 0.7;
-          }
-        </style>
-      `);
-    }
-
-    let currentIndex = 0;
-    const itemElements = modal.find('.torbox-item');
-    
-    // Устанавливаем фокус
-    function setFocus(index) {
-      itemElements.removeClass('focus');
-      if (index >= 0 && index < itemElements.length) {
-        currentIndex = index;
-        itemElements.eq(index).addClass('focus');
-        // Прокручиваем к элементу
-        const container = modal.find('.modal__body');
-        const item = itemElements.eq(index);
-        const scrollTop = container.scrollTop();
-        const itemTop = item.position().top;
-        if (itemTop < 0 || itemTop > container.height() - item.height()) {
-          container.scrollTop(scrollTop + itemTop - container.height() / 2);
-        }
-      }
-    }
-
-    // Обработчики событий
-    modal.on('click', '.torbox-item', function() {
-      const index = parseInt($(this).data('index'));
-      onSelect(items[index]);
-      Lampa.Modal.close();
+  /* ───── TorBox Component (Lampa Architecture) ───── */
+  function TorBoxComponent(object) {
+    var network = new Lampa.Reguest();
+    var scroll = new Lampa.Scroll({
+      mask: true,
+      over: true
     });
+    var files = new Lampa.Explorer(object);
+    var filter = new Lampa.Filter(object);
+    var last;
+    var items = [];
+    var initialized = false;
 
-    // Клавиатурная навигация
-    const keyHandler = (e) => {
-      switch (e.keyCode) {
-        case 38: // Up
-          e.preventDefault();
-          setFocus(Math.max(0, currentIndex - 1));
-          break;
-        case 40: // Down
-          e.preventDefault();
-          setFocus(Math.min(itemElements.length - 1, currentIndex + 1));
-          break;
-        case 13: // Enter
-          e.preventDefault();
-          onSelect(items[currentIndex]);
-          Lampa.Modal.close();
-          break;
-        case 27: // Escape
-          e.preventDefault();
-          Lampa.Modal.close();
-          if (onBack) onBack();
-          break;
+    this.initialize = function() {
+      var _this = this;
+      this.loading(true);
+      
+      // Настройка фильтра
+      filter.onBack = function() {
+        _this.back();
+      };
+      
+      if (filter.addButtonBack) filter.addButtonBack();
+      
+      // Настройка скролла и файлов
+      scroll.body().addClass('torrent-list');
+      files.appendFiles(scroll.render());
+      files.appendHead(filter.render());
+      scroll.minus(files.render().find('.explorer__files-head'));
+      scroll.body().append(Lampa.Template.get('lampac_content_loading'));
+      
+      Lampa.Controller.enable('content');
+      this.loading(false);
+    };
+
+    this.display = function(torrents) {
+      var _this = this;
+      items = torrents;
+      
+      this.draw(torrents, {
+        onEnter: function(item, html) {
+          _this.select(item);
+        },
+        onBack: function() {
+          _this.back();
+        }
+      });
+    };
+
+    this.draw = function(torrents, params) {
+      var _this = this;
+      
+      scroll.clear();
+      
+      if (!torrents || torrents.length === 0) {
+        this.empty();
+        return;
+      }
+
+      torrents.forEach(function(torrent, index) {
+        var item = $('<div class="torbox-item selector"></div>');
+        
+        var title = `${torrent.cached ? '⚡' : '☁️'} ${torrent.raw_title || torrent.title}`;
+        var subtitle = `[${ql(torrent.raw_title || torrent.title)}] ${(torrent.size / 2**30).toFixed(2)} GB | 🟢 ${torrent.last_known_seeders || 0}`;
+        
+        item.html(`
+          <div class="torbox-item__title">${title}</div>
+          <div class="torbox-item__subtitle">${subtitle}</div>
+        `);
+        
+        item.data('torrent', torrent);
+        
+        item.on('hover:focus', function() {
+          last = item[0];
+          scroll.update(item, true);
+        }).on('hover:enter', function() {
+          if (params.onEnter) params.onEnter(torrent, item);
+        });
+        
+        scroll.append(item);
+      });
+      
+      Lampa.Controller.enable('content');
+    };
+
+    this.select = function(torrent) {
+      handleTorrent(torrent, object.movie);
+    };
+
+    this.empty = function() {
+      var empty = Lampa.Template.get('lampac_does_not_answer', {
+        title: 'Нет результатов',
+        text: 'По вашему запросу ничего не найдено'
+      });
+      
+      scroll.clear();
+      scroll.append(empty);
+      this.loading(false);
+    };
+
+    this.loading = function(status) {
+      if (status) {
+        scroll.clear();
+        scroll.append(Lampa.Template.get('lampac_content_loading'));
       }
     };
 
-    // Показываем модальное окно
-    Lampa.Modal.open({
-      title: 'TorBox - Выберите файл для воспроизведения',
-      html: modal,
-      size: 'fullscreen',
-      onOpen: () => {
-        setFocus(0);
-        $(document).on('keydown', keyHandler);
-      },
-      onClose: () => {
-        $(document).off('keydown', keyHandler);
-      }
-    });
+    this.create = function() {
+      return this.render();
+    };
+
+    this.render = function() {
+      return files.render();
+    };
+
+    this.back = function() {
+      Lampa.Activity.backward();
+    };
+
+    this.pause = function() {};
+    this.stop = function() {};
+    
+    this.destroy = function() {
+      network.clear();
+      files.destroy();
+      scroll.destroy();
+    };
   }
+
+
 
   /* ───── UI flows (Updated) ───── */
   async function searchAndShow(movie) {
-    Lampa.Loading.start('TorBox: поиск…');
     try {
       if (!movie.imdb_id) {
           throw new Error("Для поиска нужен IMDb ID.");
@@ -301,25 +316,29 @@
         return;
       }
       
-      const items = list
-        .sort((a,b) => (b.last_known_seeders || 0) - (a.last_known_seeders || 0))
-        .map(t => ({
-            title: `${t.cached ? '⚡' : '☁️'} ${t.raw_title || t.title}`,
-            subtitle: `[${ql(t.raw_title || t.title)}] ${(t.size / 2**30).toFixed(2)} GB | 🟢 ${t.last_known_seeders || 0}`,
-            torrent: t
-        }));
-        
-      createTorrentModal(
-        `TorBox - ${movie.title}`,
-        items,
-        (item) => handleTorrent(item.torrent, movie),
-        () => Lampa.Controller.toggle('content')
-      );
+      // Создаем новую активность с TorBox компонентом
+      var activity = new Lampa.Activity({
+        title: 'TorBox',
+        movie: movie,
+        torrents: list
+      });
+
+      var component = new TorBoxComponent({
+        movie: movie,
+        torrents: list
+      });
+
+      activity.component(component);
+      activity.create();
+      
+      // Отображаем торренты
+      component.display(list);
+      
+      Lampa.Activity.push(activity);
+      
     } catch (e) {
       LOG('SearchAndShow Error:', e);
       Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
-    } finally {
-      Lampa.Loading.stop();
     }
   }
 
