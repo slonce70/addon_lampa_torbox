@@ -407,7 +407,7 @@
               Lampa.Noty.show(`Ошибка отслеживания: ${error.message}`, {type: 'error'});
               Lampa.Modal.close();
           }
-      }, 20000); // ИЗМЕНЕНО: Интервал обновления увеличен до 20 секунд.
+      }, 10000); // ИЗМЕНЕНО: Интервал обновления увеличен до 20 секунд.
   }
   
   async function showFileSelection(torrentData, movie) {
