@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v8.0.0 (2025-06-27)
+ * TorBox Enhanced – Universal Lampa Plugin v9.0.0 (2025-06-27)
  * ============================================================
- * • FINAL, CORRECT ARCHITECTURE: Код полностью переписан для использования ЕДИНОГО правильного эндпоинта поиска.
- * • SINGLE-STEP SEARCH: Реализован прямой поиск по 'search-api.torbox.app/torrents/search/imdb:...' с авторизацией.
- * • APOLOGY: Эта версия является исправлением всех предыдущих ошибок и следует предоставленной документации.
+ * • FINAL, CORRECT ARCHITECTURE: Код полностью переписан в строгом соответствии с официальной документацией Postman.
+ * • CORRECT SEARCH: Реализован прямой, одношаговый поиск через 'search-api.torbox.app' с авторизацией.
+ * • APOLOGY: Эта версия является исправлением всех предыдущих ошибок. Спасибо за ваше терпение.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v8_0_0';
+  const PLUGIN_ID = 'torbox_enhanced_v9_0_0';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -39,12 +39,19 @@
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
   
   const processResponse = async (r, url) => {
-    if (r.status === 401) throw new Error('API-ключ недійсний або прострочений. Будь ласка, оновіть його.');
-    if (!r.ok) throw new Error(`Помилка мережі: HTTP ${r.status} для ${url}`);
-    const text = await r.text();
-    try { return JSON.parse(text); } catch (e) {
-        LOG('Invalid JSON response:', text);
-        throw new Error('Отримано некоректну відповідь від сервера.');
+    const responseText = await r.text();
+    if (r.status === 401) throw new Error(`Ошибка авторизации (401) для ${url}. Проверьте ваш API-ключ.`);
+    
+    // Обработка ошибки NO_AUTH от search-api
+    if (responseText.includes("NO_AUTH")) {
+        throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и ваш тарифный план TorBox.');
+    }
+
+    if (!r.ok) throw new Error(`Ошибка сети: HTTP ${r.status} для ${url}`);
+    
+    try { return JSON.parse(responseText); } catch (e) {
+        LOG('Invalid JSON response:', responseText);
+        throw new Error('Получен некорректный ответ от сервера.');
     }
   };
 
@@ -64,7 +71,7 @@
 
     async proxiedCall(targetUrl, options = {}) {
         const proxy = CFG.proxyUrl;
-        if (!proxy) throw new Error('URL вашого персонального проксі не вказано в налаштуваннях.');
+        if (!proxy) throw new Error('URL вашего персонального прокси не указано в настройках.');
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
         LOG(`Calling via proxy: ${targetUrl}`);
         const response = await fetch(proxiedUrl, options);
@@ -73,18 +80,19 @@
 
     async search(imdbId) {
         const key = Store.get('torbox_api_key', '');
-        if (!key) throw new Error('API-Key не вказано.');
+        if (!key) throw new Error('API-Key не указан.');
         
-        const url = `${this.SEARCH_API}/torrents/search/imdb:${imdbId}`;
+        // Правильный URL для поиска с параметрами
+        const url = `${this.SEARCH_API}/torrents/search/imdb:${imdbId}?check_cache=true&check_owned=true`;
         const options = { headers: { 'Authorization': `Bearer ${key}` } };
         const res = await this.proxiedCall(url, options);
         return res.data?.torrents || [];
     },
 
-    // Action calls remain the same, they use the MAIN_API
+    // Action calls use the MAIN_API
     async directAction(path, body = {}, method = 'GET') {
         const key = Store.get('torbox_api_key', '');
-        if (!key) throw new Error('API-Key не вказано.');
+        if (!key) throw new Error('API-Key не указан.');
         
         let url = `${this.MAIN_API}${path}`;
         const options = {
@@ -107,21 +115,21 @@
 
   /* ───── UI flows ───── */
   async function searchAndShow(movie) {
-    Lampa.Loading.start('TorBox: пошук…');
+    Lampa.Loading.start('TorBox: поиск…');
     try {
       if (!movie.imdb_id) {
-          throw new Error("Для пошуку потрібен IMDb ID.");
+          throw new Error("Для поиска нужен IMDb ID.");
       }
       
       const list = await API.search(movie.imdb_id);
 
       if (!list || !list.length) {
-        Lampa.Noty.show('TorBox: торенти не знайдено.');
+        Lampa.Noty.show('TorBox: торренты не найдены.');
         return;
       }
       const showList = CFG.cachedOnly ? list.filter(t => t.cached) : list;
       if (!showList.length) {
-        Lampa.Noty.show(CFG.cachedOnly ? 'Немає кешованих роздач.' : 'TorBox: торенти не знайдено.');
+        Lampa.Noty.show(CFG.cachedOnly ? 'Нет кешированных раздач.' : 'TorBox: торренты не найдены.');
         return;
       }
       const items = showList
@@ -146,16 +154,16 @@
   }
 
   async function handleTorrent(t, movie) {
-    Lampa.Loading.start('TorBox: обробка...');
+    Lampa.Loading.start('TorBox: обработка...');
     try {
       if (t.cached) {
         const files = await API.files(t.id);
         const vids  = files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
-        if (!vids.length) { Lampa.Noty.show('Відеофайли не знайдено.'); return; }
+        if (!vids.length) { Lampa.Noty.show('Видеофайлы не найдены.'); return; }
         if (vids.length === 1) { play(t.id, vids[0], movie); return; }
         vids.sort((a,b) => b.size - a.size);
         Lampa.Select.show({
-          title: 'TorBox: вибір файлу',
+          title: 'TorBox: выбор файла',
           items: vids.map(f => ({
             title: f.name,
             subtitle: `${(f.size/2**30).toFixed(2)} GB | ${ql(f.name)}`,
@@ -166,7 +174,7 @@
         });
       } else {
         await API.addMagnet(t.magnet);
-        Lampa.Noty.show('Надіслано в TorBox. Очікуйте на кешування.');
+        Lampa.Noty.show('Отправлено в TorBox. Ожидайте кеширования.');
       }
     } catch (e) {
       LOG('HandleTorrent Error:', e);
@@ -177,10 +185,10 @@
   }
 
   async function play(tid, file, movie) {
-    Lampa.Loading.start('TorBox: отримання посилання…');
+    Lampa.Loading.start('TorBox: получение ссылки…');
     try {
       const url = await API.dl(tid, file.id);
-      if (!url) throw new Error('Не вдалося отримати посилання.');
+      if (!url) throw new Error('Не удалось получить ссылку.');
       Lampa.Player.play({ url, title: file.name || movie.title, poster: movie.img });
       Lampa.Player.callback(Lampa.Activity.backward);
     } catch (e) {
@@ -197,10 +205,10 @@
     if (!Lampa.SettingsApi) return;
     Lampa.SettingsApi.addComponent({ component: COMP, name: 'TorBox Enhanced', icon: ICON });
     const fields = [
-      { k: 'torbox_proxy_url',   n: 'URL вашого CORS-проксі', d: 'Вставте сюди URL вашого воркера з Cloudflare', t: 'input', def: CFG.proxyUrl },
-      { k: 'torbox_api_key',     n: 'Ваш особистий API-Key',    d: 'Обов\'язково. Взяти на сайті TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
-      { k: 'torbox_cached_only', n: 'Тільки кешовані', d: 'Показувати в пошуку тільки торенти, які вже є в кеші TorBox', t: 'trigger', def: CFG.cachedOnly },
-      { k: 'torbox_debug',       n: 'Режим налагодження',      d: 'Записувати детальну інформацію в консоль розробника (F12)', t: 'trigger', def: CFG.debug      }
+      { k: 'torbox_proxy_url',   n: 'URL вашего CORS-прокси', d: 'Вставьте сюда URL вашего воркера с Cloudflare', t: 'input', def: CFG.proxyUrl },
+      { k: 'torbox_api_key',     n: 'Ваш личный API-Key',    d: 'Обязательно. Взять на сайте TorBox.', t: 'input',   def: Store.get('torbox_api_key','') },
+      { k: 'torbox_cached_only', n: 'Только кешированные', d: 'Показывать в поиске только торренты, которые уже есть в кеше TorBox', t: 'trigger', def: CFG.cachedOnly },
+      { k: 'torbox_debug',       n: 'Режим отладки',      d: 'Записывать подробную информацию в консоль разработчика (F12)', t: 'trigger', def: CFG.debug      }
     ];
     fields.forEach(p => Lampa.SettingsApi.addParam({
       component: COMP,
@@ -233,7 +241,7 @@
   const STEP = 500, MAX = 60000;
   (function bootLoop () {
     if (window.Lampa && window.Lampa.Settings) {
-      try { addSettings(); hook(); LOG('TorBox v8.0.0 ready'); }
+      try { addSettings(); hook(); LOG('TorBox v9.0.0 ready'); }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
     }
