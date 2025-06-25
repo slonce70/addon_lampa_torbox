@@ -1,10 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.1
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.2
  * ============================================================
+ * • ИСПРАВЛЕНО: Устранена ошибка при получении ссылки на скачивание (Play Error). Запрос теперь включает обязательный 'token'.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка HTTP 422 при проверке статуса. Мониторинг возвращен на конечную точку /mylist.
  * • ВАЖНО: Реализован надежный двухступенчатый контроль сидирования для гарантированной остановки раздачи.
  * • ИСПРАВЛЕНО: Запросы на добавление торрентов теперь соответствуют официальной документации API.
- * • УЛУЧШЕНО: Обновлена логика обработки статусов загрузки для более точного контроля.
  * • ОПТИМИЗАЦИЯ: Избыточные параметры удалены из вызовов API.
  */
 
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_1';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_2';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -49,7 +49,6 @@
     const responseText = await r.text();
     if (r.status === 401) throw new Error(`Ошибка авторизации (401). Проверьте ваш API-ключ.`);
     if (responseText.includes("NO_AUTH")) throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и тарифный план.');
-    // Исключаем 422 из общей ошибки, так как теперь мы ее ожидаем в другом контексте
     if (!r.ok && r.status !== 422) throw new Error(`Ошибка сети: HTTP ${r.status}`);
     
     try {
@@ -59,7 +58,6 @@
         const json = JSON.parse(responseText);
         if (json.success === false && json.detail) {
             if (typeof json.detail === 'string') throw new Error(json.detail);
-            // Обрабатываем специфичную ошибку 422
             if (Array.isArray(json.detail) && json.detail[0]?.msg) {
                 if(json.detail[0].loc.includes('hash')) {
                    throw new Error(`Ошибка API (422): Конечная точка требует 'hash', а не 'id'.`);
@@ -151,11 +149,8 @@
         return this.directAction('/torrents/controltorrent', { torrent_id: torrentId, operation: 'pause' }, 'POST');
     },
 
-    // ИСПРАВЛЕНО: Возвращена конечная точка /mylist для отслеживания статуса.
     myList(torrentId) {
         return this.directAction('/torrents/mylist', { id: torrentId }).then(r => {
-            // Этот эндпоинт может вернуть один объект вместо массива при фильтрации по ID.
-            // Этот код гарантирует, что мы всегда работаем с массивом.
             if (r && r.data && !Array.isArray(r.data)) {
                 r.data = [r.data];
             }
@@ -163,11 +158,12 @@
         });
     },
 
+    // ИСПРАВЛЕНО: Запрос ссылки на скачивание теперь включает обязательный параметр 'token'.
     requestDl(torrentId, fid) {
         const body = {
+            token: CFG.apiKey,
             torrent_id: torrentId,
-            file_id: fid,
-            redirect: true
+            file_id: fid
         };
         return this.directAction('/torrents/requestdl', body, 'GET');
     }
@@ -350,12 +346,10 @@
       
       trackerInterval = setInterval(async () => {
           try {
-              // ИСПРАВЛЕНО: Используем myList и обрабатываем ответ как массив.
               const torrentResult = await API.myList(torrentId);
               const torrentData = torrentResult?.data?.[0];
 
               if (!torrentData) {
-                  // Прекращаем интервал, если торрент исчез из списка
                   clearInterval(trackerInterval);
                   Lampa.Noty.show('Торрент больше не найден в вашем аккаунте.', {type: 'warning'});
                   Lampa.Modal.close();
@@ -441,7 +435,6 @@
         
         if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента из ответа API.');
 
-        // ИСПРАВЛЕНО: Используем myList и обрабатываем ответ как массив.
         const initialStatusResult = await API.myList(torrentIdForTracking);
         const initialTorrent = initialStatusResult?.data?.[0];
 
@@ -469,13 +462,22 @@
     }
   }
 
+  // ИСПРАВЛЕНО: Улучшена логика получения и обработки ссылки для плеера.
   async function play(torrentId, file, movie) {
     showStatusModal('Получение ссылки на файл...');
     try {
-      const dlLink = await API.requestDl(torrentId, file.id);
-      if (!dlLink?.url) throw new Error('Не удалось получить ссылку на скачивание.');
+      const dlResponse = await API.requestDl(torrentId, file.id);
+      
+      // API может вернуть ссылку как в поле 'data' (JSON), так и через редирект (поле 'url').
+      // Эта проверка обрабатывает оба случая.
+      const finalUrl = dlResponse?.data || dlResponse?.url;
+
+      if (!finalUrl || typeof finalUrl !== 'string') {
+        throw new Error('Не удалось получить ссылку на скачивание.');
+      }
+
       Lampa.Modal.close();
-      Lampa.Player.play({ url: dlLink.url, title: file.name || movie.title, poster: movie.img });
+      Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
       Lampa.Player.callback(Lampa.Activity.backward);
     } catch (e) {
       LOG('Play Error:', e);
@@ -513,7 +515,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.1 ready');
+        LOG('TorBox v11.0.2 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
