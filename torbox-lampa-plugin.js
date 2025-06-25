@@ -1,6 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.8.0
+ * TorBox Enhanced – Universal Lampa Plugin v9.8.1
  * ============================================================
+ * • ИСПРАВЛЕНО: Меню фильтра теперь корректно отображает выбранные параметры.
  * • НОВОЕ: Добавлены фильтры по качеству и трекеру.
  * • ИСПРАВЛЕНО: Восстановлена кнопка "Фильтр" и улучшена навигация.
  * • ИСПРАВЛЕНО: Закрытие окна сортировки/фильтра больше не возвращает на предыдущий экран.
@@ -14,7 +15,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v9_8_0'; // Increased version to prevent conflicts
+  const PLUGIN_ID = 'torbox_enhanced_v9_8_1'; // Increased version to prevent conflicts
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -228,9 +229,10 @@
 
     this.initialize = function() {
         if (initialized) return;
-        var _this = this;
-
-        filter.onBack = function() { _this.start(); }; 
+        
+        this.initializeFilterHandlers(); 
+        
+        filter.onBack = () => { this.start(); }; 
         if (filter.addButtonBack) filter.addButtonBack();
 
         scroll.body().addClass('torrent-list');
@@ -240,6 +242,71 @@
 
         this.loadAndDisplayTorrents();
         initialized = true;
+    };
+    
+    this.initializeFilterHandlers = function() {
+        var _this = this;
+        filter.onSelect = function (type, a, b) {
+            Lampa.Select.close();
+            if (type === 'sort') {
+                current_sort = a.key;
+                Store.set('torbox_sort_method', current_sort);
+            }
+            if (type === 'filter') {
+                if(a.reset){
+                    current_filters = { quality: 'all', tracker: 'all' };
+                } else {
+                    current_filters[a.stype] = b.value;
+                }
+                Store.set('torbox_filters', JSON.stringify(current_filters));
+            }
+            _this.display();
+        };
+    };
+
+    this.updateFilterUI = function() {
+        // Build Sort
+        var sort_items = sort_types.map(function(item) {
+            item.selected = item.key === current_sort;
+            return item;
+        });
+        filter.set('sort', sort_items);
+        filter.render().find('.filter--sort span').text('Сортировка');
+        filter.chosen('sort', [ (sort_types.find(s => s.key === current_sort) || {title:''}).title ]);
+
+        // Build Filter
+        const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
+        const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
+
+        const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: current_filters.quality === q }));
+        const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: current_filters.tracker === t }));
+        
+        var filter_items = [
+            {
+                title: 'Сбросить',
+                reset: true
+            },
+            {
+                title: 'Качество',
+                subtitle: current_filters.quality === 'all' ? 'Все' : current_filters.quality,
+                items: quality_items,
+                stype: 'quality'
+            },
+            {
+                title: 'Трекер',
+                subtitle: current_filters.tracker === 'all' ? 'Все' : current_filters.tracker,
+                items: tracker_items,
+                stype: 'tracker'
+            }
+        ];
+        
+        filter.set('filter', filter_items);
+        filter.render().find('.filter--filter span').text('Фильтр');
+        
+        const filter_titles = [];
+        if(current_filters.quality !== 'all') filter_titles.push(`Качество: ${current_filters.quality}`);
+        if(current_filters.tracker !== 'all') filter_titles.push(`Трекер: ${current_filters.tracker}`);
+        filter.chosen('filter', filter_titles);
     };
 
     this.applyFiltersAndSort = function() {
@@ -289,63 +356,6 @@
         return filtered;
     };
 
-    this.buildFilter = function() {
-        var _this = this;
-        filter.onSelect = function (type, a, b) {
-            Lampa.Select.close();
-            if (type == 'sort') {
-                current_sort = a.key;
-                Store.set('torbox_sort_method', current_sort);
-            }
-            if (type == 'filter') {
-                if(a.reset){
-                    current_filters = { quality: 'all', tracker: 'all' };
-                } else {
-                    current_filters[a.stype] = b.value;
-                }
-                Store.set('torbox_filters', JSON.stringify(current_filters));
-            }
-            _this.display();
-        };
-
-        // Build Sort
-        var sort_items = sort_types.map(function(item) {
-            item.selected = item.key === current_sort;
-            return item;
-        });
-        filter.set('sort', sort_items);
-        filter.render().find('.filter--sort span').text('Сортировка');
-
-        // Build Filter
-        const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
-        const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
-
-        const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: current_filters.quality === q }));
-        const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: current_filters.tracker === t }));
-
-        var filter_items = [
-            {
-                title: 'Сбросить',
-                reset: true
-            },
-            {
-                title: 'Качество',
-                subtitle: current_filters.quality === 'all' ? 'Все' : current_filters.quality,
-                items: quality_items,
-                stype: 'quality'
-            },
-            {
-                title: 'Трекер',
-                subtitle: current_filters.tracker === 'all' ? 'Все' : current_filters.tracker,
-                items: tracker_items,
-                stype: 'tracker'
-            }
-        ];
-        
-        filter.set('filter', filter_items);
-        filter.render().find('.filter--filter span').text('Фильтр');
-    };
-
     this.loadAndDisplayTorrents = async function() {
         this.loading(true);
         try {
@@ -356,7 +366,6 @@
             all_torrents = await API.search(this.movie.imdb_id);
             LOG('Found torrents:', all_torrents.length);
             
-            this.buildFilter();
             this.display();
 
         } catch (error) {
@@ -369,15 +378,8 @@
     };
 
     this.display = function() {
+        this.updateFilterUI();
         const torrents_to_display = this.applyFiltersAndSort();
-        
-        filter.chosen('sort', [ (sort_types.find(s => s.key === current_sort) || {title:''}).title ]);
-        
-        const filter_titles = [];
-        if(current_filters.quality !== 'all') filter_titles.push(`Качество: ${current_filters.quality}`);
-        if(current_filters.tracker !== 'all') filter_titles.push(`Трекер: ${current_filters.tracker}`);
-        filter.chosen('filter', filter_titles);
-        
         this.draw(torrents_to_display, { onEnter: (item) => this.select(item) });
     };
 
@@ -555,7 +557,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         hook();
-        LOG('TorBox v9.8.0 ready');
+        LOG('TorBox v9.8.1 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
       return;
