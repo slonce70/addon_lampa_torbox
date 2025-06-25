@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v9.5.3 (2025-06-25)
+ * TorBox Enhanced – Universal Lampa Plugin v9.6.1 (2025-06-25)
  * ============================================================
  * • ИСПРАВЛЕНО ОТОБРАЖЕНИЕ: Теперь используется Lampa.Modal для полноценного модального окна
  * • УЛУЧШЕННЫЙ UI: Добавлены иконки, лучшее форматирование и отображение
@@ -307,25 +307,21 @@
         return;
       }
       
-      // Создаем новую активность с TorBox компонентом
-      var activity = new Lampa.Activity({
-        title: 'TorBox',
-        movie: movie,
-        torrents: list
-      });
-
+      // Создаем компонент и активность правильным способом
       var component = new TorBoxComponent({
         movie: movie,
         torrents: list
       });
-
-      activity.component(component);
-      activity.create();
       
-      // Отображаем торренты
+      component.initialize();
       component.display(list);
       
-      Lampa.Activity.push(activity);
+      Lampa.Activity.push({
+        url: '',
+        title: 'TorBox',
+        component: component,
+        page: component
+      });
       
     } catch (e) {
       LOG('SearchAndShow Error:', e);
