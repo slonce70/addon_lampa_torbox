@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.32 (Fixed Progress Bar)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.33 (Final Fix)
  * ============================================================
- * • ИСПРАВЛЕНА ПОЛОСКА ЗАГРУЗКИ: Добавлены более специфичные CSS селекторы, принудительное обновление DOM, и улучшена анимация
+ * • ЭТАП 2 (ИСПРАВЛЕНИЕ): Заменен нестабильный Lampa.Reguest.native() на надежный Lampa.Network().silent() для мобильных платформ.
  * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов
  * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data`
  * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization`
- * • ЭТАП 1: Добавлено диагностическое логирование для мобильных устройств.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_32_logging';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_33_fixed';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -94,7 +93,8 @@
     if (status === 401 || status === 403) {
         throw new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`);
     }
-    if (responseText.toUpperCase().includes("NO_AUTH")) {
+    // Ответ от сервера уже может содержать ошибку, поэтому проверяем и ее.
+    if (typeof responseText === 'string' && responseText.toUpperCase().includes("NO_AUTH")) {
         throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
     }
     if (status < 200 || status >= 300) {
@@ -127,6 +127,7 @@
     MAIN_API: 'https://api.torbox.app/v1/api',
     
     request: function(url, options = {}) {
+        // Для браузера используем fetch с CORS-прокси, как и раньше
         if (Lampa.Platform.is('browser')) {
             const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             LOG('Calling via proxy (fetch):', proxyUrl, 'Target:', url);
@@ -136,36 +137,45 @@
                     return processResponse(responseText, r.status);
                 });
         } 
+        // ИСПРАВЛЕНО: Для мобильных платформ используем Lampa.Network().silent()
         else {
-            LOG('Calling via Lampa.Reguest.native():', url);
+            LOG('Calling via Lampa network stack:', url);
             return new Promise((resolve, reject) => {
-                const network = new Lampa.Reguest();
-                const body = options.body || false;
-                const headers = options.headers || {};
-                
-                // --- НАЧАЛО БЛОКА ЛОГИРОВАНИЯ ---
-                if (!Lampa.Platform.is('browser')) {
-                    console.log('TORBOX MOBILE DEBUG: URL:', url);
-                    console.log('TORBOX MOBILE DEBUG: Method:', options.method || 'GET');
-                    console.log('TORBOX MOBILE DEBUG: Headers to be sent:', JSON.stringify(headers));
-                }
-                // --- КОНЕЦ БЛОКА ЛОГИРОВАНИЯ ---
+                const network = new Lampa.Network(); // Используем новый, надежный класс
+                const requestOptions = {
+                    headers: options.headers || {},
+                    method: options.method || 'GET',
+                    timeout: 20000 // Таймаут в 20 секунд
+                };
 
-                network.native(
+                // Добавляем тело запроса для POST/PUT
+                if (options.body) {
+                    requestOptions.body = options.body;
+                }
+
+                network.silent(
                     url,
-                    (responseText, xhr) => { 
+                    (responseText, xhr) => { // onSuccess
                         try {
-                            resolve(processResponse(responseText, xhr.status));
+                            // xhr может быть не всегда доступен, поэтому проверяем статус из него если есть
+                            const status = xhr ? xhr.status : 200;
+                            resolve(processResponse(responseText, status));
                         } catch (e) {
                             reject(e);
                         }
                     },
-                    (xhr, textStatus, errorThrown) => { 
-                        const errorMsg = `Ошибка сети: ${xhr ? xhr.status : textStatus || errorThrown}`;
+                    (xhr, textStatus, errorThrown) => { // onError
+                        const status = xhr ? xhr.status : 0;
+                        LOG('LAMPA MOBILE ERROR:', `Status: ${status}`, `Response: ${xhr ? xhr.responseText : 'N/A'}`);
+                        // Обрабатываем ошибки авторизации прямо здесь
+                        if (status === 401 || status === 403) {
+                             return reject(new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`));
+                        }
+                        const errorMsg = `Ошибка сети: ${status > 0 ? 'HTTP ' + status : (textStatus || errorThrown)}`;
                         reject(new Error(errorMsg));
                     },
-                    body,
-                    headers
+                    false, // Отключаем кеширование
+                    requestOptions
                 );
             });
         }
@@ -207,7 +217,7 @@
         const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         
         const options = { 
-            method: 'GET', // Явно указываем метод для логирования
+            method: 'GET',
             headers: { 
                 'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json' 
@@ -450,13 +460,11 @@
       return new Promise(async (resolve, reject) => {
           let isTrackingActive = true;
           let pollTimeout;
-          let network = new Lampa.Reguest(); 
-
+          
           const onCancel = () => {
               if (isTrackingActive) {
                   isTrackingActive = false;
                   clearTimeout(pollTimeout);
-                  network.clear(); 
                   reject(new Error("Отменено пользователем"));
               }
           };
@@ -596,7 +604,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.32 (logging) ready');
+        LOG('TorBox v11.0.33 (fixed) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
