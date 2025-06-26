@@ -176,14 +176,6 @@
         } 
         // ИСПРАВЛЕНО: Улучшенная обработка для нативных платформ
         else {
-            LOG('Calling via Lampa.Reguest.native():', {
-                    url: url,
-                    method: options.method,
-                    headers: options.headers,
-                    platform: Lampa.Platform.get(),
-                    hasBody: !!requestBody,
-                    bodyType: typeof requestBody
-                });
             return new Promise((resolve, reject) => {
                 const network = new Lampa.Reguest();
                 const body = options.body || false;
@@ -191,6 +183,15 @@
                 
                 // ИСПРАВЛЕНО: Обработка FormData для нативных запросов
                 let requestBody = body;
+                
+                LOG('Calling via Lampa.Reguest.native():', {
+                    url: url,
+                    method: options.method,
+                    headers: options.headers,
+                    platform: Lampa.Platform.get(),
+                    hasBody: !!requestBody,
+                    bodyType: typeof requestBody
+                });
                 if (body instanceof FormData) {
                     // Конвертируем FormData в обычный объект для нативных запросов
                     const formObj = {};
