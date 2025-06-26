@@ -227,7 +227,6 @@
     this.movie = object.movie;
     var controller_registered = false;
 
-    // ### FIXED ###
     this.start = function () {
         this.activity.loader(false);
         if (!controller_registered) {
@@ -244,7 +243,6 @@
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    // Это исправленная логика. Сначала закрываем активные меню, потом выходим.
                     if (Lampa.Select.visible()) {
                         Lampa.Select.close();
                     } else if (typeof Lampa.Filter !== 'undefined' && Lampa.Filter.visible) {
@@ -381,11 +379,15 @@
     };
     
     // ### FIXED ###
+    this.render = function() {
+        return files.render();
+    };
+
     this.destroy = function() {
         LOG('Destroying TorBox component and controller');
         scroll.destroy();
         files.destroy();
-        // ВАЖЛИВО: Видаляємо контролер, щоб уникнути помилок "script error"
+        filter.destroy();
         Lampa.Controller.remove('content');
     };
   }
@@ -591,7 +593,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.43 (UI navigation fix) ready');
+        LOG('TorBox v11.0.44 (final polished) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
