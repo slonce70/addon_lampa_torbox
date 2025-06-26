@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v19.3.0 (Parser API Fix & Adaptation)
+ * TorBox Enhanced – Universal Lampa Plugin v19.4.0 (Full Parser & Display Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Плагин полностью адаптирован под реальное API публичных парсеров (viewbox/jacred). Исправлен URL, параметры запроса и обработка ответа.
- * • ИЗВЛЕЧЕНИЕ ХЕША: Добавлена логика извлечения торрент-хеша напрямую из magnet-ссылки для корректной проверки кэша.
- * • РЕЗЕРВНЫЙ МЕХАНИЗМ (FALLBACK): Сохранена логика автоматического переключения на прямой поиск в TorBox, если публичные парсеры недоступны.
- * • СТАБИЛЬНОСТЬ: Все остальные функции продолжают работать с учетом новой логики получения данных.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ API: Логика запросов к публичным парсерам полностью переписана для соответствия реальному Jackett API (правильный URL, параметры и обработка ответа).
+ * • ПРАВИЛЬНОЕ ОТОБРАЖЕНИЕ: Теперь в списке отображаются ВСЕ найденные торренты.
+ * • МАРКИРОВКА КЭША: Каждый торрент помечается иконкой: ⚡ для кэшированных в TorBox и ☁️ для некэшированных, как вы и просили.
+ * • НАДЕЖНОСТЬ: Сохранен резервный механизм прямого поиска в TorBox, если парсеры не отвечают.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v19_3_0_parser_api_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v19_4_0_full_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -134,7 +134,6 @@
   }
   
   function processResponse(responseText, status) {
-    // This function now handles both JSON arrays and objects
     if (status === 401) throw { type: 'auth', message: `Ошибка авторизации (401). Проверьте API-ключ.` };
     if (status >= 500) throw { type: 'network', message: `Внутренняя ошибка сервера (${status}).` };
     if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status}). Неверный запрос.` };
@@ -146,7 +145,6 @@
 
     try {
         const json = JSON.parse(responseText);
-        // Handle TorBox's object-based success/error format
         if (typeof json === 'object' && !Array.isArray(json) && json.success === false) {
             const errorMsg = json.detail || json.message || 'API вернуло ошибку без деталей.';
             throw { type: 'api', message: errorMsg };
@@ -187,23 +185,28 @@
         }
     },
 
-    searchPublicTrackers: async function(title) {
+    searchPublicTrackers: async function(movie) {
         let lastError = null;
         for (const parser of PUBLIC_PARSERS) {
             try {
-                // ADAPTED: Using the correct endpoint and parameters based on user feedback.
+                // FIXED: Using the correct Jackett API endpoint and rich parameters.
                 const params = new URLSearchParams({
                     apikey: parser.key,
-                    search: title
+                    Query: `${movie.title} ${movie.year || ''}`.trim(),
+                    title: movie.title,
+                    title_original: movie.original_title,
+                    year: movie.year,
+                    Category: '2000,5000' // Movie and TV categories
                 });
-                const url = `https://${parser.url}/api/v1.0/torrents?${params.toString()}`;
+                
+                const url = `https://${parser.url}/api/v2.0/indexers/all/results?${params.toString()}`;
                 LOG(`Trying parser: ${parser.name} with URL: ${url}`);
                 const result = await this.request(url, { method: 'GET', is_torbox_api: false });
 
-                // ADAPTED: The new API returns a direct array.
-                if (result && Array.isArray(result)) {
-                    LOG(`Success from ${parser.name}. Found ${result.length} torrents.`);
-                    return result;
+                // FIXED: The API returns an object with a "Results" array.
+                if (result && Array.isArray(result.Results)) {
+                    LOG(`Success from ${parser.name}. Found ${result.Results.length} torrents.`);
+                    return result.Results;
                 }
             } catch (error) {
                 LOG(`Parser ${parser.name} failed:`, error.message);
@@ -214,7 +217,6 @@
     },
 
     searchTorBoxDirectly: async function(imdbId) {
-        // This is the fallback method, unchanged.
         const searchParams = new URLSearchParams({ check_cache: 'true', check_owned: 'false' });
         const url = `${this.SEARCH_API}/torrents/imdb:${imdbId}?${searchParams.toString()}`;
         const json = await this.request(url, { method: 'GET', is_torbox_api: true });
@@ -258,13 +260,7 @@
     stopTorrent: async function(torrentId) {
         const url = `${this.MAIN_API}/torrents/controltorrent`;
         const body = { torrent_id: torrentId, operation: 'pause' };
-        
-        return this.request(url, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            is_torbox_api: true
-        });
+        return this.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), is_torbox_api: true });
     },
     
     myList: async function(torrentId) {
@@ -440,13 +436,13 @@
         return filtered;
     };
 
-    this.loadAndDisplayTorrents = async function(force_update = false) {
+    this.loadAndDisplayTorrents = async function() {
         this.activity.loader(true);
         this.state.scroll.clear();
-        const movieTitle = this.movie?.title || this.movie?.name;
-        const imdbId = this.movie?.imdb_id;
-        if (!movieTitle && !imdbId) {
-            this.empty('Название фильма и IMDb ID не найдены');
+        
+        const movie = this.movie;
+        if (!movie || (!movie.title && !movie.imdb_id)) {
+            this.empty('Название фильма или IMDb ID не найдены');
             this.activity.loader(false);
             return;
         }
@@ -454,36 +450,30 @@
         try {
             // **PRIMARY METHOD: PARSER + CACHE CHECK**
             this.empty('Получение списка с публичных парсеров...');
-            const rawTorrents = await API.searchPublicTrackers(movieTitle);
+            const rawTorrents = await API.searchPublicTrackers(movie);
             
-            // ADAPTED: Extract hash from magnet and prepare for cache check
-            const hashRegex = /magnet:\?xt=urn:btih:([a-fA-F0-9]{40})/;
-            const torrentsWithHashes = rawTorrents.map(t => {
-                const match = t.magnet.match(hashRegex);
-                if (match && match[1]) {
-                    return { ...t, hash: match[1].toLowerCase() };
-                }
-                return null;
-            }).filter(Boolean);
-
-            if (!torrentsWithHashes.length) throw { type: 'api', message: 'На публичных парсерах ничего не найдено.' };
-            
-            this.empty(`Найдено ${torrentsWithHashes.length} торрентов. Проверка кэша в TorBox...`);
-            const hashes = torrentsWithHashes.map(t => t.hash);
+            this.empty(`Найдено ${rawTorrents.length} торрентов. Проверка кэша в TorBox...`);
+            const hashes = rawTorrents.map(t => t.InfoHash).filter(Boolean);
             const cachedData = await API.checkCached(hashes);
-            if (!cachedData.length) throw { type: 'api', message: 'Ни один из найденных торрентов не кэширован в TorBox.' };
+            const cachedHashes = new Set(cachedData.map(c => c.hash.toLowerCase()));
 
-            const rawTorrentsMap = new Map(torrentsWithHashes.map(t => [t.hash, t]));
-            const finalTorrents = cachedData.map(cached => {
-                const raw = rawTorrentsMap.get(cached.hash.toLowerCase());
-                if (!raw) return null;
-                // ADAPTED: Map new fields from parser response
+            // NEW LOGIC: Show ALL torrents, but mark them as cached or not.
+            const finalTorrents = rawTorrents.map(raw => {
+                const hash = raw.InfoHash ? raw.InfoHash.toLowerCase() : '';
+                const isCached = cachedHashes.has(hash);
+                
                 return {
-                    name: cached.name, hash: cached.hash, size: raw.size, files: cached.files,
-                    raw_title: raw.title, magnet: raw.magnet, last_known_seeders: raw.sid,
-                    last_known_peers: raw.pir, tracker: raw.tracker, cached: true
+                    raw_title: raw.Title,
+                    size: raw.Size,
+                    magnet: raw.MagnetUri,
+                    hash: hash,
+                    last_known_seeders: raw.Seeders,
+                    last_known_peers: raw.Peers,
+                    tracker: raw.Tracker,
+                    cached: isCached
                 };
-            }).filter(Boolean);
+            });
+
             this.state.all_torrents = finalTorrents;
             this.display();
 
@@ -491,12 +481,13 @@
             // **FALLBACK METHOD: DIRECT TORBOX SEARCH**
             LOG(`Parser flow failed: ${error.message}. Switching to fallback.`);
             this.empty('Публичные парсеры недоступны. Используется прямой поиск TorBox...');
-            if (!imdbId) {
+            if (!movie.imdb_id) {
                 this.empty('Для прямого поиска нужен IMDb ID, который не найден.');
+                this.activity.loader(false);
                 return;
             }
             try {
-                const torrents = await API.searchTorBoxDirectly(imdbId);
+                const torrents = await API.searchTorBoxDirectly(movie.imdb_id);
                 if (!torrents.length) {
                     this.empty('В TorBox ничего не найдено по этому фильму.');
                     return;
@@ -531,6 +522,7 @@
             const title = escapeHtml(t.raw_title || t.name);
             const isLastPlayed = lastTorrentHash && t.hash && (t.hash.toLowerCase() === lastTorrentHash.toLowerCase());
             const playedIcon = isLastPlayed ? '🎬 ' : '';
+            // FIXED: Show correct icon for cached and non-cached torrents.
             const cacheIcon = t.cached ? '⚡' : '☁️';
             
             const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${cacheIcon} ${playedIcon}${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span></div></div>`);
@@ -716,7 +708,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v19.3.0 (Parser API Fix & Adaptation) ready');
+        LOG('TorBox v19.4.0 (Full Parser & Display Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
