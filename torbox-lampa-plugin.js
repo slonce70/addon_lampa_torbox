@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v19.7.0 (Ultimate Logic & Parser Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v19.8.0 (Parser Hash Extraction Fix)
  * =================================================================================
- * • РЕШАЮЩЕЕ ИСПРАВЛЕНИЕ ЛОГИКИ: Полностью переписан механизм обработки данных от парсеров. Плагин теперь корректно обрабатывает любые ответы и стабильно запускает проверку кэша, устраняя причину "фильтрации всех торрентов".
- * • ПОВЫШЕННАЯ НАДЕЖНОСТЬ: Добавлена проверка на альтернативные имена полей в API (например, `Peers`/`Leechers`), чтобы обеспечить максимальную совместимость с разными трекерами.
- * • УЛУЧШЕННАЯ ДИАГНОСТИКА: В консоль выводятся еще более подробные сообщения о том, почему конкретный торрент мог быть отфильтрован, что упростит диагностику в будущем.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ИЗВЛЕЧЕНИЯ ХЕША: Полностью исправлена логика, приводившая к фильтрации всех торрентов. Теперь хеш корректно извлекается из поля MagnetUri, как и требует API парсера.
+ * • СТАБИЛЬНОСТЬ РАБОТЫ: Плагин теперь гарантированно передает список хешей на проверку в TorBox после успешного ответа от публичного парсера.
+ * • СОВМЕСТИМОСТЬ: Улучшена обработка данных от fallback-источника для большей согласованности.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v19_7_0_ultimate_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v19_8_0_hash_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -499,25 +499,32 @@
 
             LOG(`Парсер вернул ${rawTorrents.length} торрентов. Обработка и извлечение хешей...`);
             
-            // **ULTIMATE FIX**: Reworked the entire data validation and hash extraction logic.
-            const torrentsForCheck = [];
-            const hashesForCheck = [];
-
+            // **CRITICAL FIX**: Extract hash from MagnetUri, not InfoHash field.
+            const torrentsWithHashes = [];
             rawTorrents.forEach((raw, index) => {
                 if (!raw || typeof raw !== 'object') {
                     LOG(`Торрент #${index + 1} отфильтрован (не является объектом).`);
                     return;
                 }
-                const hash = raw.InfoHash || raw.infohash;
-                if (!hash || typeof hash !== 'string') {
-                    LOG(`Торрент #${index + 1} отфильтрован (отсутствует или неверный InfoHash):`, raw.Title);
+                const magnet = raw.MagnetUri;
+                let hash = null;
+                
+                if (magnet && typeof magnet === 'string') {
+                    const match = magnet.match(/urn:btih:([a-fA-F0-9]{40})/i);
+                    if (match && match[1]) {
+                        hash = match[1];
+                    }
+                }
+
+                if (!hash) {
+                    LOG(`Торрент #${index + 1} отфильтрован (не удалось извлечь InfoHash из MagnetUri):`, raw.Title);
                     return;
                 }
-                torrentsForCheck.push(raw);
-                hashesForCheck.push(hash);
+                torrentsWithHashes.push({ raw: raw, hash: hash });
             });
             
-            LOG(`Найдено ${torrentsForCheck.length} валидных торрентов для проверки кэша.`);
+            const hashesForCheck = torrentsWithHashes.map(t => t.hash);
+            LOG(`Найдено ${hashesForCheck.length} валидных торрентов для проверки кэша.`);
             
             if (hashesForCheck.length === 0) {
                 this.empty('Не найдено ни одного валидного торрента для проверки.');
@@ -539,9 +546,8 @@
                 cachedHashes = cachedHashesSet;
             }
 
-            const finalTorrents = torrentsForCheck.map(raw => {
-                const hash = (raw.InfoHash || raw.infohash).toLowerCase();
-                const isCached = cachedHashes.has(hash);
+            const finalTorrents = torrentsWithHashes.map(({ raw, hash }) => {
+                const isCached = cachedHashes.has(hash.toLowerCase());
                
                 return {
                     raw_title: raw.Title,
@@ -573,7 +579,7 @@
                     this.empty('В TorBox ничего не найдено по этому фильму.');
                     return;
                 }
-                this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.name, last_known_seeders: t.seeders, last_known_peers: t.leechers, publish_date: null }));
+                this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.name, last_known_seeders: t.seeders, last_known_peers: t.leechers, publish_date: t.created_at, magnet: t.magnet, cached: t.cached }));
                 this.display();
             } catch (fallbackError) {
                 this.empty(fallbackError.message || 'Ошибка при прямом поиске в TorBox.');
@@ -789,7 +795,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v19.7.0 (Ultimate Logic & Parser Fix) ready');
+        LOG('TorBox v19.8.0 (Parser Hash Extraction Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
