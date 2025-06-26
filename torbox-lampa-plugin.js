@@ -1,17 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.38 (Community Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.39 (Proxy Auth Fix)
  * ============================================================
- * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Внедрен гибридный метод авторизации, основанный на анализе сообщества.
- * - Браузер: Используется заголовок 'Authorization' через CORS-прокси.
- * - Мобильные устройства: API-ключ передается как параметр `token` в URL для обхода ошибок сетевого слоя Lampa.
- * • УЛУЧШЕНО ЛОГИРОВАНИЕ: Добавлена подробная отладочная информация о платформе и типе запроса.
+ * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Вся авторизация теперь проходит через CORS-прокси.
+ * Плагин отправляет API-ключ в заголовке 'X-Api-Key', а прокси-сервер
+ * преобразует его в стандартный 'Authorization: Bearer' заголовок.
+ * Это решает проблемы с CORS и ошибками сети на всех платформах.
+ * • УПРОЩЕНИЕ КОДА: Убрана сложная логика определения платформы,
+ * все запросы теперь идут по единому, надежному пути.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_38_communityfix';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_39_proxyauth';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -97,9 +99,6 @@
         throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
     }
     if (status < 200 || status >= 300) {
-        if (status === 0) {
-            throw new Error('Ошибка сети: Запрос был заблокирован на устройстве.');
-        }
         throw new Error(`Ошибка сети: HTTP ${status}`);
     }
     
@@ -128,81 +127,42 @@
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     
+    /**
+     * Universal request function. ALL requests now go through the CORS proxy.
+     * The API key is sent in a custom 'X-Api-Key' header.
+     */
     request: function(url, options = {}) {
-        const key = CFG.apiKey;
-        
-        LOG('Platform detection:', {
-            isBrowser: Lampa.Platform.is('browser'),
-            platform: typeof Lampa.Platform.get === 'function' ? Lampa.Platform.get() : 'unknown',
-            url: url,
-            method: options.method || 'GET'
-        });
-
-        // Для браузера используем прокси и стандартный заголовок
-        if (Lampa.Platform.is('browser')) {
-            const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
-            LOG('Calling via proxy (fetch) for BROWSER. Target:', url);
-            
-            options.headers = options.headers || {};
-            options.headers['Authorization'] = `Bearer ${key}`;
-
-            return fetch(proxyUrl, options)
-                .then(async (r) => {
-                    if (!r.ok) {
-                        const errorText = await r.text();
-                        LOG(`Proxy error: Status ${r.status}`, errorText);
-                        throw new Error(`Ошибка прокси-сервера: ${r.status} ${r.statusText}`);
-                    }
-                    const responseText = await r.text();
-                    return processResponse(responseText, r.status);
-                })
-                .catch(err => {
-                    LOG('Fetch error:', err.message);
-                    throw new Error(`Сетевая ошибка при обращении к прокси: ${err.message}`);
-                });
-        } 
-        // Для мобильных платформ используем Lampa.Reguest.native() и добавляем токен в URL
-        else {
-            const separator = url.includes('?') ? '&' : '?';
-            const fullUrl = `${url}${separator}token=${encodeURIComponent(key)}`;
-            LOG('Calling via Lampa.Reguest.native() for MOBILE. URL with token:', fullUrl);
-
-            return new Promise((resolve, reject) => {
-                const network = new Lampa.Reguest();
-                
-                // Убираем все заголовки авторизации для мобильных устройств
-                const headers = { ...(options.headers || {}) };
-                delete headers['Authorization'];
-                delete headers['authorization'];
-                
-                // Добавляем базовые заголовки
-                headers['Accept'] = 'application/json';
-                if (options.method && options.method.toUpperCase() !== 'GET' && options.body && !(options.body instanceof FormData)) {
-                    headers['Content-Type'] = 'application/json';
-                }
-                
-                network.native(
-                    fullUrl,
-                    (responseText, xhr) => { // onSuccess
-                        try {
-                            resolve(processResponse(responseText, xhr.status));
-                        } catch (e) {
-                            reject(e);
-                        }
-                    },
-                    (xhr, textStatus, errorThrown) => { // onError
-                        const status = xhr ? xhr.status : 0;
-                        LOG('LAMPA MOBILE ERROR:', `Status: ${status}`, `Response: ${xhr ? xhr.responseText : 'N/A'}`);
-                        const errorMsg = `Ошибка сети: ${status > 0 ? 'HTTP ' + status : (textStatus || errorThrown || 'Запрос заблокирован')}`;
-                        reject(new Error(errorMsg));
-                    },
-                    options.body || false,
-                    headers
-                );
-            });
+        if (!CFG.proxyUrl) {
+            return Promise.reject(new Error("URL прокси-сервера не указан в настройках."));
         }
+        const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
+        LOG('Calling via universal proxy (fetch) for ALL platforms. Target:', url);
+
+        options.headers = options.headers || {};
+        // Add the custom header for the proxy to use
+        options.headers['X-Api-Key'] = CFG.apiKey;
+        // Ensure no old Authorization header is present
+        delete options.headers['Authorization'];
+
+        return fetch(proxyUrl, options)
+            .then(async (r) => {
+                if (!r.ok) {
+                    const errorText = await r.text();
+                    LOG(`Proxy error: Status ${r.status}`, errorText);
+                    throw new Error(`Ошибка прокси-сервера: ${r.status} ${r.statusText}`);
+                }
+                const responseText = await r.text();
+                return processResponse(responseText, r.status);
+            })
+            .catch(err => {
+                LOG('Fetch error:', err.message);
+                throw new Error(`Сетевая ошибка при обращении к прокси: ${err.message}`);
+            });
     },
 
+    /**
+     * This function now only prepares the request. The 'request' function handles the auth.
+     */
     async directAction(path, body = {}, method = 'GET') {
         let url = `${this.MAIN_API}${path}`;
         const options = {
@@ -236,14 +196,8 @@
         }
         const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         
-        const options = { 
-            method: 'GET',
-            headers: { 
-                'Accept': 'application/json' 
-            } 
-        };
-        const json = await this.request(url, options);
-        return json.data?.torrents || [];
+        // No auth headers needed here, `directAction`'s call to `request` handles it.
+        return this.request(url, { method: 'GET' });
     },
 
     async addMagnet(magnet) {
@@ -270,7 +224,6 @@
         const params = new URLSearchParams(body);
         const url = `${this.MAIN_API}/torrents/requestdl?${params.toString()}`;
         
-        // Используем GET-запрос, токен будет автоматически добавлен в функции request()
         return this.request(url, { method: 'GET' });
     }
   };
@@ -625,7 +578,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.38 (community fix) ready');
+        LOG('TorBox v11.0.39 (proxy auth fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
