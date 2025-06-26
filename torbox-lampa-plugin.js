@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v12.0.2 (Final Navigation Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v12.1.0 (Feature Update)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Полностью удалены вызовы нестабильных API Lampa (exist, isSelectVisible). Проверка активных модальных окон теперь осуществляется через DOM, что является наиболее надежным методом и устраняет все известные ошибки при нажатии кнопки "Назад".
+ * • ФУНКЦИЯ "ПОСЛЕДНИЙ ПРОСМОТР": Плагин теперь запоминает последний просмотренный файл для каждого фильма/сериала и помечает его иконкой ▶️ в списке, что упрощает навигацию.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Сохранено наиболее стабильное решение для навигации через проверку DOM.
  * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента.
  * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Сохранен централизованный обработчик ошибок.
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ: Сохранены все предыдущие улучшения.
- * • ОЧИСТКА РЕСУРСОВ: Сохранена очистка обработчиков событий.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v12_0_2_final_nav_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v12_1_0_feature_update';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -285,8 +284,6 @@
                     else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    // ### FINAL FIX ###: Заменены все проверки API на проверку DOM,
-                    // что является наиболее стабильным решением.
                     if ($('body').find('.select').length) {
                         Lampa.Select.close();
                     } else if ($('body').find('.filter').length) {
@@ -621,7 +618,23 @@
       if (files.length === 1) return play(torrentData.id, files[0], movie, component);
       
       files.sort((a,b) => b.size - a.size);
-      const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
+
+      // Получаем ID последнего просмотренного файла
+      const lastPlayedFileId = Store.get(`torbox_last_played_${movie.imdb_id}`, null);
+
+      const fileItems = files.map(f => {
+        let title = f.name;
+        // Помечаем файл, если он был просмотрен последним
+        if (lastPlayedFileId && String(f.id) === lastPlayedFileId) {
+            title = `▶️ ${f.name} (прошлый просмотр)`;
+        }
+        return { 
+            title: title, 
+            subtitle: formatBytes(f.size), 
+            file: f 
+        };
+      });
+
       Lampa.Select.show({ title: 'Выбор файла для воспроизведения', items: fileItems, onSelect: item => play(torrentData.id, item.file, movie, component), onBack: () => component.start() });
   }
 
@@ -655,6 +668,14 @@
       const dlResponse = await API.requestDl(torrentId, file.id);
       const finalUrl = dlResponse?.data || dlResponse?.url;
       if (!finalUrl || typeof finalUrl !== 'string') throw {type: 'api', message: 'Не удалось получить ссылку для воспроизведения.'};
+      
+      // Сохраняем ID последнего просмотренного файла
+      try {
+          Store.set(`torbox_last_played_${movie.imdb_id}`, file.id);
+      } catch (e) {
+          LOG('Не удалось сохранить последний просмотренный файл:', e);
+      }
+
       Lampa.Modal.close();
       modalCache = {};
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
@@ -695,7 +716,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v12.0.1 (Navigation Hotfix) ready');
+        LOG('TorBox v12.1.0 (Feature Update) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
