@@ -1,19 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v21.1.0 (Critical Lifecycle & Filter Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v21.2.0 (Scrolling & Render Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Добавлены недостающие методы pause() и stop() в
- * компонент. Их отсутствие вызывало ошибку "component.pause is not a function"
- * и полностью ломало навигацию при попытке воспроизвести торрент.
- * • ИСПРАВЛЕНИЕ ФИЛЬТРА: Устранена ошибка в логике фильтрации по трекеру,
- * из-за которой выбор мог работать некорректно.
- * • СТАБИЛЬНОСТЬ: Архитектура по-прежнему соответствует лучшим практикам (bwa.js).
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена проблема с прокруткой и "серой маской".
+ * Отрисовка списка и активация навигации теперь синхронизированы, что решает
+ * состояние гонки, из-за которого контроллер не видел новые элементы.
+ * • СТАБИЛЬНОСТЬ: Все предыдущие исправления жизненного цикла сохранены.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v21_1_0_lifecycle_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v21_2_0_scroll_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -282,7 +280,7 @@
     }
   };
 
-  /* ───── TorBox Component (v21.1 - Lifecycle & Filter Fix) ───── */
+  /* ───── TorBox Component (v21.2 - Scrolling & Render Fix) ───── */
   function TorBoxComponent(object) {
     this.activity = object.activity;
     this.movie = object.movie;
@@ -346,11 +344,6 @@
         }
     };
     
-    /**
-     * << CRITICAL FIX: Добавлены пустые методы pause и stop.
-     * Lampa требует их наличия в жизненном цикле компонента.
-     * Их отсутствие вызывало сбой при переключении активностей.
-     */
     this.pause = function() {
         LOG("Component pause()");
     };
@@ -413,7 +406,6 @@
         const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
         const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
         const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
-        // << FIX: Исправлена опечатка (было ... === q, должно быть ... === t)
         const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
 
         const filter_items = [
@@ -535,7 +527,16 @@
     this.display = function() {
         this.updateFilterUI();
         this.draw(this.applyFiltersAndSort());
-        Lampa.Controller.toggle('content');
+        
+        /**
+         * << CRITICAL FIX: Задержка активации контроллера.
+         * Это дает DOM время на отрисовку списка, прежде чем Lampa
+         * попытается управлять навигацией. Решает проблему с "серой маской"
+         * и невозможностью прокрутки.
+         */
+        setTimeout(() => {
+            Lampa.Controller.toggle('content');
+        }, 0);
     };
 
     this.draw = function(torrents_list) {
@@ -686,10 +687,6 @@
       const player_data = { url: finalUrl, title: file.name || movie.title, poster: movie.img };
       Lampa.Modal.close();
       Lampa.Player.play(player_data);
-      // Lampa.Activity.push({
-      //     component: 'player',
-      //     ...player_data
-      // });
     } catch (e) {
       ErrorHandler.show(e.type || 'unknown', e);
       Lampa.Modal.close();
@@ -739,7 +736,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v21.1.0 (Critical Lifecycle & Filter Fix) ready');
+        LOG('TorBox v21.2.0 (Scrolling & Render Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
