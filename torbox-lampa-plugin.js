@@ -1,17 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.34 (Final Fix 2)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.36 (Proxy Fix)
  * ============================================================
- * • ИСПРАВЛЕНИЕ 2: Исправлена ошибка 'Lampa.Network is not a constructor'. Возвращено использование new Lampa.Reguest(), но с вызовом надежного метода .silent()
- * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов
- * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data`
- * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization`
+ * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Все запросы (мобильные и браузерные) теперь идут через CORS-прокси. Это обходит ошибки сетевого слоя Lampa.
+ * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Единый метод запросов через fetch() для всех платформ.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_34_fixed';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_36_proxyfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -93,11 +91,13 @@
     if (status === 401 || status === 403) {
         throw new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`);
     }
-    // Ответ от сервера уже может содержать ошибку, поэтому проверяем и ее.
     if (typeof responseText === 'string' && responseText.toUpperCase().includes("NO_AUTH")) {
         throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
     }
     if (status < 200 || status >= 300) {
+        if (status === 0) {
+            throw new Error('Ошибка сети: Запрос был заблокирован на устройстве.');
+        }
         throw new Error(`Ошибка сети: HTTP ${status}`);
     }
     
@@ -126,59 +126,38 @@
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     
+    /**
+     * Universal request function. ALL requests now go through the CORS proxy
+     * to bypass Lampa's faulty network layer on mobile devices.
+     * @param {string} url - The target URL
+     * @param {object} options - Fetch-like options object
+     * @returns {Promise<object>}
+     */
     request: function(url, options = {}) {
-        // Для браузера используем fetch с CORS-прокси, как и раньше
-        if (Lampa.Platform.is('browser')) {
-            const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
-            LOG('Calling via proxy (fetch):', proxyUrl, 'Target:', url);
-            return fetch(proxyUrl, options)
-                .then(async (r) => {
-                    const responseText = await r.text();
-                    return processResponse(responseText, r.status);
-                });
-        } 
-        // ИСПРАВЛЕНО: Для мобильных платформ используем Lampa.Reguest().silent()
-        else {
-            LOG('Calling via Lampa network stack:', url);
-            return new Promise((resolve, reject) => {
-                const network = new Lampa.Reguest(); // Используем правильный конструктор
-                const requestOptions = {
-                    headers: options.headers || {},
-                    method: options.method || 'GET',
-                    timeout: 20000 // Таймаут в 20 секунд
-                };
-
-                // Добавляем тело запроса для POST/PUT
-                if (options.body) {
-                    requestOptions.body = options.body;
-                }
-
-                network.silent(
-                    url,
-                    (responseText, xhr) => { // onSuccess
-                        try {
-                            // xhr может быть не всегда доступен, поэтому проверяем статус из него если есть
-                            const status = xhr ? xhr.status : 200;
-                            resolve(processResponse(responseText, status));
-                        } catch (e) {
-                            reject(e);
-                        }
-                    },
-                    (xhr, textStatus, errorThrown) => { // onError
-                        const status = xhr ? xhr.status : 0;
-                        LOG('LAMPA MOBILE ERROR:', `Status: ${status}`, `Response: ${xhr ? xhr.responseText : 'N/A'}`);
-                        // Обрабатываем ошибки авторизации прямо здесь
-                        if (status === 401 || status === 403) {
-                             return reject(new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`));
-                        }
-                        const errorMsg = `Ошибка сети: ${status > 0 ? 'HTTP ' + status : (textStatus || errorThrown)}`;
-                        reject(new Error(errorMsg));
-                    },
-                    false, // Отключаем кеширование
-                    requestOptions
-                );
-            });
+        // Убрана проверка Lampa.Platform.is('browser').
+        // Все запросы теперь используют единый, надежный механизм через прокси.
+        if (!CFG.proxyUrl) {
+            return Promise.reject(new Error("URL прокси-сервера не указан в настройках."));
         }
+        const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
+        LOG(`Calling via universal proxy (fetch) for ALL platforms. Target:`, url);
+
+        return fetch(proxyUrl, options)
+            .then(async (r) => {
+                if (!r.ok) {
+                    // Прокси мог вернуть свою ошибку
+                    const errorText = await r.text();
+                    LOG(`Proxy error: Status ${r.status}`, errorText);
+                    throw new Error(`Ошибка прокси-сервера: ${r.status} ${r.statusText}`);
+                }
+                const responseText = await r.text();
+                return processResponse(responseText, r.status);
+            })
+            .catch(err => {
+                LOG('Fetch error:', err.message);
+                // Перехватываем ошибки сети, которые могут возникнуть при вызове fetch
+                throw new Error(`Сетевая ошибка при обращении к прокси: ${err.message}`);
+            });
     },
 
     async directAction(path, body = {}, method = 'GET') {
@@ -194,6 +173,7 @@
 
         if (method.toUpperCase() !== 'GET') {
             if (body instanceof FormData) {
+                // Fetch API может работать с FormData напрямую, Content-Type установится автоматически
                 options.body = body;
             } else {
                 options.headers['Content-Type'] = 'application/json';
@@ -604,7 +584,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.34 (fixed) ready');
+        LOG('TorBox v11.0.36 (proxy fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
