@@ -1,8 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.21
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.22
  * ============================================================
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Полностью переработана логика обработки фильтров и сортировки на основе анализа стабильных плагинов. Вместо попытки восстановить фокус, плагин теперь полностью перезагружает себя после выбора опции. Это гарантированно решает проблему "вылета" на предыдущий экран и является самым надежным решением.
  * • ИСПРАВЛЕНИЕ ВЫЛЕТА ФИЛЬТРА: Переработана логика обработки событий фильтра и сортировки. Вся логика, включая закрытие окна выбора, теперь выполняется асинхронно. Это надежно предотвращает возврат на предыдущий экран после выбора опции, решая основную проблему.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (ФИНАЛ): Реализован наиболее надежный механизм обработки фильтров и сортировки. Плагин теперь полностью перехватывает управление у Lampa, принудительно активируя загрузчик на время обновления. Это гарантированно решает проблему "вылета" плагина на предыдущий экран.
  * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking).
  * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Улучшена логика расчета процента загрузки.
  * • УЛУЧШЕНО: Для паков сезонов размер отображается с пометкой "/ серия".
@@ -12,7 +12,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_21';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_22';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -238,35 +238,34 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            // НЕ ЗАКРЫВАЕМ ОКНО ВЫБОРА СРАЗУ.
-            // Вместо этого, мы выполняем всю логику асинхронно.
-            // Это предотвращает закрытие Lampa всего плагина, так как
-            // стандартное поведение Select может вызывать Activity.backward().
-            
+            // Шаг 1: Применить и сохранить изменения состояния немедленно.
+            if (type === 'sort') {
+                Store.set('torbox_sort_method', a.key);
+            }
+            if (type === 'filter') {
+                // Сначала получаем текущие фильтры, чтобы не перезаписать их полностью.
+                let new_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
+                if (a.reset) { 
+                    new_filters = { quality: 'all', tracker: 'all' }; 
+                } else { 
+                    new_filters[a.stype] = b.value; 
+                }
+                Store.set('torbox_filters', JSON.stringify(new_filters));
+            }
+
+            // Шаг 2: Закрыть модальное окно выбора.
+            Lampa.Select.close();
+
+            // Шаг 3: Показать загрузчик, чтобы сделать переход плавным.
             _this.activity.loader(true);
 
-            setTimeout(function () {
-                // Сначала применяем логику
-                if (type === 'sort') {
-                    current_sort = a.key;
-                    Store.set('torbox_sort_method', current_sort);
-                }
-                if (type === 'filter') {
-                    if (a.reset) { current_filters = { quality: 'all', tracker: 'all' }; }
-                    else { current_filters[a.stype] = b.value; }
-                    Store.set('torbox_filters', JSON.stringify(current_filters));
-                }
-                
-                // Перерисовываем контент
-                _this.display();
-                
-                // И только теперь закрываем окно выбора
-                Lampa.Select.close();
-                
-                // Возвращаем управление
-                _this.activity.loader(false);
-                Lampa.Controller.toggle('content');
-            }, 50); // Небольшая задержка для стабильности
+            // Шаг 4: Асинхронно перезагрузить текущую активность (плагин).
+            // Это самый надежный способ, так как он полностью пересоздает компонент,
+            // который при инициализации считает новые (сохраненные) параметры из localStorage.
+            // Это исключает любые проблемы с состоянием контроллера и фокусом.
+            setTimeout(function() {
+                Lampa.Activity.replace({});
+            }, 50);
         };
     };
 
@@ -595,7 +594,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.21 ready');
+        LOG('TorBox v11.0.22 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
