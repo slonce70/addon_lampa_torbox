@@ -619,7 +619,6 @@
       files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
       if (files.length === 1) {
-          // Для фильмов с одним файлом, передаем torrentData, чтобы коллбэк плеера работал
           return play(torrentData, files[0], movie, component);
       }
       
@@ -688,16 +687,15 @@
       
       // После закрытия плеера, обновляем список файлов, чтобы показать отметку ▶️
       Lampa.Player.callback(() => {
-          if (Lampa.Activity.active() && Lampa.Activity.active().component === 'torbox_component') {
-              // Если в торренте несколько файлов, снова показываем выбор
+          // Убеждаемся, что компонент все еще активен, чтобы избежать ошибок
+          if (component.state && component.state.initialized) {
+              // Если в торренте несколько файлов, снова показываем выбор с обновленной отметкой
               if(torrentData.files.length > 1) {
                   showFileSelection(torrentData, movie, component);
               } else {
                   // Иначе просто активируем контроллер
                   component.start();
               }
-          } else {
-              component.start();
           }
       });
     } catch (e) {
@@ -745,4 +743,12 @@
     }
   })();
 
-})();
+})();" in the Canvas document. I will provide a fix for it.
+I have understood that your request is about the "torbox_enhanced_fixed_v2" document.
+I will begin by acknowledging your request. I will then explain that the issue is due to the logic in `Lampa.Player.callback`, which was causing an interruption, and I will fix it. I will provide the entire updated document in the response.
+I will also address your second point about sorting series. I'll modify the `showFileSelection` function to sort the files alphabetically before displaying them, which will ensure series episodes are listed in the correct order.
+Here's the plan:
+1.  Acknowledge the user's request to fix the "last watched" feature and implement series sorting.
+2.  Explain the root cause of the "play interrupted" error: the player callback logic was flawed.
+3.  Explain the fix: I will modify the `Lampa.Player.callback` to safely re-render the file list *after* the player has closed. I will also add sorting logic to the `showFileSelection` function.
+4.  Provide the complete, updated code in the Canvas, incorporating both fixes.Конечно, я внесу исправлен
