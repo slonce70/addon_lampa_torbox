@@ -1,6 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.27
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.28
  * ============================================================
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (NATIVE AUTH): Метод авторизации изменен для решения проблемы с ошибкой "NO_AUTH" в мобильных приложениях. API-ключ теперь передается как параметр `token` в URL, а не через заголовок Authorization, что обеспечивает стабильную работу на всех платформах.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (NATIVE AUTH): Полностью переписан сетевой слой для использования Promise-обертки над Lampa.Reguest(). Это восстанавливает логику async/await, как в старых версиях, но с использованием нативного сетевого модуля Lampa, что решает проблему с ошибкой 401 Unauthorized в мобильных приложениях.
  * • УЛУЧШЕНИЕ: Код обработки API вызовов был реструктурирован для повышения читаемости и надежности.
  */
@@ -9,7 +10,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_27';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_28';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -94,12 +95,7 @@
                                reject(new Error(json.message || 'API вернуло ошибку.'));
                            }
                         } else {
-                            // для requestDl API возвращает URL в виде { success: true, url: '...' } или просто { data: '...' }
-                            if (json.url || json.data) {
-                                resolve(json);
-                            } else {
-                                resolve(json);
-                            }
+                            resolve(json);
                         }
                     } catch (e) {
                         reject(new Error('Получен некорректный ответ от сервера.'));
@@ -131,8 +127,13 @@
     directAction: async function(path, body = {}, method = 'GET') {
         const key = CFG.apiKey;
         let url = `${this.MAIN_API}${path}`;
+        
+        // ИСПРАВЛЕНИЕ: Добавляем токен в тело/параметры каждого запроса
+        body.token = key;
+        
         const options = {
-            headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+            // Убираем неработающий заголовок
+            headers: { 'Accept': 'application/json' }
         };
 
         if (method.toUpperCase() !== 'GET') {
@@ -153,8 +154,13 @@
             if (/^\d+$/.test(imdbId)) formattedImdbId = `tt${imdbId}`;
             else throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
         }
-        const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
-        const json = await this.proxiedCall(url, { headers: { 'Authorization': `Bearer ${key}` } });
+        let url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        
+        // ИСПРАВЛЕНИЕ: Добавляем токен как параметр URL
+        url += `&token=${key}`;
+        
+        // Убираем неработающий заголовок
+        const json = await this.proxiedCall(url, { headers: { 'Accept': 'application/json' } });
         return json.data?.torrents || [];
     },
 
@@ -167,6 +173,7 @@
     },
 
     myList: async function(torrentId) {
+        // 'token' будет добавлен автоматически через directAction
         const json = await this.directAction('/torrents/mylist', { id: torrentId }, 'GET');
         if (json && json.data && !Array.isArray(json.data)) {
             json.data = [json.data];
@@ -175,7 +182,8 @@
     },
 
     requestDl: async function(torrentId, fid) {
-        const body = { token: CFG.apiKey, torrent_id: torrentId, file_id: fid };
+        // 'token' будет добавлен автоматически через directAction
+        const body = { torrent_id: torrentId, file_id: fid };
         return this.directAction('/torrents/requestdl', body, 'GET');
     }
   };
