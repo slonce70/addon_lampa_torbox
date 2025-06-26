@@ -1,19 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.41 (Proxy Auth Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.42 (requestDl Fix)
  * ============================================================
- * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Вся авторизация теперь проходит через CORS-прокси.
- * Плагин отправляет API-ключ в заголовке 'X-Api-Key', а прокси-сервер
- * преобразует его в стандартный 'Authorization: Bearer' заголовок.
- * Это решает проблемы с CORS и ошибками сети на всех платформах.
- * • УПРОЩЕНИЕ КОДА: Убрана сложная логика определения платформы,
- * все запросы теперь идут по единому, надежному пути.
+ * • ВИПРАВЛЕННЯ ПОМИЛКИ 422: Функція requestDl тепер правильно додає API-ключ як параметр 'token' в URL, як того вимагає API TorBox для цього запиту.
+ * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Вся авторизация по-прежнему проходит через CORS-прокси, обеспечивая стабильность на всех платформах.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_41_proxyauth';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_42_requestdlfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -212,11 +208,17 @@
         return json;
     },
 
+    // ### FIXED ###
     async requestDl(torrentId, fid) {
-        const body = { torrent_id: torrentId, file_id: fid };
+        // Этот эндпоинт требует токен в URL, а не в заголовке.
+        // Добавляем его вручную.
+        const key = CFG.apiKey;
+        const body = { torrent_id: torrentId, file_id: fid, token: key }; // Добавляем токен!
         const params = new URLSearchParams(body);
         const url = `${this.MAIN_API}/torrents/requestdl?${params.toString()}`;
         
+        // Отправляем запрос. `request` отправит его через прокси,
+        // но так как токен уже есть в URL, авторизация пройдет успешно.
         return this.request(url, { method: 'GET' });
     }
   };
@@ -583,7 +585,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.41 (data fix) ready');
+        LOG('TorBox v11.0.42 (requestdl fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
