@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v17.0.0 (Critical Navigation Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v17.0.1 (Syntax Hotfix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАВИГАЦИИ: Полностью переработан механизм возврата из плеера для решения проблемы с "залипанием" кнопок на мобильных устройствах.
- * • НАДЕЖНОСТЬ НАСТРОЕК: Сохранено размещение опции "Свои поисковики" в основных настройках плагина для предотвращения блокировок.
- * • НОВАЯ ФУНКЦИЯ (ПОМЕТКА ТОРРЕНТА): Сохранена функция пометки последнего запущенного торрента.
+ * • HOTFIX: Исправлена критическая синтаксическая ошибка, препятствовавшая загрузке плагина.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАВИГАЦИИ: Сохранен переработанный механизм возврата из плеера.
+ * • НАДЕЖНОСТЬ НАСТРОЕК: Сохранено размещение опции "Свои поисковики" в основных настройках плагина.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v17_0_0_critical_nav_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v17_0_1_syntax_hotfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -829,7 +829,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v16.0.0 (Settings & Navigation Fix) ready');
+        LOG('TorBox v17.0.1 (Syntax Hotfix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
@@ -839,5 +839,3 @@
   })();
 
 })();
-"
-What are the main consequences if you have hardcoded an API key into the plug
