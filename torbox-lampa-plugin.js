@@ -1,9 +1,10 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.32
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.32 (Fixed Progress Bar)
  * ============================================================
- * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов. Плагин теперь определяет платформу: для браузера используется `fetch` с CORS-прокси, а для мобильных APK и других нативных платформ — `Lampa.Reguest.native()`. Это решает проблему 'failed to fetch' на мобильных устройствах, сохраняя работоспособность в вебе.
- * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data` для добавления торрента, что устраняет ошибку 'MISSING_REQUIRED_OPTION'.
- * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization` для консистентности.
+ * • ИСПРАВЛЕНА ПОЛОСКА ЗАГРУЗКИ: Добавлены более специфичные CSS селекторы, принудительное обновление DOM, и улучшена анимация
+ * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов
+ * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data`
+ * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization`
  */
 
 (function () {
@@ -69,8 +70,24 @@
     return 'SD';
   };
 
+  // ИСПРАВЛЕНО: Улучшенные CSS стили с более высокой специфичностью
   if (!$('#torbox-component-styles').length) {
-    $('head').append(`<style id="torbox-component-styles">.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}.torrent-list{padding:1em}.torbox-status{padding:1em 2em; text-align:center;}.torbox-status__title{font-size:1.4em; margin-bottom:1em;}.torbox-status__info{font-size: 1.1em; margin-bottom: 0.5em;}.torbox-status__progress-bar{height:10px; background:rgba(255,255,255,0.2); border-radius:5px; overflow:hidden; margin:1em 0;}.torbox-status__progress-bar>div{height:100%; width:0; background:var(--color-primary); transition: width 0.3s;}</style>`);
+    $('head').append(`<style id="torbox-component-styles">
+.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}
+.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}
+.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}
+.torrent-list{padding:1em}
+.torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
+.torbox-status__title{font-size:1.4em; margin-bottom:1em; font-weight:600;}
+.torbox-status__info{font-size: 1.1em; margin-bottom: 0.8em; color: var(--color-text);}
+.torbox-status__progress-container{margin:1.5em 0; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; height:12px; position:relative;}
+.torbox-status__progress-bar{height:100%; width:0%; background:linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #4CAF50)); transition: width 0.5s ease-out; border-radius:8px; position:relative;}
+.torbox-status__progress-bar::after{content:''; position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%); animation:shimmer 2s infinite;}
+@keyframes shimmer{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
+.modal .torbox-status__progress-container{background:rgba(255,255,255,0.2) !important;}
+.modal .torbox-status__progress-bar{background:linear-gradient(90deg, #4CAF50, #66BB6A) !important;}
+</style>`);
   }
   
   /**
@@ -384,26 +401,64 @@
   }
   
   /* ───── Full torrent handling logic ───── */
+  // ИСПРАВЛЕНО: Улучшенная функция создания модального окна
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
+      
+      const modalHtml = $(`
+        <div class="torbox-status">
+          <div class="torbox-status__title">${title}</div>
+          <div class="torbox-status__info" data-name="status">Ожидание...</div>
+          <div class="torbox-status__info" data-name="progress-text"></div>
+          <div class="torbox-status__progress-container">
+            <div class="torbox-status__progress-bar" style="width: 0%;"></div>
+          </div>
+          <div class="torbox-status__info" data-name="speed"></div>
+          <div class="torbox-status__info" data-name="eta"></div>
+          <div class="torbox-status__info" data-name="peers"></div>
+        </div>
+      `);
+      
       Lampa.Modal.open({
           title: 'TorBox',
-          html: $(`<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div><div class="torbox-status__info" data-name="peers"></div></div>`),
+          html: modalHtml,
           size: 'medium',
           onBack: onBack || (() => { Lampa.Modal.close(); })
       });
+      
+      LOG('Modal created with progress bar');
   }
   
+  // ИСПРАВЛЕНО: Принудительное обновление DOM и добавление логирования
   function updateStatusModal(data) {
       const modalBody = $('.modal__content .torbox-status');
-      if (!modalBody.length) return;
+      if (!modalBody.length) {
+          LOG('Modal body not found, cannot update progress');
+          return;
+      }
       
       modalBody.find('[data-name="status"]').text(data.status || '...');
       modalBody.find('[data-name="progress-text"]').text(data.progressText || '');
-      modalBody.find('.torbox-status__progress-bar > div').css('width', (data.progress || 0) + '%');
       modalBody.find('[data-name="speed"]').text(data.speed || '');
       modalBody.find('[data-name="eta"]').text(data.eta || '');
       modalBody.find('[data-name="peers"]').text(data.peers || '');
+      
+      // ИСПРАВЛЕНО: Принудительное обновление полоски прогресса
+      const progressBar = modalBody.find('.torbox-status__progress-bar');
+      const progressPercent = Math.max(0, Math.min(100, data.progress || 0));
+      
+      if (progressBar.length) {
+          // Принудительное обновление стиля с немедленным применением
+          progressBar[0].style.width = progressPercent + '%';
+          progressBar.css('width', progressPercent + '%');
+          
+          // Принудительное обновление DOM
+          progressBar[0].offsetHeight; // Trigger reflow
+          
+          LOG(`Progress updated to: ${progressPercent}%`);
+      } else {
+          LOG('Progress bar element not found');
+      }
   }
 
   function trackTorrentStatus(torrentId) {
@@ -448,7 +503,17 @@
                   
                   let progressText = (currentStatus.toLowerCase().startsWith('checking') || isNaN(sizeValue) || sizeValue === 0) ? "Обработка торрента..." : `${progressPercent.toFixed(2)}% из ${formatBytes(sizeValue)}`;
 
-                  updateStatusModal({ status: statusText, progress: progressPercent, progressText: progressText, speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`, eta: `Осталось: ${formatTime(isNaN(etaValue) ? -1 : etaValue)}`, peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}` });
+                  // ИСПРАВЛЕНО: Логирование для отладки
+                  LOG(`Status: ${statusText}, Progress: ${progressPercent}%, Speed: ${torrentData.download_speed}`);
+                  
+                  updateStatusModal({ 
+                      status: statusText, 
+                      progress: progressPercent, 
+                      progressText: progressText, 
+                      speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`, 
+                      eta: `Осталось: ${formatTime(isNaN(etaValue) ? -1 : etaValue)}`, 
+                      peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}` 
+                  });
                   
                   const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
                   const filesAreReady = torrentData.files && torrentData.files.length > 0;
