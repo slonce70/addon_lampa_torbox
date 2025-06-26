@@ -1,7 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.42 (requestDl Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.43 (UI Navigation Fix)
  * ============================================================
- * • ВИПРАВЛЕННЯ ПОМИЛКИ 422: Функція requestDl тепер правильно додає API-ключ як параметр 'token' в URL, як того вимагає API TorBox для цього запиту.
+ * • ВИПРАВЛЕННЯ НАВІГАЦІЇ: Усунуто помилку, через яку клік поза активними елементами закривав плагін. Тепер він коректно закриває меню фільтрів.
  * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Вся авторизация по-прежнему проходит через CORS-прокси, обеспечивая стабильность на всех платформах.
  */
 
@@ -9,7 +9,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_42_requestdlfix';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_43_uifix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -131,9 +131,7 @@
         LOG('Calling via universal proxy (fetch) for ALL platforms. Target:', url);
 
         options.headers = options.headers || {};
-        // Используем кастомный заголовок, который прокси преобразует в Authorization
         options.headers['X-Api-Key'] = CFG.apiKey;
-        // Удаляем стандартный заголовок, чтобы избежать конфликтов
         delete options.headers['Authorization'];
 
         return fetch(proxyUrl, options)
@@ -208,17 +206,12 @@
         return json;
     },
 
-    // ### FIXED ###
     async requestDl(torrentId, fid) {
-        // Этот эндпоинт требует токен в URL, а не в заголовке.
-        // Добавляем его вручную.
         const key = CFG.apiKey;
-        const body = { torrent_id: torrentId, file_id: fid, token: key }; // Добавляем токен!
+        const body = { torrent_id: torrentId, file_id: fid, token: key }; 
         const params = new URLSearchParams(body);
         const url = `${this.MAIN_API}/torrents/requestdl?${params.toString()}`;
         
-        // Отправляем запрос. `request` отправит его через прокси,
-        // но так как токен уже есть в URL, авторизация пройдет успешно.
         return this.request(url, { method: 'GET' });
     }
   };
@@ -245,16 +238,32 @@
     this.movie = object.movie;
     var controller_registered = false;
 
+    // ### FIXED ###
     this.start = function () {
         this.activity.loader(false);
         if (!controller_registered) {
             Lampa.Controller.add('content', {
-                toggle: () => { Lampa.Controller.collectionSet(scroll.render(), files.render()); Lampa.Controller.collectionFocus(last || false, scroll.render()); },
-                up: () => {Navigator.move('up')},
-                down: () => {Navigator.move('down')},
-                left: () => {Lampa.Controller.toggle('menu');},
-                right: () => { if(Navigator.canmove('right')) Lampa.Controller.toggle('head'); else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); },
-                back: this.back.bind(this)
+                toggle: () => { 
+                    Lampa.Controller.collectionSet(scroll.render(), files.render());
+                    Lampa.Controller.collectionFocus(last || false, scroll.render()); 
+                },
+                up: () => { Navigator.move('up'); },
+                down: () => { Navigator.move('down'); },
+                left: () => { Lampa.Controller.toggle('menu'); },
+                right: () => { 
+                    if(Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
+                },
+                back: () => {
+                    // Это исправленная логика. Сначала закрываем активные меню, потом выходим.
+                    if (Lampa.Select.visible()) {
+                        Lampa.Select.close();
+                    } else if (Lampa. 層.visible('filter')) { // Используем официальный способ проверки видимости фильтра
+                        filter.onBack();
+                    } else {
+                        Lampa.Activity.backward();
+                    }
+                }
             });
             controller_registered = true;
         }
@@ -269,7 +278,9 @@
     this.initialize = function() {
         if (initialized) return;
         this.initializeFilterHandlers(); 
-        filter.onBack = this.back.bind(this);
+        filter.onBack = () => { // Упрощаем обработчик onBack для фильтра
+            Lampa.Controller.toggle('content');
+        };
         if (filter.addButtonBack) filter.addButtonBack();
         scroll.body().addClass('torrent-list');
         files.appendFiles(scroll.render());
