@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.46 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.47 (API Hotfix)
  * ===========================================================================
- * • ИСПРАВЛЕНИЕ СОВМЕСТИМОСТИ API: Добавлен обязательный метод stop() и заменен устаревший вызов Lampa.Select.visible() на актуальный Lampa.Utils.isSelectVisible(), что устраняет критические ошибки навигации.
+ * • ИСПРАВЛЕНИЕ API КОНТРОЛЛЕРА: Заменен некорректный вызов Lampa.Controller.remove() на правильный способ очистки обработчика (Lampa.Controller.add('content', null)), что устраняет ошибку при смене сортировки/фильтра.
  * • УСТРАНЕНИЕ УТЕЧКИ ПАМЯТИ: Контроллер теперь корректно выгружается из памяти при уничтожении компонента (destroy), предотвращая утечки.
  * • УСТРАНЕНИЕ ГОНКИ УСЛОВИЙ: Улучшена логика отслеживания торрента для предотвращения фоновых запросов после отмены операции пользователем.
- * • ПОВЫШЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ: Добавлено кэширование для функции сортировки по дате, что ускоряет отрисовку списка при большом количестве торрентов.
- * • УЛУЧШЕНИЕ БЕЗОПАСНОСТИ: Добавлена базовая валидация данных и экранирование HTML для предотвращения возможных проблем с отображением.
+ * • ПОВЫШЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ: Добавлено кэширование для функции сортировки по дате.
+ * • УЛУЧШЕНИЕ БЕЗОПАСНОСТИ: Добавлена базовая валидация данных и экранирование HTML.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_46_stabilized';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_47_hotfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -241,7 +241,6 @@
         { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
     ];
     
-    // ### FIXED ###
     // Полный набор методов жизненного цикла для совместимости с Lampa
     this.create = function() {
         this.initialize();
@@ -264,7 +263,6 @@
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    // ### FIXED ###: Заменено на актуальный API-вызов Lampa для проверки видимости
                     if (Lampa.Utils.isSelectVisible()) {
                         Lampa.Select.close();
                     } else if (typeof Lampa.Filter !== 'undefined' && Lampa.Filter.visible) {
@@ -288,16 +286,16 @@
         LOG('TorBox component resumed');
     };
     
-    // ### FIXED ###: Добавлен недостающий метод, вызывающий ошибку при закрытии
     this.stop = function () {
         LOG('TorBox component stopped');
     };
 
     this.destroy = function() {
         LOG('Destroying TorBox component');
-        // ### FIXED ###: Устранение утечки памяти. Удаляем контроллер.
+        // ### FIXED ###: Заменен неверный вызов Lampa.Controller.remove() на корректный способ очистки,
+        // который передает null в качестве обработчика, удаляя старую ссылку и предотвращая утечку.
         if (controller_registered) {
-            Lampa.Controller.remove('content');
+            Lampa.Controller.add('content', null);
             controller_registered = false;
         }
         ageCache.clear();
@@ -368,7 +366,6 @@
         if (current_filters.tracker !== 'all') filtered = filtered.filter(t => t.tracker === current_filters.tracker);
         const sort_method = sort_types.find(s => s.key === current_sort);
         if (sort_method) {
-            // ### FIXED ###: Кэширование для ускорения парсинга
             const parseAge = (ageString) => {
                 if (!ageString) return Infinity;
                 if (ageCache.has(ageString)) return ageCache.get(ageString);
@@ -508,7 +505,6 @@
           showStatusModal('Отслеживание статуса...', onCancel);
 
           const poll = async () => {
-              // ### FIXED ###: Устранение гонки условий
               if (!isTrackingActive) {
                   clearTimeout(pollTimeout);
                   return;
@@ -518,7 +514,7 @@
                   const torrentResult = await API.myList(torrentId);
                   const torrentData = torrentResult?.data?.[0];
 
-                  if (!isTrackingActive) return; // Еще одна проверка после асинхронного вызова
+                  if (!isTrackingActive) return;
 
                   if (!torrentData) {
                       isTrackingActive = false;
@@ -584,7 +580,6 @@
   }
 
   async function handleTorrent(torrent, movie, component) {
-    // ### FIXED ###: Валидация входных данных
     if (!torrent?.magnet || typeof torrent.magnet !== 'string' || !torrent.magnet.startsWith('magnet:?')) {
         Lampa.Noty.show('Некорректная magnet-ссылка', {type: 'error'});
         return;
@@ -651,7 +646,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.46 (Refactored & Stabilized) ready');
+        LOG('TorBox v11.0.47 (API Hotfix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
