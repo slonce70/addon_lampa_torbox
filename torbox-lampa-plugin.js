@@ -1,20 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v12.0.0 (Major Refactoring)
+ * TorBox Enhanced – Universal Lampa Plugin v12.0.1 (Navigation Hotfix)
  * =================================================================================
- * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Внедрено изолированное состояние компонента для предотвращения конфликтов. Глобальные переменные заменены на объект this.state.
- * • СТАБИЛИЗАЦИЯ НАВИГАЦИИ: Улучшена логика регистрации и очистки контроллера. Предотвращена повторная регистрация, что решает конфликты с основной навигацией Lampa.
- * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Добавлен централизованный обработчик ошибок (ErrorHandler), который разделяет ошибки по типам (сеть, API, авторизация) и выводит понятные уведомления.
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ:
- * - Запросы к DOM в модальном окне статуса теперь кэшируются.
- * - Ограничен размер кэша для функции сортировки по дате (ageCache) для предотвращения утечек памяти.
- * • ОЧИСТКА РЕСУРСОВ: Внедрена очистка обработчиков событий jQuery через неймспейсы для предотвращения утечек памяти при уничтожении компонента.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Заменен некорректный вызов Lampa.Utils.isSelectVisible() на правильный метод Lampa.Select.exist(). Это устраняет критическую ошибку, возникавшую при навигации и нажатии кнопки "Назад".
+ * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента для предотвращения конфликтов.
+ * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Сохранен централизованный обработчик ошибок (ErrorHandler).
+ * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ: Сохранены все предыдущие улучшения производительности и безопасности.
+ * • ОЧИСТКА РЕСУРСОВ: Сохранена очистка обработчиков событий jQuery через неймспейсы.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v12_0_0_refactored';
+  const PLUGIN_ID = 'torbox_enhanced_v12_0_1_hotfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -156,9 +154,7 @@
         return json;
     } catch (e) {
         LOG('Invalid JSON or API error:', responseText, e);
-        // Если это уже наша кастомная ошибка, пробрасываем ее дальше
         if (e.type) throw e;
-        // Иначе, это ошибка парсинга JSON
         throw { type: 'api', message: 'Получен некорректный ответ от сервера.' };
     }
   }
@@ -185,7 +181,6 @@
                 return processResponse(responseText, r.status);
             })
             .catch(err => {
-                // Пробрасываем типизированную ошибку
                 if (err.type) throw err;
                 throw { type: 'network', message: `Ошибка при обращении к прокси: ${err.message}` };
             });
@@ -246,7 +241,6 @@
 
   /* ───── TorBox Component ───── */
   function TorBoxComponent(object) {
-    // ### REFACTORED ###: Изолированное состояние компонента
     this.state = {
         scroll: null,
         files: null,
@@ -277,7 +271,6 @@
 
     this.start = function () {
         this.activity.loader(false);
-        // ### REFACTORED ###: Предотвращаем повторную регистрацию контроллера
         if (!this.state.controller_registered) {
             Lampa.Controller.add('content', {
                 toggle: () => { 
@@ -292,7 +285,8 @@
                     else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    if (Lampa.Utils.isSelectVisible()) {
+                    // ### HOTFIX ###: Заменен Lampa.Utils.isSelectVisible() на Lampa.Select.exist()
+                    if (Lampa.Select.exist()) {
                         Lampa.Select.close();
                     } else if (typeof Lampa.Filter !== 'undefined' && Lampa.Filter.visible) {
                         Lampa.Filter.hide();
@@ -317,7 +311,6 @@
             Lampa.Controller.add('content', null);
             this.state.controller_registered = false;
         }
-        // ### REFACTORED ###: Очистка обработчиков событий jQuery
         $(document).off('.torbox');
         
         this.state.ageCache.clear();
@@ -325,7 +318,6 @@
         this.state.files.destroy();
         this.state.filter.destroy();
         
-        // Обнуляем все состояние
         for (let key in this.state) {
             this.state[key] = null;
         }
@@ -410,7 +402,6 @@
                 if (!ageString) return Infinity;
                 if (ageCache.has(ageString)) return ageCache.get(ageString);
                 
-                // ### REFACTORED ###: Ограничиваем размер кэша
                 if (ageCache.size > 500) {
                     const firstKey = ageCache.keys().next().value;
                     ageCache.delete(firstKey);
@@ -475,7 +466,6 @@
             const title = escapeHtml(t.raw_title || t.title);
 
             const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${t.tracker||'н/д'} | Добавлено: ${t.age||'н/д'}</span></div></div>`);
-            // ### REFACTORED ###: Используем неймспейс для событий
             item.on('hover:focus.torbox', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
             item.on('hover:enter.torbox', () => handleTorrent(t, this.movie, this));
             this.state.scroll.append(item);
@@ -493,11 +483,10 @@
     };
   }
   
-  // ### REFACTORED ###: Кэшируем элементы модального окна для производительности
   let modalCache = {};
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
-      modalCache = {}; // Очищаем кэш при открытии нового модала
+      modalCache = {}; 
       
       const modalHtml = $(`
         <div class="torbox-status">
@@ -526,7 +515,6 @@
       if (!modalCache.body) modalCache.body = $('.modal__content .torbox-status');
       if (!modalCache.body.length) return;
       
-      // Кэшируем элементы при первом доступе
       if (!modalCache.status) modalCache.status = modalCache.body.find('[data-name="status"]');
       if (!modalCache.progressText) modalCache.progressText = modalCache.body.find('[data-name="progress-text"]');
       if (!modalCache.speed) modalCache.speed = modalCache.body.find('[data-name="speed"]');
@@ -652,7 +640,7 @@
         modalCache = {};
         showFileSelection(finalTorrentData, movie, component);
     } catch (e) {
-        if (e.type !== "user") { // Не показываем ошибку, если пользователь сам отменил
+        if (e.type !== "user") { 
             ErrorHandler.show(e.type, e);
         }
         Lampa.Modal.close();
