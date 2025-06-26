@@ -436,7 +436,6 @@
                     Store.set('torbox_filters', JSON.stringify(this.state.filters)); this.display();
                 }
             }
-            Lampa.Controller.toggle('content');
         };
     };
 
@@ -506,6 +505,7 @@
         const movie = this.movie;
         if (!movie || (!movie.title && !movie.imdb_id)) {
             this.empty('Название фильма или IMDb ID не найдены');
+            this.activity.loader(false);
             return;
         }
 
@@ -515,6 +515,7 @@
            
             if (!Array.isArray(rawTorrents) || rawTorrents.length === 0) {
                 this.empty('Парсер не вернул результатов.');
+                this.activity.loader(false);
                 return;
             }
 
@@ -548,6 +549,7 @@
             
             if (hashesForCheck.length === 0) {
                 this.empty('Не найдено ни одного валидного торрента для проверки.');
+                this.activity.loader(false);
                 return;
             }
             
@@ -580,7 +582,7 @@
                     publish_date: raw.PublishDate
                 };
             });
-
+            
             this.state.all_torrents = finalTorrents;
             this.display();
 
@@ -589,12 +591,14 @@
             this.empty('Публичные парсеры недоступны. Используется прямой поиск TorBox...');
             if (!movie.imdb_id) {
                 this.empty('Для прямого поиска нужен IMDb ID, который не найден.');
+                this.activity.loader(false);
                 return;
             }
             try {
                 const torrents = await API.searchTorBoxDirectly(movie.imdb_id);
                 if (!torrents.length) {
                     this.empty('В TorBox ничего не найдено по этому фильму.');
+                    this.activity.loader(false);
                     return;
                 }
                 this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.name, last_known_seeders: t.seeders, last_known_peers: t.leechers, publish_date: t.created_at, magnet: t.magnet, cached: t.cached }));
@@ -642,8 +646,6 @@
         this.state.scroll.append($(`<div class="empty"><div class="empty__text">${escapeHtml(msg||'Торренты не найдены')}</div></div>`)); 
         this.activity.loader(false);
     };
-
-    this.render = function() { return this.state.files.render(); };
   }
  
   let modalCache = {};
