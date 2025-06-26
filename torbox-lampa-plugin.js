@@ -1,7 +1,7 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.33 (Final Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.34 (Final Fix 2)
  * ============================================================
- * • ЭТАП 2 (ИСПРАВЛЕНИЕ): Заменен нестабильный Lampa.Reguest.native() на надежный Lampa.Network().silent() для мобильных платформ.
+ * • ИСПРАВЛЕНИЕ 2: Исправлена ошибка 'Lampa.Network is not a constructor'. Возвращено использование new Lampa.Reguest(), но с вызовом надежного метода .silent()
  * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов
  * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data`
  * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization`
@@ -11,7 +11,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_33_fixed';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_34_fixed';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -137,11 +137,11 @@
                     return processResponse(responseText, r.status);
                 });
         } 
-        // ИСПРАВЛЕНО: Для мобильных платформ используем Lampa.Network().silent()
+        // ИСПРАВЛЕНО: Для мобильных платформ используем Lampa.Reguest().silent()
         else {
             LOG('Calling via Lampa network stack:', url);
             return new Promise((resolve, reject) => {
-                const network = new Lampa.Network(); // Используем новый, надежный класс
+                const network = new Lampa.Reguest(); // Используем правильный конструктор
                 const requestOptions = {
                     headers: options.headers || {},
                     method: options.method || 'GET',
@@ -604,7 +604,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.33 (fixed) ready');
+        LOG('TorBox v11.0.34 (fixed) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
