@@ -1,17 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.44 (Final Polished Version)
- * ============================================================
- * • ВИПРАВЛЕННЯ НАВІГАЦІЇ: Повністю перероблено логіку кнопки "Назад", що виключає випадкове закриття плагіна та помилку "script error".
- * • РЕФАКТОРИНГ КОДУ: Видалено зайву функцію directAction, всі запити до API спрощені та уніфіковані.
- * • ПІДВИЩЕННЯ СТАБІЛЬНОСТІ: Додано додаткові перевірки для надійної обробки даних від сервера.
- * • ОСНОВНА АРХІТЕКТУРА: Збережено найнадійніший метод авторизації через проксі-сервер.
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.45 (Patched Version)
+ * ===================================================================
+ * • ИСПРАВЛЕНИЕ СОВМЕСТИМОСТИ: Добавлены обязательные методы жизненного цикла (pause, resume), которые требует ядро Lampa. Это устраняет ошибку "component.pause is not a function" и предотвращает сбои при навигации и выходе из плагина.
+ * • СТАБИЛИЗАЦИЯ НАВИГАЦИИ: Теперь компонент корректно взаимодействует с менеджером активностей Lampa, что делает работу кнопки "Назад" и переключение между экранами предсказуемой.
+ * • СОХРАНЕНИЕ АРХИТЕКТУРЫ: Все ваши улучшения, включая рефакторинг, универсальный прокси и логику обработки, полностью сохранены.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_44_final';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_45_patched';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -34,12 +33,12 @@
   };
 
   const CFG = {
-    get debug()      { return Store.get('torbox_debug', '0') === '1'; },
-    set debug(v)     { Store.set('torbox_debug', v ? '1' : '0');      },
-    get proxyUrl()   { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
-    set proxyUrl(v)  { Store.set('torbox_proxy_url', v); },
-    get apiKey()     { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
-    set apiKey(v)    { Store.set('torbox_api_key', v); }
+    get debug()     { return Store.get('torbox_debug', '0') === '1'; },
+    set debug(v)    { Store.set('torbox_debug', v ? '1' : '0');     },
+    get proxyUrl()  { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
+    set proxyUrl(v) { Store.set('torbox_proxy_url', v); },
+    get apiKey()    { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
+    set apiKey(v)   { Store.set('torbox_api_key', v); }
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
@@ -102,7 +101,7 @@
     
     try {
         if (typeof responseText === 'string' && responseText.startsWith('http')) {
-             return { success: true, url: responseText };
+            return { success: true, url: responseText };
         }
         const json = (typeof responseText === 'object') ? responseText : JSON.parse(responseText);
         if (json.success === false) {
@@ -216,6 +215,19 @@
     var current_sort = Store.get('torbox_sort_method', 'seeders');
     var current_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
     this.activity = object.activity;
+    this.movie = object.movie;
+    var controller_registered = false;
+
+    // ### FIXED ###
+    // Добавлены обязательные методы жизненного цикла для совместимости с Lampa.
+    // Lampa вызывает pause() перед тем, как убрать компонент с экрана,
+    // и resume() - когда возвращает его. Их отсутствие вызывало ошибку.
+    this.pause = function () {
+        LOG('TorBox component paused');
+    };
+    this.resume = function () {
+        LOG('TorBox component resumed');
+    };
 
     var sort_types = [
         { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
@@ -223,9 +235,6 @@
         { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
         { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
     ];
-
-    this.movie = object.movie;
-    var controller_registered = false;
 
     this.start = function () {
         this.activity.loader(false);
@@ -243,6 +252,8 @@
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
+                    // Эта логика корректна и не является причиной ошибки.
+                    // Она правильно обрабатывает разные состояния UI (выбор, фильтр, основной экран).
                     if (Lampa.Select.visible()) {
                         Lampa.Select.close();
                     } else if (typeof Lampa.Filter !== 'undefined' && Lampa.Filter.visible) {
@@ -378,7 +389,6 @@
         this.activity.loader(false);
     };
     
-    // ### FIXED ###
     this.render = function() {
         return files.render();
     };
@@ -556,6 +566,7 @@
       if (!finalUrl || typeof finalUrl !== 'string') throw new Error('Не удалось получить ссылку.');
       Lampa.Modal.close();
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
+      // Используем bind для сохранения контекста this
       Lampa.Player.callback(component.start.bind(component));
     } catch (e) {
       LOG('Play Error:', e);
@@ -593,7 +604,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.44 (final polished) ready');
+        LOG('TorBox v11.0.45 (patched) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
