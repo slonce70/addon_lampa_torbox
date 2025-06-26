@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.31
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.32
  * ============================================================
- * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Исправлен метод отправки данных для добавления торрента. Теперь используется `multipart/form-data` вместо `application/json`, что соответствует требованиям API TorBox и устраняет ошибку 'MISSING_REQUIRED_OPTION'.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (СЕТЕВОЙ СЛОЙ): Для всех API-запросов восстановлено использование 'fetch' вместо 'Lampa.Reguest'. Это решает проблемы с ошибкой авторизации '401 Unauthorized' в браузерных и некоторых desktop-версиях Lampa.
- * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API (поиск, добавление, список) теперь используют единый заголовок `Authorization` для консистентности, как в стабильной версии v11.0.24. Это упрощает логику и повышает надежность.
+ * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов. Плагин теперь определяет платформу: для браузера используется `fetch` с CORS-прокси, а для мобильных APK и других нативных платформ — `Lampa.Reguest.native()`. Это решает проблему 'failed to fetch' на мобильных устройствах, сохраняя работоспособность в вебе.
+ * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data` для добавления торрента, что устраняет ошибку 'MISSING_REQUIRED_OPTION'.
+ * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization` для консистентности.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_31';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_32';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -74,28 +74,28 @@
   }
   
   /**
-   * Helper for processing fetch responses
-   * @param {Response} r - The fetch response object
-   * @returns {Promise<object>} - Parsed JSON object
+   * Universal response processor for both fetch and Lampa.Reguest
+   * @param {string} responseText - The raw response text
+   * @param {number} status - HTTP status code
+   * @returns {object} - Parsed JSON object
    */
-  async function processResponse(r) {
-    if (r.status === 401 || r.status === 403) {
-        throw new Error(`Ошибка авторизации (${r.status}). Проверьте ваш API-ключ.`);
+  function processResponse(responseText, status) {
+    if (status === 401 || status === 403) {
+        throw new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`);
     }
-    const responseText = await r.text();
     if (responseText.toUpperCase().includes("NO_AUTH")) {
         throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
     }
-    if (!r.ok) {
-        throw new Error(`Ошибка сети: HTTP ${r.status}`);
+    if (status < 200 || status >= 300) {
+        throw new Error(`Ошибка сети: HTTP ${status}`);
     }
     
     try {
         // For requestDl, the response can be a direct URL string
-        if (r.headers.get("content-type")?.includes("text/plain")) {
-            return { success: true, url: responseText };
+        if (typeof responseText === 'string' && responseText.startsWith('http')) {
+             return { success: true, url: responseText };
         }
-        const json = JSON.parse(responseText);
+        const json = (typeof responseText === 'object') ? responseText : JSON.parse(responseText);
         if (json.success === false) {
             const errorMsg = (json.detail && typeof json.detail === 'string') 
                 ? json.detail 
@@ -112,16 +112,54 @@
   }
 
 
-  /* ───── TorBox API wrapper (async/await with fetch) ───── */
+  /* ───── TorBox API wrapper (Universal: fetch for web, Lampa.Reguest for native) ───── */
   const API = {
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
-
-    async proxiedCall(targetUrl, options = {}) {
-        const proxy = CFG.proxyUrl;
-        const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-        LOG('Calling via proxy:', proxiedUrl, 'Target:', targetUrl);
-        return fetch(proxiedUrl, options).then(processResponse);
+    
+    /**
+     * Universal request function that uses fetch for browsers and Lampa.Reguest for native platforms.
+     * @param {string} url - The target URL
+     * @param {object} options - Fetch-like options object
+     * @returns {Promise<object>}
+     */
+    request: function(url, options = {}) {
+        // Use fetch with CORS proxy for web browsers
+        if (Lampa.Platform.is('browser')) {
+            const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
+            LOG('Calling via proxy (fetch):', proxyUrl, 'Target:', url);
+            return fetch(proxyUrl, options)
+                .then(async (r) => {
+                    const responseText = await r.text();
+                    return processResponse(responseText, r.status);
+                });
+        } 
+        // Use Lampa.Reguest.native for all other platforms (Android, Tizen, etc.)
+        else {
+            LOG('Calling via Lampa.Reguest.native():', url);
+            return new Promise((resolve, reject) => {
+                const network = new Lampa.Reguest();
+                const body = options.body || false;
+                const headers = options.headers || {};
+                
+                network.native(
+                    url,
+                    (responseText, xhr) => { // onSuccess
+                        try {
+                            resolve(processResponse(responseText, xhr.status));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    (xhr, textStatus, errorThrown) => { // onError
+                        const errorMsg = `Ошибка сети: ${xhr ? xhr.status : textStatus || errorThrown}`;
+                        reject(new Error(errorMsg));
+                    },
+                    body,
+                    headers
+                );
+            });
+        }
     },
 
     async directAction(path, body = {}, method = 'GET') {
@@ -136,12 +174,8 @@
         };
 
         if (method.toUpperCase() !== 'GET') {
-            // Check if body is FormData. If so, let the browser handle the Content-Type.
-            // Otherwise, stringify as JSON.
             if (body instanceof FormData) {
                 options.body = body;
-                // IMPORTANT: Do not set 'Content-Type' header for FormData.
-                // The browser will automatically set it to 'multipart/form-data' with the correct boundary.
             } else {
                 options.headers['Content-Type'] = 'application/json';
                 options.body = JSON.stringify(body);
@@ -150,7 +184,7 @@
             url += '?' + new URLSearchParams(body).toString();
         }
         
-        return this.proxiedCall(url, options);
+        return this.request(url, options);
     },
 
     async search(imdbId) {
@@ -169,15 +203,14 @@
                 'Accept': 'application/json' 
             } 
         };
-        const json = await this.proxiedCall(url, options);
+        const json = await this.request(url, options);
         return json.data?.torrents || [];
     },
 
     async addMagnet(magnet) {
-        // The API for createtorrent expects multipart/form-data, not application/json.
         const formData = new FormData();
         formData.append('magnet', magnet);
-        formData.append('seed', '3'); // Value '3' means do not seed, according to docs.
+        formData.append('seed', '3');
         return this.directAction('/torrents/createtorrent', formData, 'POST');
     },
 
@@ -187,7 +220,6 @@
 
     async myList(torrentId) {
         const json = await this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }, 'GET');
-        // Ensure data is always an array for consistency
         if (json && json.data && !Array.isArray(json.data)) {
             json.data = [json.data];
         }
@@ -195,16 +227,10 @@
     },
 
     async requestDl(torrentId, fid) {
-        const body = { torrent_id: torrentId, file_id: fid };
-        // This endpoint requires the token as a parameter in addition to the auth header for some reason.
-        // So we are not using directAction here to have full control.
         const key = CFG.apiKey;
-        const params = new URLSearchParams({...body, token: key}).toString();
-        const url = `${this.MAIN_API}/torrents/requestdl?${params}`;
-
-        return this.proxiedCall(url, {
-             headers: { 'Authorization': `Bearer ${key}` }
-        });
+        const body = { torrent_id: torrentId, file_id: fid, token: key };
+        const url = `${this.MAIN_API}/torrents/requestdl?${new URLSearchParams(body).toString()}`;
+        return this.request(url, { headers: { 'Authorization': `Bearer ${key}` } });
     }
   };
 
@@ -521,7 +547,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.31 ready');
+        LOG('TorBox v11.0.32 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
