@@ -1,15 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.36 (Proxy Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.37 (URL Token Fix)
  * ============================================================
- * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Все запросы (мобильные и браузерные) теперь идут через CORS-прокси. Это обходит ошибки сетевого слоя Lampa.
- * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Единый метод запросов через fetch() для всех платформ.
+ * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Для обхода всех сетевых ошибок Lampa, API-ключ теперь передается как параметр `token` в URL для всех мобильных запросов.
+ * • ВОССТАНОВЛЕНИЕ ТРАНСПОРТА: Возвращен метод Lampa.Reguest().native() как единственный, способный отправлять запросы с мобильных устройств.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_36_proxyfix';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_37_urltokenfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -126,54 +126,75 @@
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     
-    /**
-     * Universal request function. ALL requests now go through the CORS proxy
-     * to bypass Lampa's faulty network layer on mobile devices.
-     * @param {string} url - The target URL
-     * @param {object} options - Fetch-like options object
-     * @returns {Promise<object>}
-     */
     request: function(url, options = {}) {
-        // Убрана проверка Lampa.Platform.is('browser').
-        // Все запросы теперь используют единый, надежный механизм через прокси.
-        if (!CFG.proxyUrl) {
-            return Promise.reject(new Error("URL прокси-сервера не указан в настройках."));
-        }
-        const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
-        LOG(`Calling via universal proxy (fetch) for ALL platforms. Target:`, url);
+        const key = CFG.apiKey;
+        // Для браузера используем прокси и стандартный заголовок
+        if (Lampa.Platform.is('browser')) {
+            const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
+            LOG('Calling via proxy (fetch) for BROWSER. Target:', url);
+            
+            options.headers = options.headers || {};
+            options.headers['Authorization'] = `Bearer ${key}`;
 
-        return fetch(proxyUrl, options)
-            .then(async (r) => {
-                if (!r.ok) {
-                    // Прокси мог вернуть свою ошибку
-                    const errorText = await r.text();
-                    LOG(`Proxy error: Status ${r.status}`, errorText);
-                    throw new Error(`Ошибка прокси-сервера: ${r.status} ${r.statusText}`);
-                }
-                const responseText = await r.text();
-                return processResponse(responseText, r.status);
-            })
-            .catch(err => {
-                LOG('Fetch error:', err.message);
-                // Перехватываем ошибки сети, которые могут возникнуть при вызове fetch
-                throw new Error(`Сетевая ошибка при обращении к прокси: ${err.message}`);
+            return fetch(proxyUrl, options)
+                .then(async (r) => {
+                    if (!r.ok) {
+                        const errorText = await r.text();
+                        LOG(`Proxy error: Status ${r.status}`, errorText);
+                        throw new Error(`Ошибка прокси-сервера: ${r.status} ${r.statusText}`);
+                    }
+                    const responseText = await r.text();
+                    return processResponse(responseText, r.status);
+                })
+                .catch(err => {
+                    LOG('Fetch error:', err.message);
+                    throw new Error(`Сетевая ошибка при обращении к прокси: ${err.message}`);
+                });
+        } 
+        // Для мобильных платформ используем Lampa.Reguest.native() и добавляем токен в URL
+        else {
+            const fullUrl = `${url}${url.includes('?') ? '&' : '?'}token=${key}`;
+            LOG('Calling via Lampa.Reguest.native() for MOBILE. URL with token:', fullUrl);
+
+            return new Promise((resolve, reject) => {
+                const network = new Lampa.Reguest();
+                // Заголовки больше не нужны для авторизации на мобильных
+                const headers = options.headers || {};
+                delete headers['Authorization']; // Удаляем заголовок, чтобы он не мешал
+                
+                network.native(
+                    fullUrl,
+                    (responseText, xhr) => { // onSuccess
+                        try {
+                            resolve(processResponse(responseText, xhr.status));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    (xhr, textStatus, errorThrown) => { // onError
+                        const status = xhr ? xhr.status : 0;
+                        LOG('LAMPA MOBILE ERROR:', `Status: ${status}`, `Response: ${xhr ? xhr.responseText : 'N/A'}`);
+                        const errorMsg = `Ошибка сети: ${status > 0 ? 'HTTP ' + status : (textStatus || errorThrown || 'Запрос заблокирован')}`;
+                        reject(new Error(errorMsg));
+                    },
+                    options.body || false,
+                    headers
+                );
             });
+        }
     },
 
     async directAction(path, body = {}, method = 'GET') {
-        const key = CFG.apiKey;
         let url = `${this.MAIN_API}${path}`;
         const options = {
             method,
             headers: { 
-                'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json' 
             }
         };
 
         if (method.toUpperCase() !== 'GET') {
             if (body instanceof FormData) {
-                // Fetch API может работать с FormData напрямую, Content-Type установится автоматически
                 options.body = body;
             } else {
                 options.headers['Content-Type'] = 'application/json';
@@ -187,7 +208,6 @@
     },
 
     async search(imdbId) {
-        const key = CFG.apiKey;
         let formattedImdbId = imdbId;
         if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
         if (!/^tt\d+$/.test(imdbId)) {
@@ -199,7 +219,6 @@
         const options = { 
             method: 'GET',
             headers: { 
-                'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json' 
             } 
         };
@@ -211,6 +230,7 @@
         const formData = new FormData();
         formData.append('magnet', magnet);
         formData.append('seed', '3');
+        // Для POST-запросов с FormData, токен также будет добавлен в URL в функции request
         return this.directAction('/torrents/createtorrent', formData, 'POST');
     },
 
@@ -227,10 +247,10 @@
     },
 
     async requestDl(torrentId, fid) {
-        const key = CFG.apiKey;
-        const body = { torrent_id: torrentId, file_id: fid, token: key };
+        // Эта функция уже использует токен в URL, так что она продолжит работать как надо
+        const body = { torrent_id: torrentId, file_id: fid };
         const url = `${this.MAIN_API}/torrents/requestdl?${new URLSearchParams(body).toString()}`;
-        return this.request(url, { headers: { 'Authorization': `Bearer ${key}` }, method: 'GET' });
+        return this.request(url, { method: 'GET' });
     }
   };
 
@@ -584,7 +604,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.36 (proxy fix) ready');
+        LOG('TorBox v11.0.37 (URL token fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
