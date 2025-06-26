@@ -1,19 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.39 (Proxy Auth Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.40 (Data Handling Fix)
  * ============================================================
+ * • ВИПРАВЛЕННЯ ПОМИЛКИ: Усунуто помилку 'all_torrents.map is not a function'.
+ * Функція API.search тепер коректно витягує масив торентів з відповіді API.
+ * • ПІДВИЩЕНА СТІЙКІСТЬ: Додано перевірку, щоб гарантувати, що дані,
+ * які обробляються, завжди є масивом.
  * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Вся авторизация теперь проходит через CORS-прокси.
- * Плагин отправляет API-ключ в заголовке 'X-Api-Key', а прокси-сервер
- * преобразует его в стандартный 'Authorization: Bearer' заголовок.
- * Это решает проблемы с CORS и ошибками сети на всех платформах.
- * • УПРОЩЕНИЕ КОДА: Убрана сложная логика определения платформы,
- * все запросы теперь идут по единому, надежному пути.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_39_proxyauth';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_40_datafix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -127,10 +126,6 @@
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     
-    /**
-     * Universal request function. ALL requests now go through the CORS proxy.
-     * The API key is sent in a custom 'X-Api-Key' header.
-     */
     request: function(url, options = {}) {
         if (!CFG.proxyUrl) {
             return Promise.reject(new Error("URL прокси-сервера не указан в настройках."));
@@ -139,9 +134,7 @@
         LOG('Calling via universal proxy (fetch) for ALL platforms. Target:', url);
 
         options.headers = options.headers || {};
-        // Add the custom header for the proxy to use
         options.headers['X-Api-Key'] = CFG.apiKey;
-        // Ensure no old Authorization header is present
         delete options.headers['Authorization'];
 
         return fetch(proxyUrl, options)
@@ -160,9 +153,6 @@
             });
     },
 
-    /**
-     * This function now only prepares the request. The 'request' function handles the auth.
-     */
     async directAction(path, body = {}, method = 'GET') {
         let url = `${this.MAIN_API}${path}`;
         const options = {
@@ -187,6 +177,7 @@
         return this.request(url, options);
     },
 
+    // ### FIXED ###
     async search(imdbId) {
         let formattedImdbId = imdbId;
         if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
@@ -196,8 +187,10 @@
         }
         const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         
-        // No auth headers needed here, `directAction`'s call to `request` handles it.
-        return this.request(url, { method: 'GET' });
+        // Await the response and correctly extract the torrents array
+        const json = await this.request(url, { method: 'GET' });
+        // Return the torrents array, or an empty array if it's not found
+        return json?.data?.torrents || [];
     },
 
     async addMagnet(magnet) {
@@ -213,6 +206,7 @@
 
     async myList(torrentId) {
         const json = await this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }, 'GET');
+        // This check is good, it ensures data is an array
         if (json && json.data && !Array.isArray(json.data)) {
             json.data = [json.data];
         }
@@ -329,12 +323,22 @@
         return filtered;
     };
 
+    // ### FIXED ###
     this.loadAndDisplayTorrents = async function() {
         this.activity.loader(true);
         scroll.clear();
         try {
             if (!this.movie?.imdb_id) throw new Error('IMDb ID не найден');
-            all_torrents = await API.search(this.movie.imdb_id);
+            const torrents = await API.search(this.movie.imdb_id);
+            
+            // Safeguard to ensure we always have an array.
+            if (!Array.isArray(torrents)) {
+                LOG('API.search did not return an array. Response:', torrents);
+                all_torrents = [];
+            } else {
+                all_torrents = torrents;
+            }
+
             this.display();
         } catch (error) {
             this.empty(error.message || 'Произошла ошибка');
@@ -578,7 +582,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.39 (proxy auth fix) ready');
+        LOG('TorBox v11.0.40 (data fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
