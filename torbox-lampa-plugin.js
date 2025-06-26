@@ -1,17 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v14.0.0 (Navigation & Features Update)
+ * TorBox Enhanced – Universal Lampa Plugin v15.0.0 (UX & Core Improvements)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Устранена проблема с "залипанием" навигации после закрытия плеера.
- * • НОВАЯ ФУНКЦИЯ (ПОИСКОВИКИ): В меню фильтров добавлен переключатель для использования собственных поисковых систем, настроенных в TorBox.
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ (КЭШ): Сохранен сессионный кэш для мгновенной загрузки результатов.
- * • УЛУЧШЕНИЕ СТАБИЛЬНОСТИ И БЕЗОПАСНОСТИ: Сохранены все предыдущие улучшения.
+ * • НОВАЯ ФУНКЦИЯ (ПОМЕТКА ТОРРЕНТА): Теперь в общем списке помечается последний запущенный торрент для данного фильма/сериала.
+ * • ИСПРАВЛЕНИЕ ОШИБОК: Устранены ошибки в логике сохранения и отображения последнего просмотренного файла, улучшено определение сезонов и обработка пустых ответов от API.
+ * • ОПТИМИЗАЦИЯ ПАМЯТИ: Исправлена потенциальная утечка памяти в кэше.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Сохранено исправление навигации после закрытия плеера.
+ * • НОВАЯ ФУНКЦИЯ (ПОИСКОВИКИ): Сохранен переключатель для использования собственных поисковых систем.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v14_0_0_nav_features_update';
+  const PLUGIN_ID = 'torbox_enhanced_v15_0_0_ux_core_update';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -141,7 +142,7 @@
     if (status < 200 || status >= 300) throw { type: 'network', message: `Неизвестная сетевая ошибка: HTTP ${status}` };
 
     if (!responseText || (typeof responseText === 'string' && responseText.trim() === '')) {
-        throw { type: 'api', message: 'Получен пустой ответ от сервера.' };
+        throw { type: 'api', message: `Получен пустой ответ от сервера (HTTP ${status}).` };
     }
 
     try {
@@ -351,7 +352,10 @@
         }
         $(document).off('.torbox');
         
-        if (this.state.ageCache) this.state.ageCache.clear();
+        if (this.state.ageCache) {
+            this.state.ageCache.clear();
+            this.state.ageCache = null;
+        }
         if (this.state.scroll) this.state.scroll.destroy();
         if (this.state.files) this.state.files.destroy();
         if (this.state.filter) this.state.filter.destroy();
@@ -500,10 +504,13 @@
             const imdb_id = this.movie?.imdb_id;
             if (!imdb_id) throw { type: 'validation', message: 'IMDb ID не найден' };
 
-            if (!force_update && SearchCache.has(imdb_id)) {
-                const cached = SearchCache.get(imdb_id);
+            const useUserEngines = Store.get('torbox_use_user_engines', 'false') === 'true';
+            const cacheKey = `${imdb_id}_${useUserEngines}`;
+
+            if (!force_update && SearchCache.has(cacheKey)) {
+                const cached = SearchCache.get(cacheKey);
                 if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
-                    LOG(`Using cached results for ${imdb_id}`);
+                    LOG(`Using cached results for ${cacheKey}`);
                     this.state.all_torrents = cached.data;
                     this.display();
                     this.activity.loader(false);
@@ -511,10 +518,10 @@
                 }
             }
             
-            LOG(`Fetching fresh results for ${imdb_id}`);
+            LOG(`Fetching fresh results for ${cacheKey}`);
             const torrents = await API.search(imdb_id);
             
-            SearchCache.set(imdb_id, {
+            SearchCache.set(cacheKey, {
                 timestamp: Date.now(),
                 data: torrents
             });
@@ -541,12 +548,18 @@
             this.empty('Ничего не найдено по заданным фильтрам');
             return;
         }
-        torrents_list.forEach(t => {
-            const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}|Сезон \d+|Серии \d+-\d+)/i.test(t.raw_title || t.title);
-            const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
-            const title = escapeHtml(t.raw_title || t.title);
+        const lastPlayedKey = `torbox_last_torrent_${this.movie.imdb_id}`;
+        const lastTorrentId = Store.get(lastPlayedKey, null);
 
-            const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span></div></div>`);
+        torrents_list.forEach(t => {
+            const isSeasonPack = /(S\d{1,2}E\d{1,2}|S\d{1,2}(?!E)|Season\s+\d+|Сезон\s+\d+|Серии\s+\d+-\d+|Complete\s+Season)/i.test(t.raw_title || t.title);
+            const sizeString = isSeasonPack ? `~ ${formatBytes(t.size)} / серия` : formatBytes(t.size);
+            
+            const isLastPlayed = lastTorrentId && (String(t.id) === lastTorrentId || t.hash === lastTorrentId);
+            const title = escapeHtml(t.raw_title || t.title);
+            const playedIcon = isLastPlayed ? '🎬 ' : '';
+
+            const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${playedIcon}${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title||t.title)}] ${sizeString} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span></div></div>`);
             item.on('hover:focus.torbox', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
             item.on('hover:enter.torbox', () => handleTorrent(t, this.movie, this));
             this.state.scroll.append(item);
@@ -706,7 +719,7 @@
 
       const fileItems = files.map(f => {
         let title = escapeHtml(f.name);
-        if (lastPlayedFileId && String(f.id) === lastPlayedFileId) {
+        if (lastPlayedFileId && String(f.id) === String(lastPlayedFileId)) {
             title = `▶️ ${title} (прошлый просмотр)`;
         }
         return { 
@@ -731,6 +744,9 @@
         if (!torrentIdForTracking) throw {type: 'api', message: 'Не удалось получить ID торрента после добавления.'};
         
         const finalTorrentData = await trackTorrentStatus(torrentIdForTracking);
+
+        Store.set(`torbox_last_torrent_${movie.imdb_id}`, String(finalTorrentData.id || torrentIdForTracking));
+
         Lampa.Modal.close();
         modalCache = {};
         showFileSelection(finalTorrentData, movie, component);
@@ -750,7 +766,8 @@
       const finalUrl = dlResponse?.data || dlResponse?.url;
       
       try {
-          Store.set(`torbox_last_played_${movie.imdb_id}`, file.id);
+          Store.set(`torbox_last_played_${movie.imdb_id}`, String(file.id));
+          LOG(`Saved last played file: ${file.id} for movie: ${movie.imdb_id}`);
       } catch (e) {
           LOG('Не удалось сохранить последний просмотренный файл:', e);
       }
@@ -796,7 +813,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v14.0.0 (Navigation & Features Update) ready');
+        LOG('TorBox v15.0.0 (UX & Core Improvements) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
