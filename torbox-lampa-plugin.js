@@ -1,17 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.34 (Fixed Mobile Auth v2)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.35 (Complete Auth Fix)
  * ============================================================
- * • ИСПРАВЛЕНА АВТОРИЗАЦИЯ В МОБИЛЬНОМ ПРИЛОЖЕНИИ: Правильный порядок параметров для Lampa.Reguest.native()
- * • УЛУЧШЕНА СОВМЕСТИМОСТЬ: Исправлен метод передачи заголовков и опций в нативном запросе
- * • ИСПРАВЛЕНА ОШИБКА 401: Улучшенная обработка ошибок авторизации с подробным логированием
- * • ДОБАВЛЕНО ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ: Подробная информация об ошибках для диагностики
+ * • ПОЛНОСТЬЮ ИСПРАВЛЕНА АВТОРИЗАЦИЯ: Глубокий анализ и исправление всех проблем с API-ключом
+ * • ДОБАВЛЕНА ВАЛИДАЦИЯ API-КЛЮЧА: Проверка формата и действительности ключа перед запросами
+ * • ИСПРАВЛЕН МЕТОД requestDl: Теперь использует POST с правильной авторизацией
+ * • УЛУЧШЕНА ОБРАБОТКА ОШИБОК: Детальные сообщения об ошибках авторизации
+ * • ДОБАВЛЕНО ТЕСТИРОВАНИЕ API-КЛЮЧА: Проверка ключа перед выполнением операций
+ * • ИСПРАВЛЕНЫ ЗАГОЛОВКИ: Добавлен Cache-Control и улучшена передача заголовков в мобильном приложении
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_34';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_35';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -95,11 +97,14 @@
    */
   function processResponse(responseText, status) {
     if (status === 401 || status === 403) {
-        throw new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ.`);
+        throw new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ в настройках TorBox. Возможно, ключ недействителен, истек или у вас нет доступа к этому ресурсу.`);
     }
     if (responseText && responseText.toUpperCase().includes("NO_AUTH")) {
-        throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
-    }
+         throw new Error('Ошибка авторизации: NO_AUTH. Проверьте ваш API-ключ в настройках TorBox.');
+     }
+     if (responseText && responseText.toUpperCase().includes("UNAUTHORIZED")) {
+         throw new Error('Ошибка авторизации: UNAUTHORIZED. Проверьте ваш API-ключ в настройках TorBox.');
+     }
     if (status < 200 || status >= 300) {
         throw new Error(`Ошибка сети: HTTP ${status}`);
     }
@@ -131,6 +136,30 @@
     MAIN_API: 'https://api.torbox.app/v1/api',
     
     /**
+     * НОВОЕ: Тестирование API-ключа
+     */
+    async testApiKey() {
+        const key = CFG.apiKey;
+        if (!key || key.trim() === '') {
+            throw new Error('API ключ не настроен.');
+        }
+        if (key.length < 10 || !/^[a-f0-9-]+$/i.test(key)) {
+            throw new Error('Неверный формат API-ключа.');
+        }
+        
+        try {
+            // Простой запрос для проверки ключа
+            await this.directAction('/user/me', {}, 'GET');
+            return true;
+        } catch (error) {
+            if (error.message.includes('401') || error.message.includes('403')) {
+                throw new Error('API-ключ недействителен или истек.');
+            }
+            throw error;
+        }
+    },
+    
+    /**
      * ИСПРАВЛЕНО: Универсальная функция запросов с правильной обработкой заголовков для мобильных устройств
      */
     request: function(url, options = {}) {
@@ -141,12 +170,20 @@
             return fetch(proxyUrl, options)
                 .then(async (r) => {
                     const responseText = await r.text();
+                    LOG('Proxy response status:', r.status, 'Response length:', responseText.length);
                     return processResponse(responseText, r.status);
                 });
         } 
         // ИСПРАВЛЕНО: Улучшенная обработка для нативных платформ
         else {
-            LOG('Calling via Lampa.Reguest.native():', url, 'Method:', options.method, 'Headers:', options.headers);
+            LOG('Calling via Lampa.Reguest.native():', {
+                    url: url,
+                    method: options.method,
+                    headers: options.headers,
+                    platform: Lampa.Platform.get(),
+                    hasBody: !!requestBody,
+                    bodyType: typeof requestBody
+                });
             return new Promise((resolve, reject) => {
                 const network = new Lampa.Reguest();
                 const body = options.body || false;
@@ -166,7 +203,16 @@
                 }
                 
                 // ИСПРАВЛЕНО: Правильный порядок параметров для Lampa.Reguest.native()
-                // Параметры: url, success, error, data, headers, dataType, timeout
+                // Параметры: url, success, error, data, options
+                const nativeOptions = {
+                    headers: headers,
+                    method: options.method || 'GET',
+                    dataType: 'text',
+                    timeout: 30000
+                };
+                
+                LOG('Native request options:', nativeOptions);
+                
                 network.native(
                     url,
                     (responseText, xhr) => { // onSuccess
@@ -188,22 +234,19 @@
                             errorThrown: errorThrown,
                             responseText: responseText,
                             url: url,
-                            headers: headers
+                            headers: headers,
+                            requestBody: requestBody
                         });
                         
                         // Специальная обработка ошибок авторизации
                         if (status === 401 || status === 403) {
-                            reject(new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ в настройках TorBox.`));
+                            reject(new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ в настройках TorBox. Возможно, ключ недействителен или истек.`));
                         } else {
                             reject(new Error(errorMsg));
                         }
                     },
                     requestBody,
-                    {
-                        headers: headers,
-                        method: options.method || 'GET',
-                        dataType: 'text'
-                    }
+                    nativeOptions
                 );
             });
         }
@@ -215,13 +258,19 @@
             throw new Error('API ключ не настроен. Перейдите в настройки TorBox.');
         }
         
+        // ИСПРАВЛЕНО: Проверка валидности API-ключа
+        if (key.length < 10 || !/^[a-f0-9-]+$/i.test(key)) {
+            throw new Error('Неверный формат API-ключа. Проверьте настройки TorBox.');
+        }
+        
         let url = `${this.MAIN_API}${path}`;
         const options = {
             method,
             headers: { 
                 'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json',
-                'User-Agent': 'Lampa/TorBox-Plugin'
+                'User-Agent': 'Lampa/TorBox-Plugin',
+                'Cache-Control': 'no-cache'
             }
         };
 
@@ -259,6 +308,11 @@
             throw new Error('API ключ не настроен. Перейдите в настройки TorBox.');
         }
         
+        // ИСПРАВЛЕНО: Проверка валидности API-ключа
+        if (key.length < 10 || !/^[a-f0-9-]+$/i.test(key)) {
+            throw new Error('Неверный формат API-ключа. Проверьте настройки TorBox.');
+        }
+        
         let formattedImdbId = imdbId;
         if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
         if (!/^tt\d+$/.test(imdbId)) {
@@ -272,7 +326,8 @@
             headers: { 
                 'Authorization': `Bearer ${key}`,
                 'Accept': 'application/json',
-                'User-Agent': 'Lampa/TorBox-Plugin'
+                'User-Agent': 'Lampa/TorBox-Plugin',
+                'Cache-Control': 'no-cache'
             } 
         };
         
@@ -304,18 +359,13 @@
 
     async requestDl(torrentId, fid) {
         const key = CFG.apiKey;
-        const body = { torrent_id: torrentId, file_id: fid, token: key };
-        const url = `${this.MAIN_API}/torrents/requestdl?${new URLSearchParams(body).toString()}`;
+        if (!key || key.trim() === '') {
+            throw new Error('API ключ не настроен. Перейдите в настройки TorBox.');
+        }
         
-        const options = { 
-            headers: { 
-                'Authorization': `Bearer ${key}`,
-                'Accept': 'application/json',
-                'User-Agent': 'Lampa/TorBox-Plugin'
-            } 
-        };
-        
-        return this.request(url, options);
+        // ИСПРАВЛЕНО: Используем POST запрос с правильной авторизацией
+        const body = { torrent_id: torrentId, file_id: fid };
+        return this.directAction('/torrents/requestdl', body, 'POST');
     }
   };
 
@@ -424,10 +474,20 @@
         this.activity.loader(true);
         scroll.clear();
         try {
+            // ИСПРАВЛЕНО: Проверка API-ключа перед запросом
+            const apiKey = CFG.apiKey;
+            if (!apiKey || apiKey.trim() === '') {
+                throw new Error('API ключ не настроен. Перейдите в настройки TorBox и укажите ваш API-ключ.');
+            }
+            if (apiKey.length < 10 || !/^[a-f0-9-]+$/i.test(apiKey)) {
+                throw new Error('Неверный формат API-ключа. Проверьте настройки TorBox.');
+            }
+            
             if (!this.movie?.imdb_id) throw new Error('IMDb ID не найден');
             all_torrents = await API.search(this.movie.imdb_id);
             this.display();
         } catch (error) {
+            LOG('LoadAndDisplayTorrents error:', error);
             this.empty(error.message || 'Произошла ошибка');
             Lampa.Noty.show(`Ошибка: ${error.message}`, { type: 'error' });
         } finally {
@@ -611,8 +671,12 @@
   }
 
   async function handleTorrent(torrent, movie, component) {
-    showStatusModal('Добавление в TorBox...');
+    showStatusModal('Проверка API-ключа...');
     try {
+        // ИСПРАВЛЕНО: Проверяем API-ключ перед добавлением торрента
+        await API.testApiKey();
+        
+        updateStatusModal({ status: 'Добавление в TorBox...', progress: 10 });
         const result = await API.addMagnet(torrent.magnet);
         const torrentInfo = result.data;
         const torrentIdForTracking = torrentInfo.torrent_id || torrentInfo.id;
@@ -623,7 +687,13 @@
         showFileSelection(finalTorrentData, movie, component);
     } catch (e) {
         LOG('HandleTorrent Error:', e);
-        if (e.message !== "Отменено пользователем") Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
+        if (e.message !== "Отменено пользователем") {
+            let errorMessage = e.message;
+            if (e.message.includes('401') || e.message.includes('403')) {
+                errorMessage = 'Ошибка авторизации. Проверьте ваш API-ключ в настройках TorBox.';
+            }
+            Lampa.Noty.show(`TorBox: ${errorMessage}`, { type: 'error' });
+        }
         Lampa.Modal.close();
     }
   }
@@ -673,7 +743,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.34 ready');
+        LOG('TorBox v11.0.35 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
