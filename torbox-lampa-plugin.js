@@ -1,16 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.33 (Fixed Mobile Auth)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.34 (Fixed Mobile Auth v2)
  * ============================================================
- * • ИСПРАВЛЕНА АВТОРИЗАЦИЯ В МОБИЛЬНОМ ПРИЛОЖЕНИИ: Добавлены правильные заголовки для Lampa.Reguest
- * • УЛУЧШЕНА СОВМЕСТИМОСТЬ: Исправлен метод передачи заголовков в нативном запросе
- * • ИСПРАВЛЕНА ОШИБКА 401: Правильная обработка FormData в нативных запросах
+ * • ИСПРАВЛЕНА АВТОРИЗАЦИЯ В МОБИЛЬНОМ ПРИЛОЖЕНИИ: Правильный порядок параметров для Lampa.Reguest.native()
+ * • УЛУЧШЕНА СОВМЕСТИМОСТЬ: Исправлен метод передачи заголовков и опций в нативном запросе
+ * • ИСПРАВЛЕНА ОШИБКА 401: Улучшенная обработка ошибок авторизации с подробным логированием
+ * • ДОБАВЛЕНО ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ: Подробная информация об ошибках для диагностики
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_33';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_34';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -145,17 +146,11 @@
         } 
         // ИСПРАВЛЕНО: Улучшенная обработка для нативных платформ
         else {
-            LOG('Calling via Lampa.Reguest.native():', url, 'Headers:', options.headers);
+            LOG('Calling via Lampa.Reguest.native():', url, 'Method:', options.method, 'Headers:', options.headers);
             return new Promise((resolve, reject) => {
                 const network = new Lampa.Reguest();
                 const body = options.body || false;
-                const headers = options.headers || {};
-                
-                // ИСПРАВЛЕНО: Правильная передача заголовков в нативном запросе
-                const nativeOptions = {
-                    headers: headers,
-                    method: options.method || 'GET'
-                };
+                const headers = { ...options.headers } || {};
                 
                 // ИСПРАВЛЕНО: Обработка FormData для нативных запросов
                 let requestBody = body;
@@ -167,9 +162,11 @@
                     }
                     requestBody = JSON.stringify(formObj);
                     // Обновляем заголовки для JSON
-                    nativeOptions.headers['Content-Type'] = 'application/json';
+                    headers['Content-Type'] = 'application/json';
                 }
                 
+                // ИСПРАВЛЕНО: Правильный порядок параметров для Lampa.Reguest.native()
+                // Параметры: url, success, error, data, headers, dataType, timeout
                 network.native(
                     url,
                     (responseText, xhr) => { // onSuccess
@@ -183,12 +180,30 @@
                     },
                     (xhr, textStatus, errorThrown) => { // onError
                         const status = xhr ? xhr.status : 0;
+                        const responseText = xhr ? xhr.responseText : '';
                         const errorMsg = `Ошибка сети: ${status} ${textStatus || errorThrown || 'Unknown error'}`;
-                        LOG('Native request error:', status, textStatus, errorThrown);
-                        reject(new Error(errorMsg));
+                        LOG('Native request error:', {
+                            status: status,
+                            textStatus: textStatus,
+                            errorThrown: errorThrown,
+                            responseText: responseText,
+                            url: url,
+                            headers: headers
+                        });
+                        
+                        // Специальная обработка ошибок авторизации
+                        if (status === 401 || status === 403) {
+                            reject(new Error(`Ошибка авторизации (${status}). Проверьте ваш API-ключ в настройках TorBox.`));
+                        } else {
+                            reject(new Error(errorMsg));
+                        }
                     },
                     requestBody,
-                    nativeOptions.headers
+                    {
+                        headers: headers,
+                        method: options.method || 'GET',
+                        dataType: 'text'
+                    }
                 );
             });
         }
@@ -658,7 +673,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.32 ready');
+        LOG('TorBox v11.0.34 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
