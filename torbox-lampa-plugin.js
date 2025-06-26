@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v19.4.0 (Full Parser & Display Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v19.5.0 (Logic & Data Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ API: Логика запросов к публичным парсерам полностью переписана для соответствия реальному Jackett API (правильный URL, параметры и обработка ответа).
- * • ПРАВИЛЬНОЕ ОТОБРАЖЕНИЕ: Теперь в списке отображаются ВСЕ найденные торренты.
- * • МАРКИРОВКА КЭША: Каждый торрент помечается иконкой: ⚡ для кэшированных в TorBox и ☁️ для некэшированных, как вы и просили.
- * • НАДЕЖНОСТЬ: Сохранен резервный механизм прямого поиска в TorBox, если парсеры не отвечают.
+ * • ИСПРАВЛЕНА ЛОГИКА ПОИСКА: Устранена ошибка, из-за которой процесс мог прерваться после получения списка с парсера. Добавлена более надежная обработка данных.
+ * • ИСПРАВЛЕН ЗАПРОС ГОДА: Параметр 'year' больше не отправляется со значением 'undefined', что улучшает релевантность поиска.
+ * • УЛУЧШЕНА СОРТИРОВКА ПО ДАТЕ: Сортировка теперь использует точное значение 'PublishDate' от парсера вместо анализа текста.
+ * • СКОРРЕКТИРОВАНО ОТОБРАЖЕНИЕ ДАТЫ: В списке торрентов теперь правильно отображается время, прошедшее с момента публикации.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v19_4_0_full_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v19_5_0_logic_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -49,7 +49,7 @@
 
   const CFG = {
     get debug()     { return Store.get('torbox_debug', '0') === '1'; },
-    set debug(v)    { Store.set('torbox_debug', v ? '1' : '0');     },
+    set debug(v)    { Store.set('torbox_debug', v ? '1' : '0');      },
     get proxyUrl()  { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
     set proxyUrl(v) { Store.set('torbox_proxy_url', v); },
     get apiKey()    { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
@@ -57,7 +57,7 @@
   };
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-  
+ 
   const escapeHtml = (text) => {
       if (typeof text !== 'string') return '';
       const div = document.createElement('div');
@@ -90,7 +90,7 @@
     const i = Math.floor(Math.log(B) / Math.log(k));
     return parseFloat((B / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
-  
+ 
   const formatTime = (seconds) => {
       try {
         const numSeconds = parseInt(seconds, 10);
@@ -103,6 +103,26 @@
       } catch (e) {
         LOG('Error formatting time:', e);
         return 'н/д';
+      }
+  };
+    
+  const formatAge = (isoDate) => {
+      if (!isoDate) return 'н/д';
+      try {
+          const date = new Date(isoDate);
+          const now = new Date();
+          const diffSeconds = Math.round((now.getTime() - date.getTime()) / 1000);
+
+          if (diffSeconds < 60) return `${diffSeconds} сек. назад`;
+          const diffMinutes = Math.round(diffSeconds / 60);
+          if (diffMinutes < 60) return `${diffMinutes} мин. назад`;
+          const diffHours = Math.round(diffMinutes / 60);
+          if (diffHours < 24) return `${diffHours} ч. назад`;
+          const diffDays = Math.round(diffHours / 24);
+          return `${diffDays} д. назад`;
+      } catch (e) {
+          LOG('Error formatting age:', e);
+          return 'н/д';
       }
   };
 
@@ -132,7 +152,7 @@
 .modal .torbox-status__progress-bar{background:linear-gradient(90deg, #4CAF50, #66BB6A) !important;}
 </style>`);
   }
-  
+ 
   function processResponse(responseText, status) {
     if (status === 401) throw { type: 'auth', message: `Ошибка авторизации (401). Проверьте API-ключ.` };
     if (status >= 500) throw { type: 'network', message: `Внутренняя ошибка сервера (${status}).` };
@@ -160,7 +180,7 @@
   const API = {
     SEARCH_API: 'https://search-api.torbox.app', // Fallback API
     MAIN_API: 'https://api.torbox.app/v1/api',
-    
+   
     request: async function(url, options = {}) {
         if (!CFG.proxyUrl) {
             throw { type: 'validation', message: "URL прокси-сервера не указан в настройках."};
@@ -174,7 +194,7 @@
         } else {
             delete options.headers['X-Api-Key'];
         }
-        
+       
         try {
             const response = await fetch(proxyUrl, options);
             const responseText = await response.text();
@@ -189,21 +209,23 @@
         let lastError = null;
         for (const parser of PUBLIC_PARSERS) {
             try {
-                // FIXED: Using the correct Jackett API endpoint and rich parameters.
+                // FIXED: 'year' parameter is now added conditionally.
                 const params = new URLSearchParams({
                     apikey: parser.key,
                     Query: `${movie.title} ${movie.year || ''}`.trim(),
                     title: movie.title,
                     title_original: movie.original_title,
-                    year: movie.year,
-                    Category: '2000,5000' // Movie and TV categories
+                    Category: '2000,5000'
                 });
-                
+
+                if (movie.year) {
+                    params.append('year', movie.year);
+                }
+               
                 const url = `https://${parser.url}/api/v2.0/indexers/all/results?${params.toString()}`;
                 LOG(`Trying parser: ${parser.name} with URL: ${url}`);
                 const result = await this.request(url, { method: 'GET', is_torbox_api: false });
 
-                // FIXED: The API returns an object with a "Results" array.
                 if (result && Array.isArray(result.Results)) {
                     LOG(`Success from ${parser.name}. Found ${result.Results.length} torrents.`);
                     return result.Results;
@@ -262,7 +284,7 @@
         const body = { torrent_id: torrentId, operation: 'pause' };
         return this.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), is_torbox_api: true });
     },
-    
+   
     myList: async function(torrentId) {
         const url = `${this.MAIN_API}/torrents/mylist?${new URLSearchParams({id: torrentId, bypass_cache: true}).toString()}`;
         const json = await this.request(url, { method: 'GET', is_torbox_api: true });
@@ -291,17 +313,18 @@
         sort: Store.get('torbox_sort_method', 'seeders'),
         filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
     };
-    
+   
     this.activity = object.activity;
     this.movie = object.movie;
-    
+   
+    // FIXED: Sorting now uses 'publish_date' for reliability.
     const sort_types = [
         { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
         { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
         { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
-        { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
+        { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
     ];
-    
+   
     this.create = function() { this.initialize(); return this.render(); };
 
     this.start = function () {
@@ -349,7 +372,7 @@
         this.loadAndDisplayTorrents();
         this.state.initialized = true;
     };
-    
+   
     this.initializeFilterHandlers = function() {
         this.state.filter.onSelect = (type, a, b) => {
             Lampa.Select.close();
@@ -374,14 +397,14 @@
         filter.set('sort', sort_items);
         filter.render().find('.filter--sort span').text('Сортировка');
         filter.chosen('sort', [ (sort_types.find(s => s.key === sort) || {title:''}).title ]);
-        
+       
         if (!Array.isArray(all_torrents)) this.state.all_torrents = [];
 
         const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
         const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
         const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
         const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
-        
+       
         const filter_items = [
             {title:'Качество', subtitle:filters.quality==='all'?'Все':filters.quality, items:quality_items, stype:'quality'},
             {title:'Трекер', subtitle:filters.tracker==='all'?'Все':filters.tracker, items:tracker_items, stype:'tracker'},
@@ -391,7 +414,7 @@
 
         filter.set('filter', filter_items);
         filter.render().find('.filter--filter span').text('Фильтр');
-        
+       
         const filter_titles = [];
         if(filters.quality !== 'all') filter_titles.push(`Качество: ${filters.quality}`);
         if(filters.tracker !== 'all') filter_titles.push(`Трекер: ${filters.tracker}`);
@@ -401,11 +424,11 @@
     this.applyFiltersAndSort = function() {
         const { all_torrents, filters, sort } = this.state;
         if (!Array.isArray(all_torrents)) return [];
-        
+       
         let filtered = all_torrents.slice();
         if (filters.quality !== 'all') filtered = filtered.filter(t => ql(t.raw_title) === filters.quality);
         if (filters.tracker !== 'all') filtered = filtered.filter(t => t.tracker === filters.tracker);
-        
+       
         const sort_method = sort_types.find(s => s.key === sort);
         if (sort_method) {
             filtered.sort((a, b) => {
@@ -413,18 +436,10 @@
                 let valA = a[field] || 0;
                 let valB = b[field] || 0;
 
-                if (field === 'age' && typeof valA === 'string' && typeof valB === 'string') {
-                    const parseAge = (ageString) => {
-                        if (!ageString) return Infinity;
-                        const value = parseInt(ageString, 10) || 0;
-                        if (ageString.includes("s")) return value;
-                        if (ageString.includes("m")) return value * 60;
-                        if (ageString.includes("h")) return value * 3600;
-                        if (ageString.includes("d")) return value * 86400;
-                        return Infinity;
-                    };
-                    valA = parseAge(valA);
-                    valB = parseAge(valB);
+                // FIXED: Handle date sorting properly.
+                if (field === 'publish_date') {
+                    valA = valA ? new Date(valA).getTime() : 0;
+                    valB = valB ? new Date(valB).getTime() : 0;
                 }
 
                 if (valA < valB) return -1;
@@ -439,7 +454,7 @@
     this.loadAndDisplayTorrents = async function() {
         this.activity.loader(true);
         this.state.scroll.clear();
-        
+       
         const movie = this.movie;
         if (!movie || (!movie.title && !movie.imdb_id)) {
             this.empty('Название фильма или IMDb ID не найдены');
@@ -448,20 +463,19 @@
         }
 
         try {
-            // **PRIMARY METHOD: PARSER + CACHE CHECK**
             this.empty('Получение списка с публичных парсеров...');
             const rawTorrents = await API.searchPublicTrackers(movie);
-            
+           
             this.empty(`Найдено ${rawTorrents.length} торрентов. Проверка кэша в TorBox...`);
             const hashes = rawTorrents.map(t => t.InfoHash).filter(Boolean);
             const cachedData = await API.checkCached(hashes);
             const cachedHashes = new Set(cachedData.map(c => c.hash.toLowerCase()));
 
-            // NEW LOGIC: Show ALL torrents, but mark them as cached or not.
+            // FIXED: More robust data mapping from parser response.
             const finalTorrents = rawTorrents.map(raw => {
                 const hash = raw.InfoHash ? raw.InfoHash.toLowerCase() : '';
                 const isCached = cachedHashes.has(hash);
-                
+               
                 return {
                     raw_title: raw.Title,
                     size: raw.Size,
@@ -470,7 +484,8 @@
                     last_known_seeders: raw.Seeders,
                     last_known_peers: raw.Peers,
                     tracker: raw.Tracker,
-                    cached: isCached
+                    cached: isCached,
+                    publish_date: raw.PublishDate // Added for sorting
                 };
             });
 
@@ -478,7 +493,6 @@
             this.display();
 
         } catch (error) {
-            // **FALLBACK METHOD: DIRECT TORBOX SEARCH**
             LOG(`Parser flow failed: ${error.message}. Switching to fallback.`);
             this.empty('Публичные парсеры недоступны. Используется прямой поиск TorBox...');
             if (!movie.imdb_id) {
@@ -492,7 +506,8 @@
                     this.empty('В TorBox ничего не найдено по этому фильму.');
                     return;
                 }
-                this.state.all_torrents = torrents;
+                // Fallback data needs to be compatible with the new structure
+                this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.name, last_known_seeders: t.seeders, last_known_peers: t.leechers, publish_date: null }));
                 this.display();
             } catch (fallbackError) {
                 this.empty(fallbackError.message || 'Ошибка при прямом поиске в TorBox.');
@@ -522,16 +537,17 @@
             const title = escapeHtml(t.raw_title || t.name);
             const isLastPlayed = lastTorrentHash && t.hash && (t.hash.toLowerCase() === lastTorrentHash.toLowerCase());
             const playedIcon = isLastPlayed ? '🎬 ' : '';
-            // FIXED: Show correct icon for cached and non-cached torrents.
             const cacheIcon = t.cached ? '⚡' : '☁️';
-            
-            const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${cacheIcon} ${playedIcon}${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span></div></div>`);
+            // FIXED: Display formatted age from 'publish_date'.
+            const ageText = formatAge(t.publish_date);
+           
+            const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${cacheIcon} ${playedIcon}${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(ageText)}</span></div></div>`);
             item.on('hover:focus.torbox', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
             item.on('hover:enter.torbox', () => handleTorrent(t, this.movie, this));
             this.state.scroll.append(item);
         });
     };
-    
+   
     this.empty = function(msg) { 
         this.state.scroll.clear(); 
         this.state.scroll.append($(`<div class="empty"><div class="empty__text">${escapeHtml(msg||'Торренты не найдены')}</div></div>`)); 
@@ -540,7 +556,7 @@
 
     this.render = function() { return this.state.files.render(); };
   }
-  
+ 
   let modalCache = {};
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
@@ -548,7 +564,7 @@
       const modalHtml = $(`<div class="torbox-status"><div class="torbox-status__title">${escapeHtml(title)}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-container"><div class="torbox-status__progress-bar" style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div><div class="torbox-status__info" data-name="peers"></div></div>`);
       Lampa.Modal.open({ title: 'TorBox', html: modalHtml, size: 'medium', onBack: onBack || (() => { Lampa.Modal.close(); modalCache = {}; }) });
   }
-  
+ 
   function updateStatusModal(data) {
       if (!modalCache.body) modalCache.body = $('.modal__content .torbox-status');
       if (!modalCache.body.length) return;
@@ -607,7 +623,7 @@
           poll();
       });
   }
-  
+ 
   function showFileSelection(torrentData, movie, component) {
       if (!torrentData?.files?.length) {
           throw {type: 'validation', message: 'Видеофайлы не найдены в торренте.'};
@@ -616,7 +632,7 @@
       if (!files.length) throw {type: 'validation', message: 'Воспроизводимые видеофайлы не найдены.'};
 
       if (files.length === 1) return play(torrentData.id, files[0], movie, component);
-      
+     
       files.sort((a,b) => b.size - a.size);
       const lastPlayedFileId = Store.get(`torbox_last_played_${movie.imdb_id}`, null);
       const fileItems = files.map(f => {
@@ -639,7 +655,7 @@
         const torrentInfo = result.data;
         const torrentId = torrentInfo.torrent_id || torrentInfo.id;
         if (!torrentId) throw {type: 'api', message: 'Не удалось получить ID торрента.'};
-        
+       
         const finalTorrentData = await trackTorrentStatus(torrentId);
         Store.set(`torbox_last_torrent_hash_${movie.id}`, String(finalTorrentData.hash || torrent.hash));
         Lampa.Modal.close();
@@ -708,7 +724,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v19.4.0 (Full Parser & Display Fix) ready');
+        LOG('TorBox v19.5.0 (Logic & Data Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
