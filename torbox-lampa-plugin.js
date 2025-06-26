@@ -1,16 +1,15 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v19.8.0 (Parser Hash Extraction Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v20.0.0 (API Request Format Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ИЗВЛЕЧЕНИЯ ХЕША: Полностью исправлена логика, приводившая к фильтрации всех торрентов. Теперь хеш корректно извлекается из поля MagnetUri, как и требует API парсера.
- * • СТАБИЛЬНОСТЬ РАБОТЫ: Плагин теперь гарантированно передает список хешей на проверку в TorBox после успешного ответа от публичного парсера.
- * • СОВМЕСТИМОСТЬ: Улучшена обработка данных от fallback-источника для большей согласованности.
+ * • ФОРМАТ ЗАПРОСА API: Запрос на проверку кэша теперь отправляется в формате ?hash=H1&hash=H2... для лучшей совместимости, как вы и просили.
+ * • СТАБИЛЬНОСТЬ: Предыдущие исправления по обработке ответов от парсера и API кэша сохранены, обеспечивая стабильную работу плагина.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v19_8_0_hash_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v20_0_0_api_format_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -271,17 +270,22 @@
     },
 
     checkCached: async function(hashes) {
-        if (!Array.isArray(hashes) || hashes.length === 0) return [];
+        if (!Array.isArray(hashes) || hashes.length === 0) return {};
         const chunkSize = 100;
-        let allCachedData = [];
+        let allCachedData = {};
         for (let i = 0; i < hashes.length; i += chunkSize) {
             const chunk = hashes.slice(i, i + chunkSize);
-            const params = new URLSearchParams({ hash: chunk.join(','), format: 'object', list_files: 'false' });
+            // **FIXED**: Using requested API format ?hash=H1&hash=H2...
+            const params = new URLSearchParams();
+            chunk.forEach(hash => params.append('hash', hash));
+            params.append('format', 'object');
+            params.append('list_files', 'false');
+
             const url = `${this.MAIN_API}/torrents/checkcached?${params.toString()}`;
             try {
                 const json = await this.request(url, { method: 'GET', is_torbox_api: true });
-                if (json && json.success && Array.isArray(json.data)) {
-                    allCachedData = allCachedData.concat(json.data);
+                if (json && json.success && typeof json.data === 'object' && json.data !== null) {
+                    Object.assign(allCachedData, json.data);
                 }
             } catch (error) {
                 LOG(`Chunk failed on cache check:`, error.message);
@@ -499,7 +503,6 @@
 
             LOG(`Парсер вернул ${rawTorrents.length} торрентов. Обработка и извлечение хешей...`);
             
-            // **CRITICAL FIX**: Extract hash from MagnetUri, not InfoHash field.
             const torrentsWithHashes = [];
             rawTorrents.forEach((raw, index) => {
                 if (!raw || typeof raw !== 'object') {
@@ -539,8 +542,8 @@
                 LOG('Используются данные о кэше из локального кэша плагина.');
             } else {
                 this.empty(`Проверка кэша для ${hashesForCheck.length} торрентов в TorBox...`);
-                const cachedData = await API.checkCached(hashesForCheck);
-                const cachedHashesSet = new Set(cachedData.map(c => c.hash.toLowerCase()));
+                const cachedDataObject = await API.checkCached(hashesForCheck);
+                const cachedHashesSet = new Set(Object.keys(cachedDataObject).map(hash => hash.toLowerCase()));
                 LOG(`Получен статус кэша. ${cachedHashesSet.size} торрентов закэшировано.`);
                 Cache.set(cacheKey, cachedHashesSet);
                 cachedHashes = cachedHashesSet;
@@ -795,7 +798,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v19.8.0 (Parser Hash Extraction Fix) ready');
+        LOG('TorBox v20.0.0 (API Request Format Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
