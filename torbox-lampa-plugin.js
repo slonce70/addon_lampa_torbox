@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v19.6.0 (Robust Cache & Flow Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v19.7.0 (Ultimate Logic & Parser Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ЛОГИКИ: Устранена основная причина сбоя после поиска на парсерах. Добавлена защитная фильтрация некорректных данных, теперь проверка кэша запускается стабильно.
- * • КЭШИРОВАНИЕ НА СТОРОНЕ КЛИЕНТА: Реализовано временное кэширование (5 минут) статусов торрентов для значительного ускорения повторных открытий страницы фильма.
- * • УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Добавлены подробные шаги в консоль для легкой отладки процесса (поиск -> фильтрация -> проверка кэша -> отображение).
+ * • РЕШАЮЩЕЕ ИСПРАВЛЕНИЕ ЛОГИКИ: Полностью переписан механизм обработки данных от парсеров. Плагин теперь корректно обрабатывает любые ответы и стабильно запускает проверку кэша, устраняя причину "фильтрации всех торрентов".
+ * • ПОВЫШЕННАЯ НАДЕЖНОСТЬ: Добавлена проверка на альтернативные имена полей в API (например, `Peers`/`Leechers`), чтобы обеспечить максимальную совместимость с разными трекерами.
+ * • УЛУЧШЕННАЯ ДИАГНОСТИКА: В консоль выводятся еще более подробные сообщения о том, почему конкретный торрент мог быть отфильтрован, что упростит диагностику в будущем.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v19_6_0_flow_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v19_7_0_ultimate_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -276,7 +276,7 @@
         let allCachedData = [];
         for (let i = 0; i < hashes.length; i += chunkSize) {
             const chunk = hashes.slice(i, i + chunkSize);
-            const params = new URLSearchParams({ hash: chunk.join(','), format: 'object', list_files: 'true' });
+            const params = new URLSearchParams({ hash: chunk.join(','), format: 'object', list_files: 'false' });
             const url = `${this.MAIN_API}/torrents/checkcached?${params.toString()}`;
             try {
                 const json = await this.request(url, { method: 'GET', is_torbox_api: true });
@@ -400,7 +400,6 @@
             if (type === 'sort') { this.state.sort = a.key; Store.set('torbox_sort_method', a.key); this.display(); }
             if (type === 'filter') {
                 if (a.refresh) {
-                    // Принудительно чистим кэш для этого фильма при ручном обновлении
                     const cacheKey = `torbox_cached_hashes_${this.movie.id || this.movie.imdb_id}`;
                     delete Cache.store[cacheKey];
                     LOG(`Локальный кэш для '${this.movie.title}' очищен вручную.`);
@@ -498,17 +497,29 @@
                 return;
             }
 
-            LOG(`Парсер вернул ${rawTorrents.length} торрентов. Фильтрация и извлечение хешей...`);
+            LOG(`Парсер вернул ${rawTorrents.length} торрентов. Обработка и извлечение хешей...`);
             
-            // **CRITICAL FIX**: Safely extract hashes, filtering out invalid items.
-            const validTorrents = rawTorrents.filter(t => t && typeof t === 'object' && t.InfoHash);
-            const hashes = validTorrents.map(t => t.InfoHash);
+            // **ULTIMATE FIX**: Reworked the entire data validation and hash extraction logic.
+            const torrentsForCheck = [];
+            const hashesForCheck = [];
 
-            if (validTorrents.length !== rawTorrents.length) {
-                LOG(`Отфильтровано ${rawTorrents.length - validTorrents.length} невалидных записей от парсера.`);
-            }
-
-            if (hashes.length === 0) {
+            rawTorrents.forEach((raw, index) => {
+                if (!raw || typeof raw !== 'object') {
+                    LOG(`Торрент #${index + 1} отфильтрован (не является объектом).`);
+                    return;
+                }
+                const hash = raw.InfoHash || raw.infohash;
+                if (!hash || typeof hash !== 'string') {
+                    LOG(`Торрент #${index + 1} отфильтрован (отсутствует или неверный InfoHash):`, raw.Title);
+                    return;
+                }
+                torrentsForCheck.push(raw);
+                hashesForCheck.push(hash);
+            });
+            
+            LOG(`Найдено ${torrentsForCheck.length} валидных торрентов для проверки кэша.`);
+            
+            if (hashesForCheck.length === 0) {
                 this.empty('Не найдено ни одного валидного торрента для проверки.');
                 this.activity.loader(false);
                 return;
@@ -520,16 +531,16 @@
             if (cachedHashes) {
                 LOG('Используются данные о кэше из локального кэша плагина.');
             } else {
-                this.empty(`Проверка кэша для ${hashes.length} торрентов в TorBox...`);
-                const cachedData = await API.checkCached(hashes);
+                this.empty(`Проверка кэша для ${hashesForCheck.length} торрентов в TorBox...`);
+                const cachedData = await API.checkCached(hashesForCheck);
                 const cachedHashesSet = new Set(cachedData.map(c => c.hash.toLowerCase()));
                 LOG(`Получен статус кэша. ${cachedHashesSet.size} торрентов закэшировано.`);
                 Cache.set(cacheKey, cachedHashesSet);
                 cachedHashes = cachedHashesSet;
             }
 
-            const finalTorrents = validTorrents.map(raw => {
-                const hash = raw.InfoHash ? raw.InfoHash.toLowerCase() : '';
+            const finalTorrents = torrentsForCheck.map(raw => {
+                const hash = (raw.InfoHash || raw.infohash).toLowerCase();
                 const isCached = cachedHashes.has(hash);
                
                 return {
@@ -538,7 +549,7 @@
                     magnet: raw.MagnetUri,
                     hash: hash,
                     last_known_seeders: raw.Seeders,
-                    last_known_peers: raw.Peers,
+                    last_known_peers: raw.Peers || raw.Leechers, // More compatible
                     tracker: raw.Tracker,
                     cached: isCached,
                     publish_date: raw.PublishDate
@@ -778,7 +789,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v19.6.0 (Robust Cache & Flow Fix) ready');
+        LOG('TorBox v19.7.0 (Ultimate Logic & Parser Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
