@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v17.0.1 (Syntax Hotfix)
+ * TorBox Enhanced – Universal Lampa Plugin v18.0.0 (Robust Navigation Fix)
  * =================================================================================
- * • HOTFIX: Исправлена критическая синтаксическая ошибка, препятствовавшая загрузке плагина.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАВИГАЦИИ: Сохранен переработанный механизм возврата из плеера.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАВИГАЦИИ: Полностью переработан механизм возврата из плеера на основе анализа стабильных плагинов. Удален `Lampa.Player.callback` для решения проблемы с "залипанием" кнопок на всех платформах, включая мобильные устройства.
  * • НАДЕЖНОСТЬ НАСТРОЕК: Сохранено размещение опции "Свои поисковики" в основных настройках плагина.
+ * • НОВАЯ ФУНКЦИЯ (ПОМЕТКА ТОРРЕНТА): Сохранена функция пометки последнего запущенного торрента.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v17_0_1_syntax_hotfix';
+  const PLUGIN_ID = 'torbox_enhanced_v18_0_0_robust_nav_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -764,7 +764,7 @@
 
       const player_data = { url: finalUrl, title: file.name || movie.title, poster: movie.img };
       
-      Lampa.Player.callback(component.start.bind(component));
+      // Lampa.Player.callback(component.start.bind(component)); // REMOVED FOR STABILITY
       
       Lampa.Modal.close();
       modalCache = {};
