@@ -1,14 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.23
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.24
  * ============================================================
- * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Логика полностью переписана в точном соответствии с примером bwa.js. Вместо ручного управления фокусом или асинхронных вызовов, плагин теперь корректно перезагружает себя через Lampa.Activity.replace(object), передавая исходные данные. Это решает критическую ошибку предыдущих версий, где передавался пустой объект, что приводило к падению плагина. Этот метод гарантирует стабильную работу фильтров и сортировки.
+ * • ИСПРАВЛЕНИЕ API: Исправлен формат запроса на остановку торрента. Теперь данные отправляются в формате application/json, что соответствует требованиям API и решает проблему с ошибкой парсинга на сервере.
+ * • УДАЛЕНО УВЕДОМЛЕНИЕ: Убрано системное сообщение "Раздача успешно остановлена", так как оно не несет важной информации для пользователя.
+ * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Логика полностью переписана в точном соответствии с примером bwa.js. Вместо ручного управления фокусом или асинхронных вызовов, плагин теперь корректно перезагружает себя через Lampa.Activity.replace(object), передавая исходные данные.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_23';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_24';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -132,8 +134,9 @@
             headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
         };
         if (method !== 'GET') {
-            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            options.body = new URLSearchParams(body).toString();
+            // ИСПРАВЛЕНИЕ: API ожидает JSON тело для POST/PUT и т.д.
+            options.headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(body);
         } else if (Object.keys(body).length) {
             url += '?' + new URLSearchParams(body).toString();
         }
@@ -141,7 +144,7 @@
     },
 
     addMagnet(magnet) {
-        return this.directAction('/torrents/createtorrent', { magnet, seed_preference: 3 }, 'POST');
+        return this.directAction('/torrents/createtorrent', { magnet, seed: 3 }, 'POST');
     },
 
     stopTorrent(torrentId) {
@@ -176,7 +179,6 @@
     var last;
     var initialized = false;
     var all_torrents = [];
-    // При инициализации сразу читаем сохраненные значения
     var current_sort = Store.get('torbox_sort_method', 'seeders');
     var current_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
     this.activity = object.activity;
@@ -236,7 +238,6 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            // Шаг 1: Применить и сохранить изменения состояния.
             if (type === 'sort') {
                 Store.set('torbox_sort_method', a.key);
             }
@@ -249,14 +250,7 @@
                 }
                 Store.set('torbox_filters', JSON.stringify(new_filters));
             }
-
-            // Шаг 2: Закрываем окно выбора НЕМЕДЛЕННО, как в bwa.js для сортировки.
             Lampa.Select.close();
-            
-            // Шаг 3: Перезагружаем активность, передавая ей исходный `object`.
-            // Это ГЛАВНОЕ ИСПРАВЛЕНИЕ. Раньше передавался пустой объект `{}`,
-            // из-за чего компонент не мог найти `object.movie` и ломался.
-            // Lampa сама покажет индикатор загрузки при перезагрузке.
             Lampa.Activity.replace(object);
         };
     };
@@ -443,7 +437,7 @@
                       if (currentStatus.startsWith('uploading')) {
                           updateStatusModal({ status: 'Загрузка завершена. Остановка раздачи...', progress: 100, peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}` });
                           await API.stopTorrent(torrentData.id).catch(e => LOG('Не удалось остановить раздачу:', e.message));
-                          Lampa.Noty.show('Раздача успешно остановлена.', {type: 'success'});
+                          // Lampa.Noty.show('Раздача успешно остановлена.', {type: 'success'}); // УДАЛЕНО по запросу
                       }
                       
                       resolve(torrentData);
@@ -584,7 +578,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.23 ready');
+        LOG('TorBox v11.0.24 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
