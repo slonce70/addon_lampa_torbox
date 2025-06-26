@@ -1,15 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.37 (URL Token Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.38 (Community Fix)
  * ============================================================
- * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Для обхода всех сетевых ошибок Lampa, API-ключ теперь передается как параметр `token` в URL для всех мобильных запросов.
- * • ВОССТАНОВЛЕНИЕ ТРАНСПОРТА: Возвращен метод Lampa.Reguest().native() как единственный, способный отправлять запросы с мобильных устройств.
+ * • ГЛАВНОЕ ИСПРАВЛЕНИЕ: Внедрен гибридный метод авторизации, основанный на анализе сообщества.
+ * - Браузер: Используется заголовок 'Authorization' через CORS-прокси.
+ * - Мобильные устройства: API-ключ передается как параметр `token` в URL для обхода ошибок сетевого слоя Lampa.
+ * • УЛУЧШЕНО ЛОГИРОВАНИЕ: Добавлена подробная отладочная информация о платформе и типе запроса.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_37_urltokenfix';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_38_communityfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -128,6 +130,14 @@
     
     request: function(url, options = {}) {
         const key = CFG.apiKey;
+        
+        LOG('Platform detection:', {
+            isBrowser: Lampa.Platform.is('browser'),
+            platform: typeof Lampa.Platform.get === 'function' ? Lampa.Platform.get() : 'unknown',
+            url: url,
+            method: options.method || 'GET'
+        });
+
         // Для браузера используем прокси и стандартный заголовок
         if (Lampa.Platform.is('browser')) {
             const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
@@ -153,14 +163,23 @@
         } 
         // Для мобильных платформ используем Lampa.Reguest.native() и добавляем токен в URL
         else {
-            const fullUrl = `${url}${url.includes('?') ? '&' : '?'}token=${key}`;
+            const separator = url.includes('?') ? '&' : '?';
+            const fullUrl = `${url}${separator}token=${encodeURIComponent(key)}`;
             LOG('Calling via Lampa.Reguest.native() for MOBILE. URL with token:', fullUrl);
 
             return new Promise((resolve, reject) => {
                 const network = new Lampa.Reguest();
-                // Заголовки больше не нужны для авторизации на мобильных
-                const headers = options.headers || {};
-                delete headers['Authorization']; // Удаляем заголовок, чтобы он не мешал
+                
+                // Убираем все заголовки авторизации для мобильных устройств
+                const headers = { ...(options.headers || {}) };
+                delete headers['Authorization'];
+                delete headers['authorization'];
+                
+                // Добавляем базовые заголовки
+                headers['Accept'] = 'application/json';
+                if (options.method && options.method.toUpperCase() !== 'GET' && options.body && !(options.body instanceof FormData)) {
+                    headers['Content-Type'] = 'application/json';
+                }
                 
                 network.native(
                     fullUrl,
@@ -201,7 +220,8 @@
                 options.body = JSON.stringify(body);
             }
         } else if (Object.keys(body).length > 0) {
-            url += '?' + new URLSearchParams(body).toString();
+            const params = new URLSearchParams(body);
+            url += `?${params.toString()}`;
         }
         
         return this.request(url, options);
@@ -230,7 +250,6 @@
         const formData = new FormData();
         formData.append('magnet', magnet);
         formData.append('seed', '3');
-        // Для POST-запросов с FormData, токен также будет добавлен в URL в функции request
         return this.directAction('/torrents/createtorrent', formData, 'POST');
     },
 
@@ -247,9 +266,11 @@
     },
 
     async requestDl(torrentId, fid) {
-        // Эта функция уже использует токен в URL, так что она продолжит работать как надо
         const body = { torrent_id: torrentId, file_id: fid };
-        const url = `${this.MAIN_API}/torrents/requestdl?${new URLSearchParams(body).toString()}`;
+        const params = new URLSearchParams(body);
+        const url = `${this.MAIN_API}/torrents/requestdl?${params.toString()}`;
+        
+        // Используем GET-запрос, токен будет автоматически добавлен в функции request()
         return this.request(url, { method: 'GET' });
     }
   };
@@ -604,7 +625,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.37 (URL token fix) ready');
+        LOG('TorBox v11.0.38 (community fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
