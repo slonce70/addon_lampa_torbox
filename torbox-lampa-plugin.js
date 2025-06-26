@@ -1,17 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v21.2.0 (Scrolling & Render Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v21.3.0 (Final Render & Focus Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена проблема с прокруткой и "серой маской".
- * Отрисовка списка и активация навигации теперь синхронизированы, что решает
- * состояние гонки, из-за которого контроллер не видел новые элементы.
- * • СТАБИЛЬНОСТЬ: Все предыдущие исправления жизненного цикла сохранены.
+ * • ИСПРАВЛЕНИЕ RACE CONDITION: Метод display() теперь использует requestAnimationFrame
+ * для синхронизации с отрисовкой DOM, что гарантирует готовность элементов перед
+ * активацией контроллера и решает проблему "серой маски".
+ * • КОРРЕКТНАЯ АКТИВАЦИЯ: Убран преждевременный вызов Controller.toggle() из метода start().
+ * • СТАБИЛЬНОСТЬ ФОКУСА: Метод draw() теперь всегда устанавливает фокус на первый
+ * элемент списка, если не было другого выбора, предотвращая потерю навигации.
+ * • ИСПРАВЛЕНИЕ CSS: Добавлены стили для исправления конфликтов z-index и маски
+ * прокрутки, обеспечивая стабильное взаимодействие с интерфейсом.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v21_2_0_scroll_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v21_3_0_final_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -147,6 +151,17 @@
   if (!$('#torbox-component-styles').length) {
     $('head').append(`<style id="torbox-component-styles">.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}.torrent-list{padding:1em}.torbox-status{padding:1.5em 2em;text-align:center;min-height:200px;}.torbox-status__title{font-size:1.4em;margin-bottom:1em;font-weight:600;}.torbox-status__info{font-size:1.1em;margin-bottom:.8em;color:var(--color-text);}.torbox-status__progress-container{margin:1.5em 0;background:rgba(255,255,255,.1);border-radius:8px;overflow:hidden;height:12px;position:relative;}.torbox-status__progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--color-primary),var(--color-primary-light,#4CAF50));transition:width .5s ease-out;border-radius:8px;position:relative;}.torbox-status__progress-bar::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(45deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);animation:shimmer 2s infinite}@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}.modal .torbox-status__progress-container{background:rgba(255,255,255,.2)!important;}.modal .torbox-status__progress-bar{background:linear-gradient(90deg,#4CAF50,#66BB6A)!important;}</style>`);
   }
+  
+  // ИСПРАВЛЕНИЕ 4: Дополнительные CSS стили для исправления проблем с маской
+  if (!$('#torbox-component-styles-fix').length) {
+      const additionalCSS = `
+        .torrent-list { position: relative !important; z-index: 1; }
+        .torbox-item.focus { z-index: 2; position: relative; }
+        .scroll__mask { pointer-events: none !important; }
+        .scroll__body { overflow-y: auto !important; }
+      `;
+      $('head').append(`<style id="torbox-component-styles-fix">${additionalCSS}</style>`);
+  }
 
   function processResponse(responseText, status) {
     if (status === 401) throw { type: 'auth', message: `Ошибка авторизации (401). Проверьте API-ключ.` };
@@ -280,7 +295,7 @@
     }
   };
 
-  /* ───── TorBox Component (v21.2 - Scrolling & Render Fix) ───── */
+  /* ───── TorBox Component (v21.3 - Final Render & Focus Fix) ───── */
   function TorBoxComponent(object) {
     this.activity = object.activity;
     this.movie = object.movie;
@@ -313,6 +328,7 @@
         return this.render();
     };
 
+    // ИСПРАВЛЕНИЕ 2: Убираем немедленное переключение, дадим display() сделать это
     this.start = function() {
         LOG("Component start()");
         this.activity.loader(false);
@@ -335,12 +351,15 @@
                 else Lampa.Activity.backward();
             }
         });
-        Lampa.Controller.toggle('content');
-
+        
+        // НЕ переключаем контроллер здесь - пусть это сделает display()
         if (!this.state.initialized) {
             this.initializeFilterHandlers();
-            this.loadAndDisplayTorrents();
+            this.loadAndDisplayTorrents(); // Эта функция вызовет display() в конце
             this.state.initialized = true;
+        } else {
+            // Если уже инициализирован, переключаем контроллер
+            Lampa.Controller.toggle('content');
         }
     };
     
@@ -524,41 +543,60 @@
         }
     };
 
+    // ИСПРАВЛЕНИЕ 1: Используем requestAnimationFrame для гарантии завершения отрисовки
     this.display = function() {
         this.updateFilterUI();
         this.draw(this.applyFiltersAndSort());
         
-        /**
-         * << CRITICAL FIX: Задержка активации контроллера.
-         * Это дает DOM время на отрисовку списка, прежде чем Lampa
-         * попытается управлять навигацией. Решает проблему с "серой маской"
-         * и невозможностью прокрутки.
-         */
-        setTimeout(() => {
-            Lampa.Controller.toggle('content');
-        }, 0);
+        requestAnimationFrame(() => {
+            if (this.state.scroll.render().find('.selector').length > 0) {
+                Lampa.Controller.toggle('content');
+            } else {
+                setTimeout(() => {
+                    Lampa.Controller.toggle('content');
+                }, 50);
+            }
+        });
     };
 
+    // ИСПРАВЛЕНИЕ 3: Правильная работа с focus и добавление первого элемента как last
     this.draw = function(torrents_list) {
         this.state.last = null;
         this.state.scroll.clear();
+        
         if (!torrents_list?.length) {
             this.empty('Ничего не найдено по заданным фильтрам');
             return;
         }
+        
         const lastPlayedKey = `torbox_last_torrent_hash_${this.movie.id}`;
         const lastTorrentHash = Store.get(lastPlayedKey, null);
-        torrents_list.forEach(t => {
+        let firstItem = null;
+
+        torrents_list.forEach((t, index) => {
             const title = escapeHtml(t.raw_title || t.name);
             const isLastPlayed = lastTorrentHash && t.hash && (t.hash.toLowerCase() === lastTorrentHash.toLowerCase());
             const playedIcon = isLastPlayed ? '🎬 ' : '';
             const cacheIcon = t.cached ? '⚡' : '☁️';
             const ageText = formatAge(t.publish_date);
             const item = $(`<div class="torbox-item selector"><div class="torbox-item__title">${cacheIcon} ${playedIcon}${title}</div><div class="torbox-item__subtitle">[${ql(t.raw_title)}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span><br><span style="opacity:0.7;">Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(ageText)}</span></div></div>`);
-            item.on('hover:focus.torbox', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
+            
+            item.on('hover:focus.torbox', () => { 
+                this.state.last = item[0]; 
+                this.state.scroll.update(item, true); 
+            });
             item.on('hover:enter.torbox', () => handleTorrent(t, this.movie, this));
+            
             this.state.scroll.append(item);
+            
+            if (index === 0) {
+                firstItem = item[0];
+            }
         });
+        
+        if (!this.state.last && firstItem) {
+            this.state.last = firstItem;
+        }
     };
 
     this.empty = function(msg) {
@@ -736,7 +774,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v21.2.0 (Scrolling & Render Fix) ready');
+        LOG('TorBox v21.3.0 (Final Render & Focus Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
