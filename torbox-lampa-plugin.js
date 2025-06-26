@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v15.0.0 (UX & Core Improvements)
+ * TorBox Enhanced – Universal Lampa Plugin v16.0.0 (Settings & Navigation Fix)
  * =================================================================================
- * • НОВАЯ ФУНКЦИЯ (ПОМЕТКА ТОРРЕНТА): Теперь в общем списке помечается последний запущенный торрент для данного фильма/сериала.
- * • ИСПРАВЛЕНИЕ ОШИБОК: Устранены ошибки в логике сохранения и отображения последнего просмотренного файла, улучшено определение сезонов и обработка пустых ответов от API.
- * • ОПТИМИЗАЦИЯ ПАМЯТИ: Исправлена потенциальная утечка памяти в кэше.
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Сохранено исправление навигации после закрытия плеера.
- * • НОВАЯ ФУНКЦИЯ (ПОИСКОВИКИ): Сохранен переключатель для использования собственных поисковых систем.
+ * • ВАЖНОЕ ИЗМЕНЕНИЕ: Настройка "Свои поисковики" перенесена из фильтров в основные настройки плагина для предотвращения блокировки интерфейса.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Улучшена логика возврата из плеера для корректного восстановления управления и работы кнопок навигации.
+ * • НОВАЯ ФУНКЦИЯ (ПОМЕТКА ТОРРЕНТА): Сохранена функция пометки последнего запущенного торрента.
+ * • ОПТИМИЗАЦИЯ ПАМЯТИ: Сохранена исправленная логика очистки кэша.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v15_0_0_ux_core_update';
+  const PLUGIN_ID = 'torbox_enhanced_v16_0_0_settings_nav_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -311,7 +310,6 @@
     this.start = function () {
         this.activity.loader(false);
         
-        // FIX: Всегда перерегистрируем контроллер, чтобы восстановить управление после закрытия плеера.
         Lampa.Controller.add('content', {
             toggle: () => { 
                 Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
@@ -399,11 +397,7 @@
             }
             
             if (type === 'filter') {
-                if (a.toggle_user_engines) {
-                    const current = Store.get('torbox_use_user_engines', 'false') === 'true';
-                    Store.set('torbox_use_user_engines', String(!current));
-                    this.loadAndDisplayTorrents(true); // Принудительная перезагрузка
-                } else if (a.refresh) {
+                if (a.refresh) {
                     this.loadAndDisplayTorrents(true);
                 } else if (a.reset) {
                     this.state.filters = { quality: 'all', tracker: 'all' };
@@ -434,12 +428,9 @@
         const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
         const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
         
-        const useUserEngines = Store.get('torbox_use_user_engines', 'false') === 'true';
-
         const filter_items = [
             {title:'Качество', subtitle:filters.quality==='all'?'Все':filters.quality, items:quality_items, stype:'quality'},
             {title:'Трекер', subtitle:filters.tracker==='all'?'Все':filters.tracker, items:tracker_items, stype:'tracker'},
-            {title:`Свои поисковики (${useUserEngines ? 'Вкл' : 'Выкл'})`, toggle_user_engines: true},
             {title:'Сбросить фильтры', reset: true},
             {title:'Обновить список', refresh: true}
         ];
@@ -772,11 +763,15 @@
           LOG('Не удалось сохранить последний просмотренный файл:', e);
       }
 
+      const player_data = { url: finalUrl, title: file.name || movie.title, poster: movie.img };
+      
+      Lampa.Player.callback(component.start.bind(component));
+      
       Lampa.Modal.close();
       modalCache = {};
-      const player_data = { url: finalUrl, title: file.name || movie.title, poster: movie.img };
+
       Lampa.Player.play(player_data);
-      Lampa.Player.callback(component.start.bind(component));
+
     } catch (e) {
       ErrorHandler.show(e.type || 'unknown', e);
       Lampa.Modal.close();
@@ -789,8 +784,30 @@
   function addSettings() {
     if (!Lampa.SettingsApi) return;
     Lampa.SettingsApi.addComponent({ component: COMP, name: 'TorBox Enhanced', icon: ICON });
-    const fields = [{k:'torbox_proxy_url',n:'URL вашего CORS-прокси',d:`По умолчанию: ${DEFAULTS.proxyUrl}`,t:'input',def:Store.get('torbox_proxy_url','')},{k:'torbox_api_key',n:'Ваш личный API-Key',d:`По умолчанию используется гостевой ключ`,t:'input',def:Store.get('torbox_api_key','')},{k:'torbox_debug',n:'Режим отладки',d:'Записывать подробную информацию в консоль',t:'trigger',def:CFG.debug}];
-    fields.forEach(p=>Lampa.SettingsApi.addParam({component:COMP,param:{name:p.k,type:p.t,values:'',default:p.def},field:{name:p.n,description:p.d},onChange:v=>{const a=String(typeof v==='object'?v.value:v).trim();if(p.k==='torbox_proxy_url')CFG.proxyUrl=a;if(p.k==='torbox_api_key')CFG.apiKey=a;if(p.k==='torbox_debug')CFG.debug=Boolean(v)}}));
+    const fields = [
+        {k:'torbox_proxy_url', n:'URL вашего CORS-прокси', d:`По умолчанию: ${DEFAULTS.proxyUrl}`, t:'input', def:Store.get('torbox_proxy_url','')},
+        {k:'torbox_api_key', n:'Ваш личный API-Key', d:'По умолчанию используется гостевой ключ', t:'input', def:Store.get('torbox_api_key','')},
+        {k:'torbox_use_user_engines', n:'Использовать свои поисковики', d:'Включить поиск через свои поисковые системы, настроенные в TorBox', t:'trigger', def:Store.get('torbox_use_user_engines', 'false') === 'true'},
+        {k:'torbox_debug', n:'Режим отладки', d:'Записывать подробную информацию в консоль', t:'trigger', def:CFG.debug}
+    ];
+    fields.forEach(p => {
+        Lampa.SettingsApi.addParam({
+            component: COMP,
+            param: { name: p.k, type: p.t, values: '', default: p.def },
+            field: { name: p.n, description: p.d },
+            onChange: v => {
+                const a = String(typeof v === 'object' ? v.value : v).trim();
+                if (p.k === 'torbox_proxy_url') CFG.proxyUrl = a;
+                if (p.k === 'torbox_api_key') CFG.apiKey = a;
+                if (p.k === 'torbox_debug') CFG.debug = Boolean(v);
+                if (p.k === 'torbox_use_user_engines') {
+                    Store.set('torbox_use_user_engines', String(v));
+                    SearchCache.clear();
+                    Lampa.Noty.show('Настройка поисковиков изменена. Кэш поиска очищен.');
+                }
+            }
+        });
+    });
   }
 
   function boot() {
@@ -813,7 +830,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v15.0.0 (UX & Core Improvements) ready');
+        LOG('TorBox v16.0.0 (Settings & Navigation Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
@@ -823,3 +840,4 @@
   })();
 
 })();
+
