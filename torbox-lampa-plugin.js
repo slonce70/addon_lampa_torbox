@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v12.0.2 (Final Navigation Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v12.2.0 (UX Improvements)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Полностью удалены вызовы нестабильных API Lampa (exist, isSelectVisible). Проверка активных модальных окон теперь осуществляется через DOM, что является наиболее надежным методом и устраняет все известные ошибки при нажатии кнопки "Назад".
+ * • УЛУЧШЕНА ФУНКЦИЯ "ПОСЛЕДНИЙ ПРОСМОТР": Теперь отметка ▶️ появляется сразу после закрытия плеера, без необходимости перезаходить в список файлов.
+ * • СОРТИРОВКА ФАЙЛОВ: Файлы внутри торрента (серии) теперь всегда отсортированы по имени (от А до Я), что обеспечивает правильный порядок эпизодов.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Сохранено наиболее стабильное решение для навигации.
  * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента.
- * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Сохранен централизованный обработчик ошибок.
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ: Сохранены все предыдущие улучшения.
- * • ОЧИСТКА РЕСУРСОВ: Сохранена очистка обработчиков событий.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v12_0_2_final_nav_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v12_2_0_ux_improvements';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -285,8 +284,6 @@
                     else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    // ### FINAL FIX ###: Заменены все проверки API на проверку DOM,
-                    // что является наиболее стабильным решением.
                     if ($('body').find('.select').length) {
                         Lampa.Select.close();
                     } else if ($('body').find('.filter').length) {
@@ -618,11 +615,34 @@
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
       if (!files.length) throw {type: 'validation', message: 'Воспроизводимые видеофайлы не найдены.'};
 
-      if (files.length === 1) return play(torrentData.id, files[0], movie, component);
+      // Сортируем файлы по имени для правильного порядка серий
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+      if (files.length === 1) {
+          // Для фильмов с одним файлом, передаем torrentData, чтобы коллбэк плеера работал
+          return play(torrentData, files[0], movie, component);
+      }
       
-      files.sort((a,b) => b.size - a.size);
-      const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
-      Lampa.Select.show({ title: 'Выбор файла для воспроизведения', items: fileItems, onSelect: item => play(torrentData.id, item.file, movie, component), onBack: () => component.start() });
+      const lastPlayedFileId = Store.get(`torbox_last_played_${movie.imdb_id}`, null);
+
+      const fileItems = files.map(f => {
+        let title = f.name;
+        if (lastPlayedFileId && String(f.id) === lastPlayedFileId) {
+            title = `▶️ ${f.name} (прошлый просмотр)`;
+        }
+        return { 
+            title: title, 
+            subtitle: formatBytes(f.size), 
+            file: f 
+        };
+      });
+
+      Lampa.Select.show({ 
+          title: 'Выбор файла для воспроизведения', 
+          items: fileItems, 
+          onSelect: item => play(torrentData, item.file, movie, component), 
+          onBack: () => component.start() 
+      });
   }
 
   async function handleTorrent(torrent, movie, component) {
@@ -649,16 +669,37 @@
     }
   }
 
-  async function play(torrentId, file, movie, component) {
+  async function play(torrentData, file, movie, component) {
     showStatusModal('Получение ссылки на файл...');
     try {
-      const dlResponse = await API.requestDl(torrentId, file.id);
+      const dlResponse = await API.requestDl(torrentData.id, file.id);
       const finalUrl = dlResponse?.data || dlResponse?.url;
       if (!finalUrl || typeof finalUrl !== 'string') throw {type: 'api', message: 'Не удалось получить ссылку для воспроизведения.'};
+      
+      try {
+          Store.set(`torbox_last_played_${movie.imdb_id}`, file.id);
+      } catch (e) {
+          LOG('Не удалось сохранить последний просмотренный файл:', e);
+      }
+
       Lampa.Modal.close();
       modalCache = {};
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
-      Lampa.Player.callback(component.start.bind(component));
+      
+      // После закрытия плеера, обновляем список файлов, чтобы показать отметку ▶️
+      Lampa.Player.callback(() => {
+          if (Lampa.Activity.active() && Lampa.Activity.active().component === 'torbox_component') {
+              // Если в торренте несколько файлов, снова показываем выбор
+              if(torrentData.files.length > 1) {
+                  showFileSelection(torrentData, movie, component);
+              } else {
+                  // Иначе просто активируем контроллер
+                  component.start();
+              }
+          } else {
+              component.start();
+          }
+      });
     } catch (e) {
       ErrorHandler.show(e.type, e);
       Lampa.Modal.close();
@@ -695,7 +736,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v12.0.1 (Navigation Hotfix) ready');
+        LOG('TorBox v12.1.0 (Feature Update) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
