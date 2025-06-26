@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.28
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.26
  * ============================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (NATIVE AUTH): Метод авторизации изменен для решения проблемы с ошибкой "NO_AUTH" в мобильных приложениях. API-ключ теперь передается как параметр `token` в URL, а не через заголовок Authorization, что обеспечивает стабильную работу на всех платформах.
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (NATIVE AUTH): Полностью переписан сетевой слой для использования Promise-обертки над Lampa.Reguest(). Это восстанавливает логику async/await, как в старых версиях, но с использованием нативного сетевого модуля Lampa, что решает проблему с ошибкой 401 Unauthorized в мобильных приложениях.
- * • УЛУЧШЕНИЕ: Код обработки API вызовов был реструктурирован для повышения читаемости и надежности.
+ * • ИСПРАВЛЕНИЕ API: Исправлен формат запроса для добавления торрента (/createtorrent). Теперь данные отправляются как form-data, а не JSON, что решает ошибку "MISSING_REQUIRED_OPTION". Также исправлено имя параметра 'seed' в соответствии с документацией.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переписан сетевой слой плагина. Вместо стандартного `fetch`, теперь используется встроенный в Lampa модуль `Lampa.Reguest()`. Это решает проблему с ошибкой "Fail to fetch" в мобильных приложениях Lampa.
+ * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Реализована стабильная перезагрузка компонента при смене фильтра или сортировки.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_28';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_26';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -43,6 +43,7 @@
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
 
+  // Глобальный сетевой модуль Lampa для всех запросов плагина
   const network = new Lampa.Reguest();
 
   const formatBytes = (bytes, speed = false) => {
@@ -75,78 +76,60 @@
     $('head').append(`<style id="torbox-component-styles">.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}.torrent-list{padding:1em}.torbox-status{padding:1em 2em; text-align:center;}.torbox-status__title{font-size:1.4em; margin-bottom:1em;}.torbox-status__info{font-size: 1.1em; margin-bottom: 0.5em;}.torbox-status__progress-bar{height:10px; background:rgba(255,255,255,0.2); border-radius:5px; overflow:hidden; margin:1em 0;}.torbox-status__progress-bar>div{height:100%; width:0; background:var(--color-primary); transition: width 0.3s;}</style>`);
   }
 
-  /* ───── TorBox API wrapper (async/await with Lampa.Reguest) ───── */
+  /* ───── TorBox API wrapper (using Lampa.Reguest) ───── */
   const API = {
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
 
-    lampaRequestPromise: function(url, options = {}) {
+    lampaCall(fullUrl, options = {}) {
         return new Promise((resolve, reject) => {
-            network.silent(
-                url,
-                (responseText) => { // onSuccess
-                    try {
-                        const json = (typeof responseText === 'object') ? responseText : JSON.parse(responseText);
-                        if (json.success === false) {
-                           if (json.detail) {
-                               const errorMsg = (typeof json.detail === 'string') ? json.detail : (Array.isArray(json.detail) && json.detail[0]?.msg) ? json.detail[0].msg : 'API вернуло ошибку';
-                               reject(new Error(errorMsg));
-                           } else {
-                               reject(new Error(json.message || 'API вернуло ошибку.'));
-                           }
-                        } else {
-                            resolve(json);
+            const onSuccess = (responseText) => {
+                try {
+                    // Lampa.Reguest может сама парсить JSON, если Content-Type на сервере указан верно
+                    if (typeof responseText === 'object') { 
+                        if (responseText.success === false) {
+                           return reject(new Error(responseText.detail || responseText.message || 'API вернул ошибку.'));
                         }
-                    } catch (e) {
-                        reject(new Error('Получен некорректный ответ от сервера.'));
+                        resolve(responseText);
+                        return;
                     }
-                },
-                (jqXHR, textStatus) => { // onError
-                    const status = jqXHR.status;
-                    if (status === 401) {
-                        return reject(new Error(`Ошибка авторизации (401). Проверьте ваш API-ключ.`));
-                    }
-                    if (String(jqXHR.responseText).includes("NO_AUTH")) {
+
+                    if (responseText.includes("NO_AUTH")) {
                         return reject(new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и тарифный план.'));
                     }
-                    reject(new Error(`Ошибка сети: ${status || textStatus || 'Fail to fetch'}`));
-                },
-                options.body || false,
-                options.headers || {}
-            );
+
+                    const json = JSON.parse(responseText);
+                    if (json.success === false) {
+                       return reject(new Error(json.detail || json.message || 'API вернул ошибку.'));
+                    }
+                    resolve(json);
+                } catch (e) {
+                    LOG('Invalid JSON:', responseText, e);
+                    reject(new Error('Получен некорректный ответ от сервера.'));
+                }
+            };
+
+            const onError = (jqXHR, textStatus, errorThrown) => {
+                const status = jqXHR.status;
+                if (status === 401) {
+                    return reject(new Error(`Ошибка авторизации (401). Проверьте ваш API-ключ.`));
+                }
+                LOG('Lampa.Reguest Network error:', status, textStatus, errorThrown);
+                reject(new Error(`Ошибка сети: ${status || textStatus || 'Fail to fetch'}`));
+            };
+            
+            network.silent(fullUrl, onSuccess, onError, options.body || false, options.headers || {});
         });
     },
 
-    proxiedCall: async function(targetUrl, options = {}) {
+    proxiedCall(targetUrl, options = {}) {
         const proxy = CFG.proxyUrl;
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-        LOG('Calling via Lampa.Reguest (Promise):', proxiedUrl, 'Target:', targetUrl);
-        return await this.lampaRequestPromise(proxiedUrl, options);
+        LOG('Calling via Lampa.Reguest:', proxiedUrl, 'Target:', targetUrl);
+        return this.lampaCall(proxiedUrl, options);
     },
 
-    directAction: async function(path, body = {}, method = 'GET') {
-        const key = CFG.apiKey;
-        let url = `${this.MAIN_API}${path}`;
-        
-        // ИСПРАВЛЕНИЕ: Добавляем токен в тело/параметры каждого запроса
-        body.token = key;
-        
-        const options = {
-            // Убираем неработающий заголовок
-            headers: { 'Accept': 'application/json' }
-        };
-
-        if (method.toUpperCase() !== 'GET') {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(body);
-        } else if (Object.keys(body).length) {
-            url += '?' + new URLSearchParams(body).toString();
-        }
-        
-        return await this.proxiedCall(url, options);
-    },
-
-    search: async function(imdbId) {
+    search(imdbId) {
         const key = CFG.apiKey;
         let formattedImdbId = imdbId;
         if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
@@ -154,42 +137,68 @@
             if (/^\d+$/.test(imdbId)) formattedImdbId = `tt${imdbId}`;
             else throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
         }
-        let url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
-        
-        // ИСПРАВЛЕНИЕ: Добавляем токен как параметр URL
-        url += `&token=${key}`;
-        
-        // Убираем неработающий заголовок
-        const json = await this.proxiedCall(url, { headers: { 'Accept': 'application/json' } });
-        return json.data?.torrents || [];
+        const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        return this.proxiedCall(url, { headers: { 'Authorization': `Bearer ${key}` } })
+            .then(res => res.data?.torrents || []);
     },
 
-    addMagnet: async function(magnet) {
-        return this.directAction('/torrents/createtorrent', { magnet, seed_preference: 3 }, 'POST');
+    directAction(path, body = {}, method = 'GET') {
+        const key = CFG.apiKey;
+        let url = `${this.MAIN_API}${path}`;
+        const options = {
+            headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' }
+        };
+
+        if (method.toUpperCase() !== 'GET') {
+            // ИСПРАВЛЕНИЕ: API требует разные Content-Type для разных эндпоинтов.
+            if (path === '/torrents/createtorrent') {
+                 // Для Lampa.Reguest, если передать объект в body, он будет отправлен как form-data.
+                 // Не устанавливаем Content-Type, Lampa использует дефолтный (application/x-www-form-urlencoded).
+                 options.body = body;
+            } else {
+                 // Для остальных POST запросов (например, controltorrent) используем JSON.
+                 options.headers['Content-Type'] = 'application/json';
+                 options.body = JSON.stringify(body);
+            }
+        } else if (Object.keys(body).length) {
+            url += '?' + new URLSearchParams(body).toString();
+        }
+        
+        return this.proxiedCall(url, options);
     },
 
-    stopTorrent: async function(torrentId) {
+    addMagnet(magnet) {
+        // ИСПРАВЛЕНИЕ: Используем правильное имя параметра 'seed'.
+        return this.directAction('/torrents/createtorrent', { magnet, seed: 3 }, 'POST');
+    },
+
+    stopTorrent(torrentId) {
+        // Этот вызов остается без изменений, он правильно использует JSON.
         return this.directAction('/torrents/controltorrent', { torrent_id: torrentId, operation: 'pause' }, 'POST');
     },
 
-    myList: async function(torrentId) {
-        // 'token' будет добавлен автоматически через directAction
-        const json = await this.directAction('/torrents/mylist', { id: torrentId }, 'GET');
-        if (json && json.data && !Array.isArray(json.data)) {
-            json.data = [json.data];
-        }
-        return json;
+    myList(torrentId) {
+        return this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }).then(r => {
+            if (r && r.data && !Array.isArray(r.data)) {
+                r.data = [r.data];
+            }
+            return r;
+        });
     },
 
-    requestDl: async function(torrentId, fid) {
-        // 'token' будет добавлен автоматически через directAction
-        const body = { torrent_id: torrentId, file_id: fid };
+    requestDl(torrentId, fid) {
+        const body = {
+            token: CFG.apiKey,
+            torrent_id: torrentId,
+            file_id: fid
+        };
         return this.directAction('/torrents/requestdl', body, 'GET');
     }
   };
 
   /* ───── TorBox Component ───── */
   function TorBoxComponent(object) {
+    // Используем глобальный 'network'
     var scroll = new Lampa.Scroll({ mask: true, over: true });
     var files = new Lampa.Explorer(object);
     var filter = new Lampa.Filter(object);
@@ -208,17 +217,24 @@
     ];
 
     this.movie = object.movie;
+    
     var controller_registered = false;
 
     this.start = function () {
         this.activity.loader(false);
         if (!controller_registered) {
             Lampa.Controller.add('content', {
-                toggle: () => { Lampa.Controller.collectionSet(scroll.render(), files.render()); Lampa.Controller.collectionFocus(last || false, scroll.render()); },
-                up: () => {Navigator.move('up')},
-                down: () => {Navigator.move('down')},
-                left: () => {Lampa.Controller.toggle('menu');},
-                right: () => { if(Navigator.canmove('right')) Lampa.Controller.toggle('head'); else filter.show(Lampa.Lang.translate('title_filter'), 'filter'); },
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll.render(), files.render());
+                    Lampa.Controller.collectionFocus(last || false, scroll.render());
+                },
+                up: ()=>{Navigator.move('up')},
+                down: ()=>{Navigator.move('down')},
+                left: ()=>{Lampa.Controller.toggle('menu');},
+                right: ()=>{
+                    if(Navigator.canmove('right')) Lampa.Controller.toggle('head');
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                },
                 back: this.back.bind(this)
             });
             controller_registered = true;
@@ -245,12 +261,18 @@
     };
     
     this.initializeFilterHandlers = function() {
-        filter.onSelect = (type, a, b) => {
-            if (type === 'sort') Store.set('torbox_sort_method', a.key);
+        var _this = this;
+        filter.onSelect = function (type, a, b) {
+            if (type === 'sort') {
+                Store.set('torbox_sort_method', a.key);
+            }
             if (type === 'filter') {
                 let new_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
-                if (a.reset) new_filters = { quality: 'all', tracker: 'all' };
-                else new_filters[a.stype] = b.value; 
+                if (a.reset) { 
+                    new_filters = { quality: 'all', tracker: 'all' }; 
+                } else { 
+                    new_filters[a.stype] = b.value; 
+                }
                 Store.set('torbox_filters', JSON.stringify(new_filters));
             }
             Lampa.Select.close();
@@ -334,10 +356,15 @@
     
     this.render = function() { return files.render(); };
     this.back = function() { network.clear(); Lampa.Activity.backward(); };
-    this.pause = this.stop = this.destroy = function() { network.clear(); files.destroy(); scroll.destroy(); };
+    this.pause = this.stop = this.destroy = function() { 
+        network.clear(); 
+        files.destroy(); 
+        scroll.destroy(); 
+    };
   }
   
   /* ───── Full torrent handling logic ───── */
+
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
       Lampa.Modal.open({
@@ -360,8 +387,8 @@
       modalBody.find('[data-name="peers"]').text(data.peers || '');
   }
 
-  function trackTorrentStatus(torrentId) {
-      return new Promise(async (resolve, reject) => {
+  function trackTorrentStatus(torrentId, movie, component) {
+      return new Promise((resolve, reject) => {
           let isTrackingActive = true;
           let pollTimeout;
 
@@ -385,11 +412,17 @@
 
                   if (!torrentData) {
                       isTrackingActive = false;
-                      return reject(new Error("Торрент исчез из списка"));
+                      Lampa.Noty.show('Торрент больше не найден в вашем аккаунте.', {type: 'warning'});
+                      return reject(new Error("Торрент исчез"));
                   }
 
                   const currentStatus = torrentData.download_state || torrentData.status;
-                  const statusMap = {'queued':'В очереди','downloading':'Загрузка','uploading':'Раздача','completed':'Завершен','stalled':'Остановлен','error':'Ошибка','metadl':'Получение метаданных','paused':'На паузе','failed':'Ошибка загрузки','checking':'Проверка'};
+                  const statusMap = {
+                      'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача',
+                      'completed': 'Завершен', 'stalled': 'Остановлен', 'error': 'Ошибка',
+                      'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки',
+                      'checking': 'Проверка'
+                  };
                   const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
                   
                   let progressValue = parseFloat(torrentData.progress);
@@ -401,7 +434,14 @@
                   
                   let progressText = (currentStatus.toLowerCase().startsWith('checking') || isNaN(sizeValue) || sizeValue === 0) ? "Обработка торрента..." : `${progressPercent.toFixed(2)}% из ${formatBytes(sizeValue)}`;
 
-                  updateStatusModal({ status: statusText, progress: progressPercent, progressText: progressText, speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`, eta: `Осталось: ${formatTime(isNaN(etaValue) ? -1 : etaValue)}`, peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}` });
+                  updateStatusModal({
+                      status: statusText,
+                      progress: progressPercent,
+                      progressText: progressText,
+                      speed: `Скорость: ${formatBytes(torrentData.download_speed, true)}`,
+                      eta: `Осталось: ${formatTime(isNaN(etaValue) ? -1 : etaValue)}`,
+                      peers: `Сиды: ${torrentData.seeds} / Пиры: ${torrentData.peers}`
+                  });
                   
                   const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
                   const filesAreReady = torrentData.files && torrentData.files.length > 0;
@@ -414,7 +454,9 @@
                       }
                       resolve(torrentData);
                   } else {
-                      if (isDownloadFinished && !filesAreReady) updateStatusModal({ status: 'Завершено, обработка файлов...', progress: 100 });
+                      if (isDownloadFinished && !filesAreReady) {
+                          updateStatusModal({ status: 'Завершено, обработка файлов...', progress: 100 });
+                      }
                       if (isTrackingActive) pollTimeout = setTimeout(poll, 5000);
                   }
               } catch (error) {
@@ -426,15 +468,25 @@
       });
   }
   
-  function showFileSelection(torrentData, movie, component) {
-      if (!torrentData.files || torrentData.files.length === 0) return Lampa.Noty.show('Не удалось получить список файлов.', {type: 'error'});
+  async function showFileSelection(torrentData, movie, component) {
+      if (!torrentData.files || torrentData.files.length === 0) {
+        return Lampa.Noty.show('Не удалось получить список файлов из раздачи.', {type: 'error'});
+      }
+      
       const files = torrentData.files.filter(f => /\.(mkv|mp4|avi|rar)$/i.test(f.name));
-      if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены.');
+      if (!files.length) return Lampa.Noty.show('Видеофайлы не найдены в раздаче.');
+      
       if (files.length === 1) return play(torrentData.id, files[0], movie, component);
       
       files.sort((a,b) => b.size - a.size);
       const fileItems = files.map(f => ({ title: f.name, subtitle: formatBytes(f.size), file: f }));
-      Lampa.Select.show({ title: 'Выбор файла', items: fileItems, onSelect: item => play(torrentData.id, item.file, movie, component), onBack: () => component.start() });
+
+      Lampa.Select.show({
+          title: 'TorBox - Выбор файла',
+          items: fileItems,
+          onSelect: item => play(torrentData.id, item.file, movie, component),
+          onBack: () => component.start()
+      });
   }
 
   async function handleTorrent(torrent, movie, component) {
@@ -443,15 +495,18 @@
         const result = await API.addMagnet(torrent.magnet);
         const torrentInfo = result.data;
         const torrentIdForTracking = torrentInfo.torrent_id || torrentInfo.id;
-        if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента.');
+        if (!torrentIdForTracking) throw new Error('Не удалось получить ID торрента из ответа API.');
         
-        const finalTorrentData = await trackTorrentStatus(torrentIdForTracking);
+        const finalTorrentData = await trackTorrentStatus(torrentIdForTracking, movie, component);
         Lampa.Modal.close();
-        showFileSelection(finalTorrentData, movie, component);
+        await showFileSelection(finalTorrentData, movie, component);
+
     } catch (e) {
-        LOG('HandleTorrent Error:', e);
-        if (e.message !== "Отменено пользователем") Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
-        Lampa.Modal.close();
+      LOG('HandleTorrent Error:', e);
+      if (e.message !== "Отменено пользователем") {
+        Lampa.Noty.show(`TorBox: ${e.message}`, { type: 'error' });
+      }
+      Lampa.Modal.close();
     }
   }
 
@@ -460,7 +515,9 @@
     try {
       const dlResponse = await API.requestDl(torrentId, file.id);
       const finalUrl = dlResponse?.data || dlResponse?.url;
-      if (!finalUrl || typeof finalUrl !== 'string') throw new Error('Не удалось получить ссылку.');
+      if (!finalUrl || typeof finalUrl !== 'string') {
+        throw new Error('Не удалось получить ссылку на скачивание.');
+      }
       Lampa.Modal.close();
       Lampa.Player.play({ url: finalUrl, title: file.name || movie.title, poster: movie.img });
       Lampa.Player.callback(component.start.bind(component));
@@ -500,7 +557,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.27 ready');
+        LOG('TorBox v11.0.26 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
