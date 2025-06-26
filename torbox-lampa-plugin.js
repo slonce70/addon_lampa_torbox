@@ -1,18 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.47 (API Hotfix)
- * ===========================================================================
- * • ИСПРАВЛЕНИЕ API КОНТРОЛЛЕРА: Заменен некорректный вызов Lampa.Controller.remove() на правильный способ очистки обработчика (Lampa.Controller.add('content', null)), что устраняет ошибку при смене сортировки/фильтра.
- * • УСТРАНЕНИЕ УТЕЧКИ ПАМЯТИ: Контроллер теперь корректно выгружается из памяти при уничтожении компонента (destroy), предотвращая утечки.
- * • УСТРАНЕНИЕ ГОНКИ УСЛОВИЙ: Улучшена логика отслеживания торрента для предотвращения фоновых запросов после отмены операции пользователем.
- * • ПОВЫШЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ: Добавлено кэширование для функции сортировки по дате.
- * • УЛУЧШЕНИЕ БЕЗОПАСНОСТИ: Добавлена базовая валидация данных и экранирование HTML.
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.48 (Navigation & Filter Hotfix)
+ * =================================================================================
+ * • ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Полностью переработана логика применения фильтров и сортировки. Вместо полной перезагрузки компонента теперь происходит только обновление списка, что устраняет ошибку "Cannot read properties of null" и значительно повышает отзывчивость интерфейса.
+ * • СТАБИЛИЗАЦИЯ НАВИГАЦИИ: Благодаря новому подходу к обновлению, устранены потенциальные проблемы с состоянием фокуса и контроллера после применения фильтров.
+ * • ИСПРАВЛЕНИЕ API КОНТРОЛЛЕРА: Сохранен исправленный способ очистки обработчика (Lampa.Controller.add('content', null)).
+ * • ОПТИМИЗАЦИЯ: Сохранены все предыдущие улучшения производительности и безопасности.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_47_hotfix';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_48_nav_hotfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -50,7 +49,7 @@
   };
 
   const formatBytes = (bytes, speed = false) => {
-    const B = Number(bytes); // Более производительно
+    const B = Number(bytes);
     if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
     const k = 1024;
     const sizes = speed ? ['B/s', 'KB/s', 'MB/s', 'GB/s'] : ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -60,11 +59,12 @@
   
   const formatTime = (seconds) => {
       try {
-        if (isNaN(seconds) || seconds < 0) return 'н/д';
-        if (seconds === Infinity || seconds > 86400 * 30) return '∞';
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
+        const numSeconds = parseInt(seconds, 10);
+        if (isNaN(numSeconds) || numSeconds < 0) return 'н/д';
+        if (numSeconds === Infinity || numSeconds > 86400 * 30) return '∞';
+        const h = Math.floor(numSeconds / 3600);
+        const m = Math.floor((numSeconds % 3600) / 60);
+        const s = Math.floor(numSeconds % 60);
         return [h > 0 ? h + 'ч' : null, m > 0 ? m + 'м' : null, s + 'с'].filter(Boolean).join(' ');
       } catch (e) {
         LOG('Error formatting time:', e);
@@ -109,7 +109,6 @@
     if (status < 200 || status >= 300) {
         throw new Error(`Ошибка сети: HTTP ${status}`);
     }
-    // Проверка на пустой ответ от прокси
     if (!responseText || (typeof responseText === 'string' && responseText.trim() === '')) {
         throw new Error('Получен пустой ответ от сервера/прокси.');
     }
@@ -241,7 +240,6 @@
         { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
     ];
     
-    // Полный набор методов жизненного цикла для совместимости с Lampa
     this.create = function() {
         this.initialize();
         return this.render();
@@ -278,22 +276,12 @@
         Lampa.Controller.toggle('content');
     };
 
-    this.pause = function () {
-        LOG('TorBox component paused');
-    };
-
-    this.resume = function () {
-        LOG('TorBox component resumed');
-    };
-    
-    this.stop = function () {
-        LOG('TorBox component stopped');
-    };
+    this.pause = function () { LOG('TorBox component paused'); };
+    this.resume = function () { LOG('TorBox component resumed'); };
+    this.stop = function () { LOG('TorBox component stopped'); };
 
     this.destroy = function() {
         LOG('Destroying TorBox component');
-        // ### FIXED ###: Заменен неверный вызов Lampa.Controller.remove() на корректный способ очистки,
-        // который передает null в качестве обработчика, удаляя старую ссылку и предотвращая утечку.
         if (controller_registered) {
             Lampa.Controller.add('content', null);
             controller_registered = false;
@@ -302,7 +290,6 @@
         scroll.destroy();
         files.destroy();
         filter.destroy();
-        // Обнуляем ссылки для сборщика мусора
         scroll = null;
         files = null;
         filter = null;
@@ -325,16 +312,31 @@
     };
     
     this.initializeFilterHandlers = function() {
+        // ### FIXED ###: Логика полностью переработана.
+        // Вместо полной перезагрузки компонента (Lampa.Activity.replace), 
+        // мы теперь обновляем внутреннее состояние и просто перерисовываем список.
+        // Это устраняет ошибку и делает интерфейс отзывчивее.
         filter.onSelect = (type, a, b) => {
-            if (type === 'sort') Store.set('torbox_sort_method', a.key);
-            if (type === 'filter') {
-                let new_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
-                if (a.reset) new_filters = { quality: 'all', tracker: 'all' };
-                else new_filters[a.stype] = b.value; 
-                Store.set('torbox_filters', JSON.stringify(new_filters));
-            }
             Lampa.Select.close();
-            Lampa.Activity.replace(object);
+
+            if (type === 'sort') {
+                current_sort = a.key;
+                Store.set('torbox_sort_method', a.key);
+            }
+            if (type === 'filter') {
+                if (a.reset) {
+                    current_filters = { quality: 'all', tracker: 'all' };
+                } else {
+                    current_filters[a.stype] = b.value; 
+                }
+                Store.set('torbox_filters', JSON.stringify(current_filters));
+            }
+            
+            // Запускаем перерисовку с новыми параметрами
+            this.display();
+            
+            // Возвращаем фокус на основной контент
+            Lampa.Controller.toggle('content');
         };
     };
 
@@ -418,6 +420,7 @@
     };
 
     this.draw = function(torrents_list) {
+        last = false; // Сбрасываем фокус перед перерисовкой
         scroll.clear();
         if (!torrents_list?.length) {
             this.empty('Ничего не найдено по заданным фильтрам');
@@ -569,7 +572,7 @@
       if (!torrentData?.files?.length) {
           return Lampa.Noty.show('Видеофайлы не найдены в торренте.', {type: 'error'});
       }
-      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)); // rar убран, т.к. его нельзя воспроизвести
+      const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
       if (!files.length) return Lampa.Noty.show('Воспроизводимые видеофайлы не найдены.');
 
       if (files.length === 1) return play(torrentData.id, files[0], movie, component);
@@ -646,7 +649,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.47 (API Hotfix) ready');
+        LOG('TorBox v11.0.48 (Navigation & Filter Hotfix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
