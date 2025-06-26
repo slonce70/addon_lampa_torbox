@@ -1,17 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.32 (Fixed Progress Bar)
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.34
  * ============================================================
- * • ИСПРАВЛЕНА ПОЛОСКА ЗАГРУЗКИ: Добавлены более специфичные CSS селекторы, принудительное обновление DOM, и улучшена анимация
- * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Реализован гибридный метод для API-запросов
- * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Сохранено исправление с использованием `multipart/form-data`
- * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API используют единый заголовок `Authorization`
+ * • ИНТЕГРАЦИЯ UI: Внедрены исправления для анимации и стилей полосы загрузки из предоставленного кода.
+ * • КРИТИЧЕСКИЙ ФИКС ДЛЯ APK: Сохранен фикс с использованием application/x-www-form-urlencoded для нативных приложений.
+ * • УНИВЕРСАЛЬНЫЙ СЕТЕВОЙ СЛОЙ: Сохранен гибридный сетевой метод (fetch для веба, native для APK), что обеспечивает кросс-платформенную совместимость.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_32';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_34';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -70,7 +69,6 @@
     return 'SD';
   };
 
-  // ИСПРАВЛЕНО: Улучшенные CSS стили с более высокой специфичностью
   if (!$('#torbox-component-styles').length) {
     $('head').append(`<style id="torbox-component-styles">
 .torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}
@@ -85,8 +83,6 @@
 .torbox-status__progress-bar{height:100%; width:0%; background:linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #4CAF50)); transition: width 0.5s ease-out; border-radius:8px; position:relative;}
 .torbox-status__progress-bar::after{content:''; position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%); animation:shimmer 2s infinite;}
 @keyframes shimmer{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
-.modal .torbox-status__progress-container{background:rgba(255,255,255,0.2) !important;}
-.modal .torbox-status__progress-bar{background:linear-gradient(90deg, #4CAF50, #66BB6A) !important;}
 </style>`);
   }
   
@@ -108,7 +104,6 @@
     }
     
     try {
-        // For requestDl, the response can be a direct URL string
         if (typeof responseText === 'string' && responseText.startsWith('http')) {
              return { success: true, url: responseText };
         }
@@ -134,14 +129,7 @@
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     
-    /**
-     * Universal request function that uses fetch for browsers and Lampa.Reguest for native platforms.
-     * @param {string} url - The target URL
-     * @param {object} options - Fetch-like options object
-     * @returns {Promise<object>}
-     */
     request: function(url, options = {}) {
-        // Use fetch with CORS proxy for web browsers
         if (Lampa.Platform.is('browser')) {
             const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             LOG('Calling via proxy (fetch):', proxyUrl, 'Target:', url);
@@ -151,35 +139,31 @@
                     return processResponse(responseText, r.status);
                 });
         } 
-        // Use Lampa.Reguest.native for all other platforms (Android, Tizen, etc.)
         else {
             LOG('Calling via Lampa.Reguest.native():', url);
             return new Promise((resolve, reject) => {
                 const network = new Lampa.Reguest();
-                const body = options.body || false;
-                const headers = options.headers || {};
-                
                 network.native(
                     url,
-                    (responseText, xhr) => { // onSuccess
+                    (responseText, xhr) => {
                         try {
                             resolve(processResponse(responseText, xhr.status));
                         } catch (e) {
                             reject(e);
                         }
                     },
-                    (xhr, textStatus, errorThrown) => { // onError
-                        const errorMsg = `Ошибка сети: ${xhr ? xhr.status : textStatus || errorThrown}`;
+                    (xhr, textStatus, errorThrown) => {
+                        const errorMsg = `Ошибка сети: ${xhr ? xhr.status : textStatus || 'Unknown Error'}`;
                         reject(new Error(errorMsg));
                     },
-                    body,
-                    headers
+                    options.body || false,
+                    options.headers || {}
                 );
             });
         }
     },
 
-    async directAction(path, body = {}, method = 'GET') {
+    async directAction(path, body = {}, method = 'GET', contentType = 'application/json') {
         const key = CFG.apiKey;
         let url = `${this.MAIN_API}${path}`;
         const options = {
@@ -192,10 +176,10 @@
 
         if (method.toUpperCase() !== 'GET') {
             if (body instanceof FormData) {
-                options.body = body;
+                options.body = body; // Let browser handle Content-Type
             } else {
-                options.headers['Content-Type'] = 'application/json';
-                options.body = JSON.stringify(body);
+                options.headers['Content-Type'] = contentType;
+                options.body = contentType === 'application/json' ? JSON.stringify(body) : body;
             }
         } else if (Object.keys(body).length > 0) {
             url += '?' + new URLSearchParams(body).toString();
@@ -225,10 +209,18 @@
     },
 
     async addMagnet(magnet) {
-        const formData = new FormData();
-        formData.append('magnet', magnet);
-        formData.append('seed', '3');
-        return this.directAction('/torrents/createtorrent', formData, 'POST');
+        if (!Lampa.Platform.is('browser')) {
+            const body = new URLSearchParams();
+            body.append('magnet', magnet);
+            body.append('seed', '3');
+            return this.directAction('/torrents/createtorrent', body.toString(), 'POST', 'application/x-www-form-urlencoded');
+        }
+        else {
+            const formData = new FormData();
+            formData.append('magnet', magnet);
+            formData.append('seed', '3');
+            return this.directAction('/torrents/createtorrent', formData, 'POST');
+        }
     },
 
     async stopTorrent(torrentId) {
@@ -401,7 +393,6 @@
   }
   
   /* ───── Full torrent handling logic ───── */
-  // ИСПРАВЛЕНО: Улучшенная функция создания модального окна
   function showStatusModal(title, onBack) {
       if ($('.modal').length) Lampa.Modal.close();
       
@@ -429,7 +420,6 @@
       LOG('Modal created with progress bar');
   }
   
-  // ИСПРАВЛЕНО: Принудительное обновление DOM и добавление логирования
   function updateStatusModal(data) {
       const modalBody = $('.modal__content .torbox-status');
       if (!modalBody.length) {
@@ -443,18 +433,12 @@
       modalBody.find('[data-name="eta"]').text(data.eta || '');
       modalBody.find('[data-name="peers"]').text(data.peers || '');
       
-      // ИСПРАВЛЕНО: Принудительное обновление полоски прогресса
       const progressBar = modalBody.find('.torbox-status__progress-bar');
       const progressPercent = Math.max(0, Math.min(100, data.progress || 0));
       
       if (progressBar.length) {
-          // Принудительное обновление стиля с немедленным применением
           progressBar[0].style.width = progressPercent + '%';
-          progressBar.css('width', progressPercent + '%');
-          
-          // Принудительное обновление DOM
-          progressBar[0].offsetHeight; // Trigger reflow
-          
+          progressBar[0].offsetHeight; // Trigger a reflow to ensure animation runs
           LOG(`Progress updated to: ${progressPercent}%`);
       } else {
           LOG('Progress bar element not found');
@@ -465,13 +449,13 @@
       return new Promise(async (resolve, reject) => {
           let isTrackingActive = true;
           let pollTimeout;
-          let network = new Lampa.Reguest(); // Local network instance for polling
+          let network = new Lampa.Reguest();
 
           const onCancel = () => {
               if (isTrackingActive) {
                   isTrackingActive = false;
                   clearTimeout(pollTimeout);
-                  network.clear(); // Clear any pending poll requests
+                  network.clear();
                   reject(new Error("Отменено пользователем"));
               }
           };
@@ -503,9 +487,8 @@
                   
                   let progressText = (currentStatus.toLowerCase().startsWith('checking') || isNaN(sizeValue) || sizeValue === 0) ? "Обработка торрента..." : `${progressPercent.toFixed(2)}% из ${formatBytes(sizeValue)}`;
 
-                  // ИСПРАВЛЕНО: Логирование для отладки
                   LOG(`Status: ${statusText}, Progress: ${progressPercent}%, Speed: ${torrentData.download_speed}`);
-                  
+
                   updateStatusModal({ 
                       status: statusText, 
                       progress: progressPercent, 
@@ -612,7 +595,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.32 ready');
+        LOG('TorBox v11.0.34 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
