@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.30
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.31
  * ============================================================
+ * • ИСПРАВЛЕНИЕ ЗАПРОСА (ADD MAGNET): Исправлен метод отправки данных для добавления торрента. Теперь используется `multipart/form-data` вместо `application/json`, что соответствует требованиям API TorBox и устраняет ошибку 'MISSING_REQUIRED_OPTION'.
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (СЕТЕВОЙ СЛОЙ): Для всех API-запросов восстановлено использование 'fetch' вместо 'Lampa.Reguest'. Это решает проблемы с ошибкой авторизации '401 Unauthorized' в браузерных и некоторых desktop-версиях Lampa.
  * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API (поиск, добавление, список) теперь используют единый заголовок `Authorization` для консистентности, как в стабильной версии v11.0.24. Это упрощает логику и повышает надежность.
- * • ИСПРАВЛЕНИЕ API: Сохранено исправление имени параметра 'seed' при добавлении торрента из v11.0.29.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_30';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_31';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -136,8 +136,16 @@
         };
 
         if (method.toUpperCase() !== 'GET') {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(body);
+            // Check if body is FormData. If so, let the browser handle the Content-Type.
+            // Otherwise, stringify as JSON.
+            if (body instanceof FormData) {
+                options.body = body;
+                // IMPORTANT: Do not set 'Content-Type' header for FormData.
+                // The browser will automatically set it to 'multipart/form-data' with the correct boundary.
+            } else {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(body);
+            }
         } else if (Object.keys(body).length > 0) {
             url += '?' + new URLSearchParams(body).toString();
         }
@@ -166,8 +174,11 @@
     },
 
     async addMagnet(magnet) {
-        // ИСПРАВЛЕНИЕ: параметр называется 'seed'
-        return this.directAction('/torrents/createtorrent', { magnet, seed: 3 }, 'POST');
+        // The API for createtorrent expects multipart/form-data, not application/json.
+        const formData = new FormData();
+        formData.append('magnet', magnet);
+        formData.append('seed', '3'); // Value '3' means do not seed, according to docs.
+        return this.directAction('/torrents/createtorrent', formData, 'POST');
     },
 
     async stopTorrent(torrentId) {
@@ -510,7 +521,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.30 ready');
+        LOG('TorBox v11.0.31 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
