@@ -1,18 +1,14 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.22
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.23
  * ============================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Полностью переработана логика обработки фильтров и сортировки на основе анализа стабильных плагинов. Вместо попытки восстановить фокус, плагин теперь полностью перезагружает себя после выбора опции. Это гарантированно решает проблему "вылета" на предыдущий экран и является самым надежным решением.
- * • ИСПРАВЛЕНИЕ ВЫЛЕТА ФИЛЬТРА: Переработана логика обработки событий фильтра и сортировки. Вся логика, включая закрытие окна выбора, теперь выполняется асинхронно. Это надежно предотвращает возврат на предыдущий экран после выбора опции, решая основную проблему.
- * • ИСПРАВЛЕНИЕ: Устранена ошибка отображения 'NaN' в статусе загрузки на этапе проверки (checking).
- * • ИСПРАВЛЕНИЕ ПРОГРЕСС-БАРА: Улучшена логика расчета процента загрузки.
- * • УЛУЧШЕНО: Для паков сезонов размер отображается с пометкой "/ серия".
+ * • ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ФИЛЬТРОВ: Логика полностью переписана в точном соответствии с примером bwa.js. Вместо ручного управления фокусом или асинхронных вызовов, плагин теперь корректно перезагружает себя через Lampa.Activity.replace(object), передавая исходные данные. Это решает критическую ошибку предыдущих версий, где передавался пустой объект, что приводило к падению плагина. Этот метод гарантирует стабильную работу фильтров и сортировки.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_22';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_23';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -118,6 +114,7 @@
     search(imdbId) {
         const key = CFG.apiKey;
         let formattedImdbId = imdbId;
+        if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
         if (!/^tt\d+$/.test(imdbId)) {
             if (/^\d+$/.test(imdbId)) formattedImdbId = `tt${imdbId}`;
             else throw new Error(`Неверный формат IMDb ID: ${imdbId}`);
@@ -179,6 +176,7 @@
     var last;
     var initialized = false;
     var all_torrents = [];
+    // При инициализации сразу читаем сохраненные значения
     var current_sort = Store.get('torbox_sort_method', 'seeders');
     var current_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
     this.activity = object.activity;
@@ -238,12 +236,11 @@
     this.initializeFilterHandlers = function() {
         var _this = this;
         filter.onSelect = function (type, a, b) {
-            // Шаг 1: Применить и сохранить изменения состояния немедленно.
+            // Шаг 1: Применить и сохранить изменения состояния.
             if (type === 'sort') {
                 Store.set('torbox_sort_method', a.key);
             }
             if (type === 'filter') {
-                // Сначала получаем текущие фильтры, чтобы не перезаписать их полностью.
                 let new_filters = JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}'));
                 if (a.reset) { 
                     new_filters = { quality: 'all', tracker: 'all' }; 
@@ -253,19 +250,14 @@
                 Store.set('torbox_filters', JSON.stringify(new_filters));
             }
 
-            // Шаг 2: Закрыть модальное окно выбора.
+            // Шаг 2: Закрываем окно выбора НЕМЕДЛЕННО, как в bwa.js для сортировки.
             Lampa.Select.close();
-
-            // Шаг 3: Показать загрузчик, чтобы сделать переход плавным.
-            _this.activity.loader(true);
-
-            // Шаг 4: Асинхронно перезагрузить текущую активность (плагин).
-            // Это самый надежный способ, так как он полностью пересоздает компонент,
-            // который при инициализации считает новые (сохраненные) параметры из localStorage.
-            // Это исключает любые проблемы с состоянием контроллера и фокусом.
-            setTimeout(function() {
-                Lampa.Activity.replace({});
-            }, 50);
+            
+            // Шаг 3: Перезагружаем активность, передавая ей исходный `object`.
+            // Это ГЛАВНОЕ ИСПРАВЛЕНИЕ. Раньше передавался пустой объект `{}`,
+            // из-за чего компонент не мог найти `object.movie` и ломался.
+            // Lampa сама покажет индикатор загрузки при перезагрузке.
+            Lampa.Activity.replace(object);
         };
     };
 
@@ -409,11 +401,10 @@
                       'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача',
                       'completed': 'Завершен', 'stalled': 'Остановлен', 'error': 'Ошибка',
                       'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки',
-                      'checking': 'Проверка' // Добавляем статус 'checking'
+                      'checking': 'Проверка'
                   };
                   const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
                   
-                  // Умный расчет процента загрузки
                   let progressValue = parseFloat(torrentData.progress);
                   let progressPercent;
 
@@ -428,7 +419,6 @@
                   const sizeValue = parseInt(torrentData.size, 10);
                   
                   let progressText;
-                  // ИСПРАВЛЕНО: Обработка статуса 'checking' и отсутствия данных о размере
                   if (currentStatus.toLowerCase().startsWith('checking') || isNaN(sizeValue) || sizeValue === 0) {
                       progressText = "Обработка торрента...";
                   } else {
@@ -594,7 +584,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.22 ready');
+        LOG('TorBox v11.0.23 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
