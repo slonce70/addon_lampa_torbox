@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v12.0.1 (Navigation Hotfix)
+ * TorBox Enhanced – Universal Lampa Plugin v12.0.2 (Final Navigation Fix)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Заменен некорректный вызов Lampa.Utils.isSelectVisible() на правильный метод Lampa.Select.exist(). Это устраняет критическую ошибку, возникавшую при навигации и нажатии кнопки "Назад".
- * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента для предотвращения конфликтов.
- * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Сохранен централизованный обработчик ошибок (ErrorHandler).
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ: Сохранены все предыдущие улучшения производительности и безопасности.
- * • ОЧИСТКА РЕСУРСОВ: Сохранена очистка обработчиков событий jQuery через неймспейсы.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Полностью удалены вызовы нестабильных API Lampa (exist, isSelectVisible). Проверка активных модальных окон теперь осуществляется через DOM, что является наиболее надежным методом и устраняет все известные ошибки при нажатии кнопки "Назад".
+ * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента.
+ * • НАДЕЖНАЯ ОБРАБОТКА ОШИБОК: Сохранен централизованный обработчик ошибок.
+ * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ: Сохранены все предыдущие улучшения.
+ * • ОЧИСТКА РЕСУРСОВ: Сохранена очистка обработчиков событий.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v12_0_1_hotfix';
+  const PLUGIN_ID = 'torbox_enhanced_v12_0_2_final_nav_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -66,7 +66,7 @@
                   message = `Ошибка данных: ${error.message}`;
                   break;
               default:
-                  message = error.message;
+                  message = error.message || 'Неизвестная ошибка';
           }
           Lampa.Noty.show(message, { type: 'error' });
           LOG(`Error handled (${type}):`, error);
@@ -285,10 +285,11 @@
                     else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
                 },
                 back: () => {
-                    // ### HOTFIX ###: Заменен Lampa.Utils.isSelectVisible() на Lampa.Select.exist()
-                    if (Lampa.Select.exist()) {
+                    // ### FINAL FIX ###: Заменены все проверки API на проверку DOM,
+                    // что является наиболее стабильным решением.
+                    if ($('body').find('.select').length) {
                         Lampa.Select.close();
-                    } else if (typeof Lampa.Filter !== 'undefined' && Lampa.Filter.visible) {
+                    } else if ($('body').find('.filter').length) {
                         Lampa.Filter.hide();
                         Lampa.Controller.toggle('content');
                     } else {
@@ -313,10 +314,10 @@
         }
         $(document).off('.torbox');
         
-        this.state.ageCache.clear();
-        this.state.scroll.destroy();
-        this.state.files.destroy();
-        this.state.filter.destroy();
+        if (this.state.ageCache) this.state.ageCache.clear();
+        if (this.state.scroll) this.state.scroll.destroy();
+        if (this.state.files) this.state.files.destroy();
+        if (this.state.filter) this.state.filter.destroy();
         
         for (let key in this.state) {
             this.state[key] = null;
@@ -694,7 +695,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v12.0.0 (Major Refactoring) ready');
+        LOG('TorBox v12.0.1 (Navigation Hotfix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
