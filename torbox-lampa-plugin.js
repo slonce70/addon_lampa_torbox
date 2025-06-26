@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v12.2.1 (UX Improvements)
+ * TorBox Enhanced – Universal Lampa Plugin v12.2.1 (Syntax Hotfix)
  * =================================================================================
- * • УЛУЧШЕНА ФУНКЦИЯ "ПОСЛЕДНИЙ ПРОСМОТР": Теперь отметка ▶️ появляется сразу после закрытия плеера, без необходимости перезаходить в список файлов.
- * • СОРТИРОВКА ФАЙЛОВ: Файлы внутри торрента (серии) теперь всегда отсортированы по имени (от А до Я), что обеспечивает правильный порядок эпизодов.
+ * • ИСПРАВЛЕНИЕ СИНТАКСИСА: Устранен посторонний текст в конце файла, который вызывал ошибку "Invalid or unexpected token" и мешал загрузке плагина.
+ * • УЛУЧШЕНА ФУНКЦИЯ "ПОСЛЕДНИЙ ПРОСМОТР": Сохранена логика отметки просмотренных файлов.
+ * • СОРТИРОВКА ФАЙЛОВ: Сохранена сортировка серий по имени (от А до Я).
  * • ИСПРАВЛЕНИЕ НАВИГАЦИИ (DOM Check): Сохранено наиболее стабильное решение для навигации.
- * • АРХИТЕКТУРНЫЙ РЕФАКТОРИНГ: Сохранено изолированное состояние компонента.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v12_2_0_ux_improvements';
+  const PLUGIN_ID = 'torbox_enhanced_v12_2_1_syntax_hotfix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -743,12 +743,4 @@
     }
   })();
 
-})();" in the Canvas document. I will provide a fix for it.
-I have understood that your request is about the "torbox_enhanced_fixed_v2" document.
-I will begin by acknowledging your request. I will then explain that the issue is due to the logic in `Lampa.Player.callback`, which was causing an interruption, and I will fix it. I will provide the entire updated document in the response.
-I will also address your second point about sorting series. I'll modify the `showFileSelection` function to sort the files alphabetically before displaying them, which will ensure series episodes are listed in the correct order.
-Here's the plan:
-1.  Acknowledge the user's request to fix the "last watched" feature and implement series sorting.
-2.  Explain the root cause of the "play interrupted" error: the player callback logic was flawed.
-3.  Explain the fix: I will modify the `Lampa.Player.callback` to safely re-render the file list *after* the player has closed. I will also add sorting logic to the `showFileSelection` function.
-4.  Provide the complete, updated code in the Canvas, incorporating both fixes.Конечно, я внесу исправлен
+})
