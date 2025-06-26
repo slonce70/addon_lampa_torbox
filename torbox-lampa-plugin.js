@@ -1,16 +1,16 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v11.0.29
+ * TorBox Enhanced – Universal Lampa Plugin v11.0.30
  * ============================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (NATIVE AUTH): Восстановлена правильная логика авторизации для всех платформ. Для API поиска теперь используется заголовок `Authorization` (как в v11.0.24), а для остальных API-запросов — более стабильный параметр `token`. Это решает проблему с ошибкой "NO_AUTH" в мобильных приложениях.
- * • ИСПРАВЛЕНИЕ API: Исправлено имя параметра 'seed' при добавлении торрента, что устраняло ошибку 'MISSING_REQUIRED_OPTION'.
- * • УЛУЧШЕНИЕ: Сетевой слой использует Promise-обертку над Lampa.Reguest для совместимости и чистоты кода.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (СЕТЕВОЙ СЛОЙ): Для всех API-запросов восстановлено использование 'fetch' вместо 'Lampa.Reguest'. Это решает проблемы с ошибкой авторизации '401 Unauthorized' в браузерных и некоторых desktop-версиях Lampa.
+ * • УНИФИКАЦИЯ АВТОРИЗАЦИИ: Все запросы к API (поиск, добавление, список) теперь используют единый заголовок `Authorization` для консистентности, как в стабильной версии v11.0.24. Это упрощает логику и повышает надежность.
+ * • ИСПРАВЛЕНИЕ API: Сохранено исправление имени параметра 'seed' при добавлении торрента из v11.0.29.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v11_0_29';
+  const PLUGIN_ID = 'torbox_enhanced_v11_0_30';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -43,8 +43,6 @@
 
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
 
-  const network = new Lampa.Reguest();
-
   const formatBytes = (bytes, speed = false) => {
     const B = parseInt(bytes, 10);
     if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
@@ -74,73 +72,80 @@
   if (!$('#torbox-component-styles').length) {
     $('head').append(`<style id="torbox-component-styles">.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}.torrent-list{padding:1em}.torbox-status{padding:1em 2em; text-align:center;}.torbox-status__title{font-size:1.4em; margin-bottom:1em;}.torbox-status__info{font-size: 1.1em; margin-bottom: 0.5em;}.torbox-status__progress-bar{height:10px; background:rgba(255,255,255,0.2); border-radius:5px; overflow:hidden; margin:1em 0;}.torbox-status__progress-bar>div{height:100%; width:0; background:var(--color-primary); transition: width 0.3s;}</style>`);
   }
+  
+  /**
+   * Helper for processing fetch responses
+   * @param {Response} r - The fetch response object
+   * @returns {Promise<object>} - Parsed JSON object
+   */
+  async function processResponse(r) {
+    if (r.status === 401 || r.status === 403) {
+        throw new Error(`Ошибка авторизации (${r.status}). Проверьте ваш API-ключ.`);
+    }
+    const responseText = await r.text();
+    if (responseText.toUpperCase().includes("NO_AUTH")) {
+        throw new Error('Ошибка авторизации (NO_AUTH). Проверьте API-ключ и права доступа.');
+    }
+    if (!r.ok) {
+        throw new Error(`Ошибка сети: HTTP ${r.status}`);
+    }
+    
+    try {
+        // For requestDl, the response can be a direct URL string
+        if (r.headers.get("content-type")?.includes("text/plain")) {
+            return { success: true, url: responseText };
+        }
+        const json = JSON.parse(responseText);
+        if (json.success === false) {
+            const errorMsg = (json.detail && typeof json.detail === 'string') 
+                ? json.detail 
+                : (Array.isArray(json.detail) && json.detail[0]?.msg) 
+                ? json.detail[0].msg 
+                : (json.message || 'API вернуло неизвестную ошибку.');
+            throw new Error(errorMsg);
+        }
+        return json;
+    } catch (e) {
+        LOG('Invalid JSON or API error:', responseText, e);
+        throw new Error(e.message || 'Получен некорректный ответ от сервера.');
+    }
+  }
 
-  /* ───── TorBox API wrapper (async/await with Lampa.Reguest) ───── */
+
+  /* ───── TorBox API wrapper (async/await with fetch) ───── */
   const API = {
     SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
 
-    lampaRequestPromise: function(url, options = {}) {
-        return new Promise((resolve, reject) => {
-            network.silent(
-                url,
-                (responseText) => { // onSuccess
-                    try {
-                        const json = (typeof responseText === 'object') ? responseText : JSON.parse(responseText);
-                        if (json.success === false) {
-                           if (json.detail) {
-                               const errorMsg = (typeof json.detail === 'string') ? json.detail : (Array.isArray(json.detail) && json.detail[0]?.msg) ? json.detail[0].msg : 'API вернуло ошибку';
-                               reject(new Error(errorMsg));
-                           } else {
-                               reject(new Error(json.message || 'API вернуло ошибку.'));
-                           }
-                        } else {
-                            resolve(json);
-                        }
-                    } catch (e) {
-                        reject(new Error('Получен некорректный ответ от сервера.'));
-                    }
-                },
-                (jqXHR, textStatus) => { // onError
-                    const status = jqXHR.status;
-                    if (status === 401 || String(jqXHR.responseText).includes("NO_AUTH")) {
-                        return reject(new Error('Ошибка авторизации. Проверьте ваш API-ключ.'));
-                    }
-                    reject(new Error(`Ошибка сети: ${status || textStatus || 'Fail to fetch'}`));
-                },
-                options.body || false,
-                options.headers || {}
-            );
-        });
-    },
-
-    proxiedCall: async function(targetUrl, options = {}) {
+    async proxiedCall(targetUrl, options = {}) {
         const proxy = CFG.proxyUrl;
         const proxiedUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
-        LOG('Calling via Lampa.Reguest (Promise):', proxiedUrl, 'Target:', targetUrl);
-        return this.lampaRequestPromise(proxiedUrl, options);
+        LOG('Calling via proxy:', proxiedUrl, 'Target:', targetUrl);
+        return fetch(proxiedUrl, options).then(processResponse);
     },
 
-    directAction: async function(path, body = {}, method = 'GET') {
+    async directAction(path, body = {}, method = 'GET') {
         const key = CFG.apiKey;
         let url = `${this.MAIN_API}${path}`;
-        body.token = key;
-        
         const options = {
-            headers: { 'Accept': 'application/json' }
+            method,
+            headers: { 
+                'Authorization': `Bearer ${key}`,
+                'Accept': 'application/json' 
+            }
         };
 
         if (method.toUpperCase() !== 'GET') {
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(body);
-        } else {
+        } else if (Object.keys(body).length > 0) {
             url += '?' + new URLSearchParams(body).toString();
         }
         
-        return await this.proxiedCall(url, options);
+        return this.proxiedCall(url, options);
     },
 
-    search: async function(imdbId) {
+    async search(imdbId) {
         const key = CFG.apiKey;
         let formattedImdbId = imdbId;
         if (!imdbId) throw new Error('IMDb ID не передан в функцию поиска');
@@ -150,7 +155,6 @@
         }
         const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
         
-        // ИСПРАВЛЕНИЕ: search-api требует заголовок Authorization, а не token-параметр
         const options = { 
             headers: { 
                 'Authorization': `Bearer ${key}`,
@@ -161,26 +165,35 @@
         return json.data?.torrents || [];
     },
 
-    addMagnet: async function(magnet) {
+    async addMagnet(magnet) {
         // ИСПРАВЛЕНИЕ: параметр называется 'seed'
         return this.directAction('/torrents/createtorrent', { magnet, seed: 3 }, 'POST');
     },
 
-    stopTorrent: async function(torrentId) {
+    async stopTorrent(torrentId) {
         return this.directAction('/torrents/controltorrent', { torrent_id: torrentId, operation: 'pause' }, 'POST');
     },
 
-    myList: async function(torrentId) {
-        const json = await this.directAction('/torrents/mylist', { id: torrentId }, 'GET');
+    async myList(torrentId) {
+        const json = await this.directAction('/torrents/mylist', { id: torrentId, bypass_cache: true }, 'GET');
+        // Ensure data is always an array for consistency
         if (json && json.data && !Array.isArray(json.data)) {
             json.data = [json.data];
         }
         return json;
     },
 
-    requestDl: async function(torrentId, fid) {
+    async requestDl(torrentId, fid) {
         const body = { torrent_id: torrentId, file_id: fid };
-        return this.directAction('/torrents/requestdl', body, 'GET');
+        // This endpoint requires the token as a parameter in addition to the auth header for some reason.
+        // So we are not using directAction here to have full control.
+        const key = CFG.apiKey;
+        const params = new URLSearchParams({...body, token: key}).toString();
+        const url = `${this.MAIN_API}/torrents/requestdl?${params}`;
+
+        return this.proxiedCall(url, {
+             headers: { 'Authorization': `Bearer ${key}` }
+        });
     }
   };
 
@@ -329,8 +342,8 @@
     };
     
     this.render = function() { return files.render(); };
-    this.back = function() { network.clear(); Lampa.Activity.backward(); };
-    this.pause = this.stop = this.destroy = function() { network.clear(); files.destroy(); scroll.destroy(); };
+    this.back = function() { Lampa.Activity.backward(); };
+    this.pause = this.stop = this.destroy = function() { files.destroy(); scroll.destroy(); };
   }
   
   /* ───── Full torrent handling logic ───── */
@@ -340,7 +353,7 @@
           title: 'TorBox',
           html: $(`<div class="torbox-status"><div class="torbox-status__title">${title}</div><div class="torbox-status__info" data-name="status">Ожидание...</div><div class="torbox-status__info" data-name="progress-text"></div><div class="torbox-status__progress-bar"><div style="width: 0%;"></div></div><div class="torbox-status__info" data-name="speed"></div><div class="torbox-status__info" data-name="eta"></div><div class="torbox-status__info" data-name="peers"></div></div>`),
           size: 'medium',
-          onBack: onBack || (() => { network.clear(); Lampa.Modal.close(); })
+          onBack: onBack || (() => { Lampa.Modal.close(); })
       });
   }
   
@@ -360,12 +373,13 @@
       return new Promise(async (resolve, reject) => {
           let isTrackingActive = true;
           let pollTimeout;
+          let network = new Lampa.Reguest(); // Local network instance for polling
 
           const onCancel = () => {
               if (isTrackingActive) {
                   isTrackingActive = false;
                   clearTimeout(pollTimeout);
-                  network.clear();
+                  network.clear(); // Clear any pending poll requests
                   reject(new Error("Отменено пользователем"));
               }
           };
@@ -496,7 +510,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v11.0.27 ready');
+        LOG('TorBox v11.0.30 ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
