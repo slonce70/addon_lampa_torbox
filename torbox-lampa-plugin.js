@@ -1,17 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v13.0.0 (Performance Update)
+ * TorBox Enhanced – Universal Lampa Plugin v14.0.0 (Navigation & Features Update)
  * =================================================================================
- * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ (КЭШ): Внедрен сессионный кэш для результатов поиска. Повторное открытие списка торрентов для одного и того же фильма теперь происходит мгновенно.
- * • НОВАЯ ФУНКЦИЯ (ОБНОВЛЕНИЕ): Добавлена кнопка "Обновить список" в меню фильтров для принудительной загрузки свежих данных.
- * • УЛУЧШЕНИЕ СТАБИЛЬНОСТИ: Сохранена улучшенная система обработки ошибок и валидации ответов API.
- * • УЛУЧШЕНИЕ БЕЗОПАСНОСТИ (XSS): Сохранена строгая санитизация всех входящих данных для предотвращения атак.
+ * • ИСПРАВЛЕНИЕ НАВИГАЦИИ: Устранена проблема с "залипанием" навигации после закрытия плеера.
+ * • НОВАЯ ФУНКЦИЯ (ПОИСКОВИКИ): В меню фильтров добавлен переключатель для использования собственных поисковых систем, настроенных в TorBox.
+ * • ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ (КЭШ): Сохранен сессионный кэш для мгновенной загрузки результатов.
+ * • УЛУЧШЕНИЕ СТАБИЛЬНОСТИ И БЕЗОПАСНОСТИ: Сохранены все предыдущие улучшения.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v13_0_0_performance_update';
+  const PLUGIN_ID = 'torbox_enhanced_v14_0_0_nav_features_update';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -198,7 +198,17 @@
             if (/^\d+$/.test(imdbId)) formattedImdbId = `tt${imdbId}`;
             else throw { type: 'validation', message: `Неверный формат IMDb ID: ${imdbId}` };
         }
-        const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?check_cache=true&check_owned=false&search_user_engines=false`;
+        
+        const useUserEngines = Store.get('torbox_use_user_engines', 'false') === 'true';
+        LOG(`Search with user engines: ${useUserEngines}`);
+        
+        const searchParams = new URLSearchParams({
+            check_cache: 'true',
+            check_owned: 'false',
+            search_user_engines: useUserEngines
+        });
+        
+        const url = `${this.SEARCH_API}/torrents/imdb:${formattedImdbId}?${searchParams.toString()}`;
         
         const json = await this.request(url, { method: 'GET' });
         
@@ -299,32 +309,33 @@
 
     this.start = function () {
         this.activity.loader(false);
-        if (!this.state.controller_registered) {
-            Lampa.Controller.add('content', {
-                toggle: () => { 
-                    Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
-                    Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render()); 
-                },
-                up: () => { Navigator.move('up'); },
-                down: () => { Navigator.move('down'); },
-                left: () => { Lampa.Controller.toggle('menu'); },
-                right: () => { 
-                    if(Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
-                    else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
-                },
-                back: () => {
-                    if ($('body').find('.select').length) {
-                        Lampa.Select.close();
-                    } else if ($('body').find('.filter').length) {
-                        Lampa.Filter.hide();
-                        Lampa.Controller.toggle('content');
-                    } else {
-                        Lampa.Activity.backward();
-                    }
+        
+        // FIX: Всегда перерегистрируем контроллер, чтобы восстановить управление после закрытия плеера.
+        Lampa.Controller.add('content', {
+            toggle: () => { 
+                Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
+                Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render()); 
+            },
+            up: () => { Navigator.move('up'); },
+            down: () => { Navigator.move('down'); },
+            left: () => { Lampa.Controller.toggle('menu'); },
+            right: () => { 
+                if(Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
+                else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
+            },
+            back: () => {
+                if ($('body').find('.select').length) {
+                    Lampa.Select.close();
+                } else if ($('body').find('.filter').length) {
+                    Lampa.Filter.hide();
+                    Lampa.Controller.toggle('content');
+                } else {
+                    Lampa.Activity.backward();
                 }
-            });
-            this.state.controller_registered = true;
-        }
+            }
+        });
+        this.state.controller_registered = true;
+        
         Lampa.Controller.toggle('content');
     };
 
@@ -376,21 +387,31 @@
     this.initializeFilterHandlers = function() {
         this.state.filter.onSelect = (type, a, b) => {
             Lampa.Select.close();
+            
             if (type === 'sort') {
                 this.state.sort = a.key;
                 Store.set('torbox_sort_method', a.key);
+                this.display();
             }
+            
             if (type === 'filter') {
-                if (a.refresh) {
-                    this.loadAndDisplayTorrents(true); // Force update
+                if (a.toggle_user_engines) {
+                    const current = Store.get('torbox_use_user_engines', 'false') === 'true';
+                    Store.set('torbox_use_user_engines', String(!current));
+                    this.loadAndDisplayTorrents(true); // Принудительная перезагрузка
+                } else if (a.refresh) {
+                    this.loadAndDisplayTorrents(true);
                 } else if (a.reset) {
                     this.state.filters = { quality: 'all', tracker: 'all' };
-                } else {
+                    Store.set('torbox_filters', JSON.stringify(this.state.filters));
+                    this.display();
+                } else if (a.stype) {
                     this.state.filters[a.stype] = b.value; 
+                    Store.set('torbox_filters', JSON.stringify(this.state.filters));
+                    this.display();
                 }
-                Store.set('torbox_filters', JSON.stringify(this.state.filters));
             }
-            this.display();
+
             Lampa.Controller.toggle('content');
         };
     };
@@ -409,9 +430,12 @@
         const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
         const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
         
+        const useUserEngines = Store.get('torbox_use_user_engines', 'false') === 'true';
+
         const filter_items = [
             {title:'Качество', subtitle:filters.quality==='all'?'Все':filters.quality, items:quality_items, stype:'quality'},
             {title:'Трекер', subtitle:filters.tracker==='all'?'Все':filters.tracker, items:tracker_items, stype:'tracker'},
+            {title:`Свои поисковики (${useUserEngines ? 'Вкл' : 'Выкл'})`, toggle_user_engines: true},
             {title:'Сбросить фильтры', reset: true},
             {title:'Обновить список', refresh: true}
         ];
@@ -772,7 +796,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v13.0.0 (Performance Update) ready');
+        LOG('TorBox v14.0.0 (Navigation & Features Update) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
