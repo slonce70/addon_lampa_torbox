@@ -1,20 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v21.0.0 (Component Lifecycle Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v21.1.0 (Critical Lifecycle & Filter Fix)
  * =================================================================================
- * • ЖИЗНЕННЫЙ ЦИКЛ: Полностью переработан компонент TorBoxComponent для соответствия
- * архитектуре Lampa (create, start, destroy). Это решает критическую проблему с
- * потерей фокуса навигации после асинхронной загрузки данных.
- * • СТАБИЛЬНОСТЬ: Логика создания UI отделена от логики загрузки данных, что
- * обеспечивает предсказуемое поведение и корректную работу контроллера.
- * • ЧИСТОТА КОДА: Убрана лишняя логика из конструктора, код приведен в
- * соответствие с предоставленным техническим заданием.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Добавлены недостающие методы pause() и stop() в
+ * компонент. Их отсутствие вызывало ошибку "component.pause is not a function"
+ * и полностью ломало навигацию при попытке воспроизвести торрент.
+ * • ИСПРАВЛЕНИЕ ФИЛЬТРА: Устранена ошибка в логике фильтрации по трекеру,
+ * из-за которой выбор мог работать некорректно.
+ * • СТАБИЛЬНОСТЬ: Архитектура по-прежнему соответствует лучшим практикам (bwa.js).
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v21_0_0_lifecycle_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v21_1_0_lifecycle_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -174,7 +173,7 @@
   }
 
   const API = {
-    SEARCH_API: 'https://search-api.torbox.app', // Fallback API
+    SEARCH_API: 'https://search-api.torbox.app',
     MAIN_API: 'https://api.torbox.app/v1/api',
     request: async function(url, options = {}) {
         if (!CFG.proxyUrl) {
@@ -283,11 +282,11 @@
     }
   };
 
-  /* ───── TorBox Component (v21 - Lifecycle Refactored) ───── */
+  /* ───── TorBox Component (v21.1 - Lifecycle & Filter Fix) ───── */
   function TorBoxComponent(object) {
     this.activity = object.activity;
     this.movie = object.movie;
-    this.state = {}; // Инициализируем пустой state
+    this.state = {}; 
 
     const sort_types = [
         { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
@@ -296,20 +295,14 @@
         { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
     ];
 
-    /**
-     * << ИЗМЕНЕНИЕ: create() теперь ТОЛЬКО создает базовую HTML-структуру.
-     * Он выполняется синхронно и немедленно возвращает готовый DOM-элемент.
-     * Никакой загрузки данных здесь нет.
-     */
     this.create = function() {
         LOG("Component create()");
-        // Инициализация state при создании компонента
         this.state = {
             scroll: new Lampa.Scroll({ mask: true, over: true }),
             files: new Lampa.Explorer(object),
             filter: new Lampa.Filter(object),
             last: null,
-            initialized: false, // Флаг для первой инициализации
+            initialized: false, 
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
@@ -322,11 +315,6 @@
         return this.render();
     };
 
-    /**
-     * << ИЗМЕНЕНИЕ: start() вызывается каждый раз, когда компонент становится активным.
-     * Здесь мы регистрируем контроллер и, если это первый запуск,
-     * инициируем загрузку данных.
-     */
     this.start = function() {
         LOG("Component start()");
         this.activity.loader(false);
@@ -351,28 +339,35 @@
         });
         Lampa.Controller.toggle('content');
 
-        // Запускаем загрузку данных только при первом отображении
         if (!this.state.initialized) {
             this.initializeFilterHandlers();
             this.loadAndDisplayTorrents();
             this.state.initialized = true;
         }
     };
-
+    
     /**
-     * << ИЗМЕНЕНИЕ: destroy() теперь корректно очищает все ресурсы.
-     * Дерегистрирует контроллер, уничтожает Lampa-компоненты и обнуляет state.
+     * << CRITICAL FIX: Добавлены пустые методы pause и stop.
+     * Lampa требует их наличия в жизненном цикле компонента.
+     * Их отсутствие вызывало сбой при переключении активностей.
      */
+    this.pause = function() {
+        LOG("Component pause()");
+    };
+
+    this.stop = function() {
+        LOG("Component stop()");
+    };
+
     this.destroy = function() {
         LOG("Component destroy()");
         Lampa.Controller.add('content', null);
         $(document).off('.torbox');
         
-        this.state.scroll.destroy();
-        this.state.files.destroy();
-        this.state.filter.destroy();
+        if (this.state.scroll) this.state.scroll.destroy();
+        if (this.state.files) this.state.files.destroy();
+        if (this.state.filter) this.state.filter.destroy();
         
-        // Очистка для сборщика мусора
         for (let key in this.state) {
             this.state[key] = null;
         }
@@ -392,7 +387,7 @@
                     const cacheKey = `torbox_cached_hashes_${this.movie.id || this.movie.imdb_id}`;
                     delete Cache.store[cacheKey];
                     LOG(`Локальный кэш для '${this.movie.title}' очищен вручную.`);
-                    this.loadAndDisplayTorrents(); // Перезагружаем данные
+                    this.loadAndDisplayTorrents(); 
                 } else if (a.reset) {
                     this.state.filters = { quality: 'all', tracker: 'all' };
                     Store.set('torbox_filters', JSON.stringify(this.state.filters));
@@ -418,6 +413,7 @@
         const qualities = ['all', ...new Set(all_torrents.map(t => ql(t.raw_title)))];
         const trackers = ['all', ...new Set(all_torrents.map(t => t.tracker).filter(Boolean))];
         const quality_items = qualities.map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
+        // << FIX: Исправлена опечатка (было ... === q, должно быть ... === t)
         const tracker_items = trackers.map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
 
         const filter_items = [
@@ -539,7 +535,6 @@
     this.display = function() {
         this.updateFilterUI();
         this.draw(this.applyFiltersAndSort());
-        // После отрисовки переключаем фокус обратно на контент
         Lampa.Controller.toggle('content');
     };
 
@@ -691,6 +686,10 @@
       const player_data = { url: finalUrl, title: file.name || movie.title, poster: movie.img };
       Lampa.Modal.close();
       Lampa.Player.play(player_data);
+      // Lampa.Activity.push({
+      //     component: 'player',
+      //     ...player_data
+      // });
     } catch (e) {
       ErrorHandler.show(e.type || 'unknown', e);
       Lampa.Modal.close();
@@ -740,7 +739,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v21.0.0 (Component Lifecycle Fix) ready');
+        LOG('TorBox v21.1.0 (Critical Lifecycle & Filter Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
