@@ -1,19 +1,23 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v25.2.4 (Stable Architecture)
+ * TorBox Enhanced – Universal Lampa Plugin v25.2.5 (Lifecycle & API Fix)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ ЗАПУСКА: Полностью устранена ошибка "TypeError: Class extends value is not a constructor".
- * Компонент переписан с использованием стабильного синтаксиса функций-конструкторов,
- * совместимого с Lampa, вместо ES6-классов.
- * • НАДЕЖНАЯ АРХИТЕКТУРА: Сохранена вся исправленная логика жизненного цикла
- * (синхронный create, асинхронный start) и явное управление навигацией
- * через Lampa.Controller.collectionSet(), что обеспечивает стабильную работу.
+ * • ИСПРАВЛЕНИЕ КРИТИЧЕСКОГО СБОЯ: Полностью исправлена ошибка "TypeError: Cannot read properties of undefined (reading 'render')".
+ * Компонент переписан в соответствии со стандартным жизненным циклом Lampa:
+ * - Метод create() теперь только готовит и инициализирует все данные и HTML-структуру.
+ * - Метод render() теперь корректно возвращает созданную в create() HTML-структуру, как того ожидает Lampa.
+ * - Метод start() запускает всю логику уже после того, как Lampa вставила элемент в DOM.
+ * Это обеспечивает стабильную и предсказуемую работу компонента.
+ *
+ * • УЛУЧШЕНА НАДЕЖНОСТЬ API: В функцию отслеживания статуса торрента `trackTorrentStatus` добавлен механизм повторных запросов.
+ * Это решает проблему "Торрент исчез из списка", которая возникала из-за задержки в API TorBox после добавления нового торрента.
+ * Плагин теперь будет делать несколько попыток получить статус, прежде чем выдать ошибку.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v25_2_0_stable';
+  const PLUGIN_ID = 'torbox_enhanced_v25_2_5_lifecycle_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -57,7 +61,7 @@
 
   const CFG = {
     get debug()     { return Store.get('torbox_debug', '0') === '1'; },
-    set debug(v)    { Store.set('torbox_debug', v ? '1' : '0');      },
+    set debug(v)    { Store.set('torbox_debug', v ? '1' : '0');       },
     get proxyUrl()  { return Store.get('torbox_proxy_url') || DEFAULTS.proxyUrl; },
     set proxyUrl(v) { Store.set('torbox_proxy_url', v); },
     get apiKey()    { return Store.get('torbox_api_key') || DEFAULTS.apiKey; },
@@ -229,8 +233,8 @@
             let message = 'Произошла неизвестная ошибка';
             const err_message = error.message || 'Детали отсутствуют';
             if (error.name === 'AbortError') {
-               LOG('Request aborted by user.');
-               return;
+                LOG('Request aborted by user.');
+                return;
             }
             switch (type) {
                 case 'network': message = `Сетевая ошибка: ${err_message}`; break;
@@ -443,8 +447,14 @@
         this.movie = object.movie;
         this.activity = object.activity;
         this.abortController = new AbortController();
+        this.mainHtml = null; // **FIX:** Инициализируем свойство для хранения HTML
     }
 
+    /**
+     * **FIX:** Метод CREATE
+     * Теперь отвечает ТОЛЬКО за инициализацию состояния и создание HTML-структуры.
+     * Он больше не вставляет HTML в DOM сам, а готовит его для метода render().
+     */
     TorBoxComponent.prototype.create = function() {
         LOG("Component create()");
         this.state = {
@@ -454,40 +464,38 @@
             last_focused: null,
         };
         
-        // Створюємо scroll з правильними параметрами
         this.scroll = new Lampa.Scroll({ 
             mask: true, 
             over: true,
             step: 250
         });
         
-        // Додаємо CSS класи для правильного відображення
         this.scroll.body().addClass('torbox-list-container');
-        this.scroll.render().css({
-            'height': '100%',
-            'overflow-y': 'auto'
-        });
         
-        const mainHtml = $(`
+        this.mainHtml = $(`
             <div class="torbox-main">
                 <div class="torbox-head"></div>
                 <div class="card-content__results"></div>
             </div>
         `);
         
-        // Додаємо scroll до контейнера результатів
-        const resultsContainer = mainHtml.find('.card-content__results');
-        resultsContainer.append(this.scroll.render());
-        
-        // Очищуємо та додаємо до activity
-        this.activity.render().empty().append(mainHtml);
-        
-        // Забезпечуємо правильну висоту для scroll
-        setTimeout(() => {
-            this.scroll.render().css('height', '100%');
-        }, 100);
+        this.mainHtml.find('.card-content__results').append(this.scroll.render());
     };
       
+    /**
+     * **FIX:** Метод RENDER
+     * Этот метод вызывается фреймворком Lampa для получения DOM-элемента компонента.
+     * Раньше здесь была ошибка, теперь он корректно возвращает HTML, созданный в create().
+     */
+    TorBoxComponent.prototype.render = function() {
+        return this.mainHtml;
+    };
+
+    /**
+     * Метод START
+     * Выполняется после того, как Lampa добавила компонент в DOM.
+     * Здесь запускается вся логика: контроллеры, загрузка данных.
+     */
     TorBoxComponent.prototype.start = function() {
         LOG("Component start()");
         Lampa.Controller.add('content', {
@@ -588,7 +596,6 @@
         filtered.forEach(torrent => {
             this.renderItem(torrent);
         });
-        // Обновляем навігацію після рендерингу всіх елементів
         setTimeout(() => {
             this.updateNavController();
         }, 100);
@@ -712,7 +719,6 @@
             this.scroll.destroy();
         }
         
-        // Очищаємо контролер та видаляємо обробники подій
         Lampa.Controller.clear();
         this.activity.render().off();
         
@@ -723,10 +729,6 @@
         for (let key in this) {
             delete this[key];
         }
-    };
-
-    TorBoxComponent.prototype.render = function() {
-        return this.state.files.render();
     };
 
     let modalCache = {};
@@ -755,24 +757,69 @@
         if (modalCache.progressBar.length) modalCache.progressBar.css('width', progressPercent + '%');
     }
 
+    /**
+     * **FIX:** Функция trackTorrentStatus
+     * Добавлен механизм повторных попыток для борьбы с задержкой API.
+     */
     function trackTorrentStatus(torrentId, signal) {
         return new Promise((resolve, reject) => {
-            let isTrackingActive = true; let pollTimeout;
-            const onCancel = () => { if (isTrackingActive) { isTrackingActive = false; clearTimeout(pollTimeout); reject({type: 'user', message: 'Отменено пользователем'}); } };
+            let isTrackingActive = true; 
+            let pollTimeout;
+            let retries = 0; // Счетчик повторных попыток
+            const MAX_RETRIES = 5; // Максимальное количество попыток
+
+            const onCancel = () => { 
+                if (isTrackingActive) { 
+                    isTrackingActive = false; 
+                    clearTimeout(pollTimeout); 
+                    reject({type: 'user', message: 'Отменено пользователем'}); 
+                } 
+            };
+
             showStatusModal('Отслеживание статуса...', onCancel);
-            if (signal) signal.addEventListener('abort', () => { isTrackingActive = false; clearTimeout(pollTimeout); reject(new DOMException('Aborted', 'AbortError')); });
+            
+            if (signal) {
+                signal.addEventListener('abort', () => { 
+                    isTrackingActive = false; 
+                    clearTimeout(pollTimeout); 
+                    reject(new DOMException('Aborted', 'AbortError')); 
+                });
+            }
+
             const poll = async () => {
                 if (!isTrackingActive) { clearTimeout(pollTimeout); return; }
+                
                 try {
                     const torrentResult = await API.myList(torrentId, signal);
                     const torrentData = torrentResult?.data?.[0];
+
                     if (!isTrackingActive) return;
-                    if (!torrentData) { isTrackingActive = false; return reject({type: 'api', message: "Торрент исчез из списка"}); }
+
+                    // Если торрент не найден, пробуем еще раз
+                    if (!torrentData) {
+                        retries++;
+                        if (retries > MAX_RETRIES) {
+                            isTrackingActive = false;
+                            // Сообщение об ошибке стало более информативным
+                            return reject({type: 'api', message: "Торрент не появился в списке после добавления."});
+                        } else {
+                            LOG(`Торрент ${torrentId} не найден, попытка ${retries}/${MAX_RETRIES}. Повтор через 3 сек.`);
+                            updateStatusModal({ status: `Ожидание в списке... (попытка ${retries})` });
+                            if (isTrackingActive) pollTimeout = setTimeout(poll, 3000); // Повторяем через 3 секунды
+                            return;
+                        }
+                    }
+
+                    // Если торрент найден, сбрасываем счетчик
+                    retries = 0; 
+
                     const currentStatus = torrentData.download_state || torrentData.status;
                     const statusMap = {'queued':'В очереди','downloading':'Загрузка','uploading':'Раздача','completed':'Завершен','stalled':'Остановлен','error':'Ошибка','metadl':'Получение метаданных','paused':'На паузе','failed':'Ошибка загрузки','checking':'Проверка'};
                     const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
+                    
                     let progressValue = parseFloat(torrentData.progress);
                     let progressPercent = isNaN(progressValue) ? 0 : (progressValue > 1 ? progressValue : progressValue * 100);
+                    
                     updateStatusModal({ 
                         status: escapeHtml(statusText), 
                         progress: progressPercent, 
@@ -781,8 +828,10 @@
                         eta: `Осталось: ${formatTime(torrentData.eta)}`, 
                         peers: `Сиды: ${torrentData.seeds||0} / Пиры: ${torrentData.peers||0}` 
                     });
+
                     const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
                     const filesAreReady = torrentData.files && torrentData.files.length > 0;
+
                     if (isDownloadFinished && filesAreReady) {
                         isTrackingActive = false;
                         if (currentStatus.startsWith('uploading')) {
@@ -793,7 +842,10 @@
                     } else {
                         if (isTrackingActive) pollTimeout = setTimeout(poll, 5000);
                     }
-                } catch (error) { isTrackingActive = false; reject(error); }
+                } catch (error) { 
+                    isTrackingActive = false; 
+                    reject(error); 
+                }
             };
             poll();
         });
@@ -889,7 +941,7 @@
     Lampa.Component.add('torbox_component', TorBoxComponent);
     addSettings();
     boot();
-    LOG('TorBox v25.2.0 (Stable Architecture) ready');
+    LOG('TorBox v25.2.5 (Lifecycle & API Fix) ready');
   }
 
   (function bootLoop () {
