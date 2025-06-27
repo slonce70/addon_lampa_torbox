@@ -1,8 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.3 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.4 (Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Відновлено коректну роботу кнопки "TorBox" на сторінці 
- * фільму, яка не реагувала на натискання через невірний обробник подій.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
+ * `appendChild is not a function`, які виникали через несумісність з API Lampa 
+ * після рефакторингу. Плагін знову повністю функціональний.
  * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
  * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
  * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
@@ -14,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_3_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_4_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -521,6 +522,10 @@
     TorBoxComponent.prototype.create = function() {
         LOG("Component create() -> initialize()");
         this.initialize();
+        return this.render();
+    };
+    
+    TorBoxComponent.prototype.render = function() {
         return this.state.files.render();
     };
 
@@ -770,7 +775,7 @@
             $(item).on('hover:enter', () => this._handleTorrentClick(t));
             fragment.appendChild(item);
         });
-        this.state.scroll.append(fragment);
+        this.state.scroll.render().append(fragment);
     };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
@@ -829,14 +834,14 @@
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
-        $(scrollRender).empty();
+        scrollRender.empty();
         const emptyMsg = document.createElement('div');
         emptyMsg.className = 'empty';
         const text = document.createElement('div');
         text.className = 'empty__text';
         text.textContent = msg || 'Торренти не знайдені';
         emptyMsg.appendChild(text);
-        scrollRender.appendChild(emptyMsg);
+        scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
     
