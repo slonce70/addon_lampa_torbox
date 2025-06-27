@@ -1,21 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.8 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Refactored & Stabilized)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій, через який список торрентів 
- * відображався некоректно (горизонтально). Відновлено правильний метод
- * додавання елементів, сумісний з API Lampa. Також виправлено помилку
- * оновлення інтерфейсу при поверненні з плеєра.
- * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
- * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
- * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
- * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
+ * повернення до сумісного з Lampa методу додавання елементів та виклику 
+ * scroll.update() для коректного перерахунку сітки.
+ * • ВИПРАВЛЕННЯ СУМІСНОСТІ: Виправлено передачу DOM-елементів у методи Lampa
+ * для уникнення помилок 'getBoundingClientRect'.
+ * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ, СТАБІЛЬНІСТЬ: Збережено всі попередні покращення.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_8_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -595,7 +593,8 @@
         this.state.scroll.body().addClass('torrent-list');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
-        this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
+        const headBlock = this.state.files.render().find('.explorer__files-head')[0];
+        if (headBlock) this.state.scroll.minus(headBlock);
         
         this.loadAndDisplayTorrents();
         this.state.initialized = true;
@@ -771,10 +770,15 @@
         torrents_list.forEach(t => {
             const item = this._createTorrentDOMItem(t, lastTorrentHash);
             const $item = $(item);
-            $item.on('hover:focus', () => { this.state.last = item; this.state.scroll.update($item, true); });
+            $item.on('hover:focus', () => { 
+                this.state.last = item; 
+                this.state.scroll.update(item, true); 
+            });
             $item.on('hover:enter', () => this._handleTorrentClick(t));
             this.state.scroll.append($item);
         });
+        
+        this.state.scroll.update(false, true);
     };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
@@ -1026,8 +1030,8 @@
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 if (e.object.component && typeof e.object.component.display === 'function') {
-                                     e.object.component.display(); // Refresh view to show highlights
+                                 if (e.object.activity && e.object.activity.component && typeof e.object.activity.component.display === 'function') {
+                                     e.object.activity.component.display(); // Refresh view to show highlights
                                      Lampa.Controller.toggle('content');
                                      LOG('Navigation and display restored');
                                  }
@@ -1079,7 +1083,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.7 (Refactored) ready');
+            LOG('TorBox v30.0.8 (Refactored) ready');
         };
 
         return { init };
