@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v25.2.0 (Stable Architecture)
+ * TorBox Enhanced – Universal Lampa Plugin v25.2.3 (Stable Architecture)
  * =================================================================================
  * • ИСПРАВЛЕНИЕ ЗАПУСКА: Полностью устранена ошибка "TypeError: Class extends value is not a constructor".
  * Компонент переписан с использованием стабильного синтаксиса функций-конструкторов,
@@ -479,6 +479,9 @@
         const resultsContainer = mainHtml.find('.card-content__results');
         resultsContainer.append(this.scroll.render());
         
+        // Ініціалізуємо scroll після додавання до DOM
+        this.scroll.update();
+        
         // Очищуємо та додаємо до activity
         this.activity.render().empty().append(mainHtml);
         
@@ -492,8 +495,13 @@
         LOG("Component start()");
         Lampa.Controller.add('content', {
             toggle: () => {
-                Lampa.Controller.collectionSet(this.activity.render());
-                Lampa.Controller.collectionFocus(this.state.last_focused, this.activity.render());
+                if (this.scroll && this.scroll.render()) {
+                    Lampa.Controller.collectionSet(this.scroll.render());
+                    Lampa.Controller.collectionFocus(this.state.last_focused, this.scroll.render());
+                } else {
+                    Lampa.Controller.collectionSet(this.activity.render());
+                    Lampa.Controller.collectionFocus(this.state.last_focused, this.activity.render());
+                }
             },
             back: () => {
                 if ($('body').find('.select').length) Lampa.Select.close();
@@ -558,9 +566,14 @@
     TorBoxComponent.prototype.renderContent = function() {
         const { all_torrents, filters, sort } = this.state;
         this.scroll.clear();
+        
+        // Додаємо лог для діагностики
+        LOG(`Rendering ${all_torrents.length} total torrents`);
         let filtered = all_torrents.slice();
         if (filters.quality !== 'all') filtered = filtered.filter(t => ql(t.raw_title) === filters.quality);
         if (filters.tracker !== 'all') filtered = filtered.filter(t => t.tracker === filters.tracker);
+        
+        LOG(`After filtering: ${filtered.length} torrents to display`);
         const sort_types = {
             'seeders': { field: 'last_known_seeders', reverse: true },
             'size_desc': { field: 'size', reverse: true },
@@ -588,13 +601,16 @@
         filtered.forEach(torrent => {
             this.renderItem(torrent);
         });
-        // Обновляем навігацію після рендерингу всіх елементів
+        // Обновляем scroll та навігацію після рендерингу всіх елементів
         setTimeout(() => {
+            this.scroll.update();
             this.updateNavController();
+            LOG(`Finished rendering. Total items in scroll: ${this.scroll.render().find('.torbox-item').length}`);
         }, 100);
     };
 
     TorBoxComponent.prototype.renderItem = function(t) {
+        LOG(`Rendering item: ${t.raw_title}`);
         const lastPlayedKey = `torbox_last_torrent_hash_${this.movie.id}`;
         const lastTorrentHash = Store.get(lastPlayedKey, null);
         const isLastPlayed = lastTorrentHash && t.hash && (t.hash.toLowerCase() === lastTorrentHash.toLowerCase());
@@ -617,6 +633,7 @@
             handleTorrent(t, this.movie, this, this.abortController.signal);
         });
         this.scroll.append(itemHtml);
+        this.scroll.update(itemHtml, true);
     };
     
     TorBoxComponent.prototype.renderHead = function() {
@@ -689,15 +706,20 @@
     };
     
     TorBoxComponent.prototype.renderStatus = function(message) {
+        LOG(`Rendering status: ${message}`);
         this.scroll.clear();
         const statusElement = $(`<div class="torbox-status selector">${escapeHtml(message)}</div>`);
         this.scroll.append(statusElement);
+        this.scroll.update(statusElement, true);
         this.updateNavController();
+        LOG(`Status element added to scroll`);
     };
     
     TorBoxComponent.prototype.updateNavController = function() {
-        Lampa.Controller.collectionSet(this.activity.render());
-        Lampa.Controller.collectionFocus(this.state.last_focused, this.activity.render());
+        if (this.scroll && this.scroll.render()) {
+            Lampa.Controller.collectionSet(this.scroll.render());
+            Lampa.Controller.collectionFocus(this.state.last_focused, this.scroll.render());
+        }
     };
 
     TorBoxComponent.prototype.destroy = function() {
