@@ -1,8 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.2 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.3 (Refactored)
  * =================================================================================
- * • ВИПРАВЛЕННЯ: Усунуто помилку `Cannot read properties of undefined`, яка виникала
- * при переході до налаштувань плагіна через некоректну ініціалізацію параметрів.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Відновлено коректну роботу кнопки "TorBox" на сторінці 
+ * фільму, яка не реагувала на натискання через невірний обробник подій.
  * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
  * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
  * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
@@ -14,7 +14,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_2_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_3_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1005,17 +1005,14 @@
 
                 if (root_dom.querySelector('.view--torbox')) return;
                 
-                const btn = document.createElement('div');
-                btn.className = 'full-start__button selector view--torbox';
-                btn.dataset.subtitle = 'TorBox';
-                btn.innerHTML = `${ICON}<span>TorBox</span>`;
+                const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
 
-                btn.addEventListener('click', () => {
+                btn.on('hover:enter', () => {
                     Lampa.Activity.push({ component: 'torbox_component', title: 'TorBox - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie });
                 });
 
-                const torrentButton = root_dom.querySelector('.view--torrent');
-                if (torrentButton) {
+                const torrentButton = root_jq.find('.view--torrent');
+                if (torrentButton.length) {
                     torrentButton.after(btn);
                 }
             });
