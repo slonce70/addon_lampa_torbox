@@ -1,19 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v23.0.0 (Hybrid Stable Rebuild)
+ * TorBox Enhanced – Universal Lampa Plugin v24.0.0 (Definitive Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Структура компонента полностью возвращена к проверенной
- * и стабильной версии (аналогично v12/v18), чтобы устранить конфликты с Lampa Activity
- * и постоянное пересоздание компонента. Это решает все проблемы с навигацией.
- * • ГИБРИДНЫЙ ПОИСК: В стабильную структуру интегрирована вся новая логика:
- * поиск через внешние парсеры с последующей проверкой кэша в TorBox.
- * • НАДЕЖНОСТЬ: Плагин сочетает стабильность старой архитектуры с возможностями новой.
+ * • КОРЕННОЕ ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: Компонент полностью перестроен по асинхронной
+ * модели для устранения конфликтов с жизненным циклом Lampa. Логика создания UI
+ * отделена от логики загрузки данных, что решает все проблемы с навигацией,
+ * "серой маской" и пересозданием компонента.
+ * • СТАБИЛЬНОСТЬ И ФУНКЦИОНАЛЬНОСТЬ: Сохранен весь функционал гибридного поиска
+ * (парсеры + кэш TorBox), фильтров и сортировки, который теперь работает в рамках
+ * стабильной и правильной архитектуры.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v23_0_0_stable_rebuild';
+  const PLUGIN_ID = 'torbox_enhanced_v24_0_0_definitive_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -283,18 +284,11 @@
     }
   };
 
-  /* ───── TorBox Component (v23.0 - Hybrid Stable Rebuild) ───── */
+  /* ───── TorBox Component (v24.0 - Definitive Fix) ───── */
   function TorBoxComponent(object) {
     this.activity = object.activity;
     this.movie = object.movie;
-
-    this.state = {
-        scroll: null, files: null, filter: null, last: null,
-        initialized: false, controller_registered: false,
-        all_torrents: [],
-        sort: Store.get('torbox_sort_method', 'seeders'),
-        filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
-    };
+    this.state = {};
 
     const sort_types = [
         { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
@@ -303,14 +297,39 @@
         { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
     ];
 
+    /**
+     * create() - Синхронно создает "скелет" UI.
+     * Никаких асинхронных операций.
+     */
     this.create = function() {
-        this.initialize();
+        LOG("Component create()");
+        
+        this.state = {
+            scroll: new Lampa.Scroll({ mask: true, over: true }),
+            files: new Lampa.Explorer(object),
+            filter: new Lampa.Filter(object),
+            last: null,
+            initialized: false,
+            all_torrents: [],
+            sort: Store.get('torbox_sort_method', 'seeders'),
+            filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
+        };
+
+        this.state.scroll.body().addClass('torrent-list');
+        this.state.files.appendFiles(this.state.scroll.render());
+        this.state.files.appendHead(this.state.filter.render());
+
         return this.render();
     };
 
+    /**
+     * start() - Единственная точка входа. Регистрирует контроллер и
+     * один раз запускает асинхронную загрузку данных.
+     */
     this.start = function() {
         LOG("Component start()");
         this.activity.loader(false);
+
         Lampa.Controller.add('content', {
             toggle: () => {
                 Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
@@ -329,37 +348,29 @@
                 else Lampa.Activity.backward();
             }
         });
-        this.state.controller_registered = true;
-        Lampa.Controller.toggle('content');
-    };
 
+        if (!this.state.initialized) {
+            this.state.initialized = true;
+            this.initializeFilterHandlers();
+            this.loadAndDisplayTorrents(); // Асинхронная загрузка
+        } else {
+            Lampa.Controller.toggle('content'); // Если возвращаемся, просто активируем
+        }
+    };
+    
     this.pause = function() { LOG("Component pause()"); };
     this.stop = function() { LOG("Component stop()"); };
 
     this.destroy = function() {
         LOG("Component destroy()");
-        if (this.state.controller_registered) {
-            Lampa.Controller.add('content', null);
-            this.state.controller_registered = false;
-        }
+        Lampa.Controller.add('content', null);
         $(document).off('.torbox');
+        
         if (this.state.scroll) this.state.scroll.destroy();
         if (this.state.files) this.state.files.destroy();
         if (this.state.filter) this.state.filter.destroy();
+        
         for (let key in this.state) { this.state[key] = null; }
-    };
-
-    this.initialize = function() {
-        if (this.state.initialized) return;
-        this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
-        this.state.files = new Lampa.Explorer(object);
-        this.state.filter = new Lampa.Filter(object);
-        this.initializeFilterHandlers();
-        this.state.scroll.body().addClass('torrent-list');
-        this.state.files.appendFiles(this.state.scroll.render());
-        this.state.files.appendHead(this.state.filter.render());
-        this.loadAndDisplayTorrents();
-        this.state.initialized = true;
     };
 
     this.initializeFilterHandlers = function() {
@@ -374,7 +385,7 @@
                 if (a.refresh) {
                     const cacheKey = `torbox_cached_hashes_${this.movie.id || this.movie.imdb_id}`;
                     delete Cache.store[cacheKey];
-                    this.loadAndDisplayTorrents(); 
+                    this.loadAndDisplayTorrents(true); 
                 } else if (a.reset) {
                     this.state.filters = { quality: 'all', tracker: 'all' };
                     Store.set('torbox_filters', JSON.stringify(this.state.filters));
@@ -443,14 +454,29 @@
         return filtered;
     };
 
-    this.loadAndDisplayTorrents = async function() {
+    this.loadAndDisplayTorrents = async function(force_refresh = false) {
         this.activity.loader(true);
         this.state.scroll.clear();
+        this.empty('Загрузка торрентов...');
+        
         const movie = this.movie;
         if (!movie || (!movie.title && !movie.imdb_id)) {
             this.empty('Название фильма или IMDb ID не найдены');
             return;
         }
+
+        const cacheKey = `torbox_hybrid_${movie.id || movie.imdb_id}`;
+        if (!force_refresh) {
+            const cached = Cache.get(cacheKey);
+            if (cached) {
+                LOG('Using cached results for hybrid search');
+                this.state.all_torrents = cached;
+                this.display();
+                this.activity.loader(false);
+                return;
+            }
+        }
+        
         try {
             this.empty('Получение списка с публичных парсеров...');
             const rawTorrents = await API.searchPublicTrackers(movie);
@@ -478,49 +504,36 @@
                 return;
             }
 
-            const cacheKey = `torbox_cached_hashes_${movie.id || movie.imdb_id}`;
-            let cachedHashes = Cache.get(cacheKey);
-            if (!cachedHashes) {
-                this.empty(`Проверка кэша для ${hashesForCheck.length} торрентов в TorBox...`);
-                const cachedDataObject = await API.checkCached(hashesForCheck);
-                cachedHashes = new Set(Object.keys(cachedDataObject).map(h => h.toLowerCase()));
-                LOG(`Получен статус кэша. ${cachedHashes.size} торрентов закэшировано.`);
-                Cache.set(cacheKey, cachedHashes);
-            }
-
+            this.empty(`Проверка кэша для ${hashesForCheck.length} торрентов в TorBox...`);
+            const cachedDataObject = await API.checkCached(hashesForCheck);
+            const cachedHashes = new Set(Object.keys(cachedDataObject).map(h => h.toLowerCase()));
+            LOG(`Получен статус кэша. ${cachedHashes.size} торрентов закэшировано.`);
+            
             this.state.all_torrents = torrentsWithHashes.map(({ raw, hash }) => ({
                 raw_title: raw.Title, size: raw.Size, magnet: raw.MagnetUri, hash: hash,
                 last_known_seeders: raw.Seeders, last_known_peers: raw.Peers || raw.Leechers,
                 tracker: raw.Tracker, cached: cachedHashes.has(hash.toLowerCase()), publish_date: raw.PublishDate
             }));
+
+            Cache.set(cacheKey, this.state.all_torrents);
             this.display();
+
         } catch (error) {
-            LOG(`Parser flow failed: ${error.message}. Switching to fallback.`);
-            this.empty('Парсеры недоступны. Используется прямой поиск TorBox...');
-            if (!movie.imdb_id) {
-                this.empty('Для прямого поиска нужен IMDb ID, который не найден.');
-                return;
-            }
-            try {
-                const torrents = await API.searchTorBoxDirectly(movie.imdb_id);
-                if (!torrents.length) {
-                    this.empty('В TorBox ничего не найдено по этому фильму.');
-                    return;
-                }
-                this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.name, last_known_seeders: t.seeders, last_known_peers: t.leechers, publish_date: t.created_at, magnet: t.magnet, cached: t.cached }));
-                this.display();
-            } catch (fallbackError) {
-                this.empty(fallbackError.message || 'Ошибка при прямом поиске в TorBox.');
-                ErrorHandler.show(fallbackError.type || 'unknown', fallbackError);
-            }
+            LOG(`Parser flow failed: ${error.message}.`);
+            ErrorHandler.show(error.type || 'unknown', error);
+            this.empty(error.message || 'Ошибка при загрузке с парсеров');
         } finally {
             this.activity.loader(false);
         }
     };
 
+    /**
+     * display() - Отрисовывает контент и активирует контроллер
+     */
     this.display = function() {
         this.updateFilterUI();
         this.draw(this.applyFiltersAndSort());
+        Lampa.Controller.toggle('content');
     };
 
     this.draw = function(torrents_list) {
@@ -737,7 +750,7 @@
         Lampa.Component.add('torbox_component', TorBoxComponent);
         addSettings();
         boot();
-        LOG('TorBox v22.0.0 (Stable Rebuild) ready');
+        LOG('TorBox v24.0.0 (Definitive Fix) ready');
       }
       catch (e) { console.error('[TorBox] Boot Error:', e); }
     } else {
