@@ -1,21 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.7 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.8 (Render Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій, через який список торрентів 
- * відображався некоректно (горизонтально). Відновлено правильний метод
- * додавання елементів, сумісний з API Lampa. Також виправлено помилку
- * оновлення інтерфейсу при поверненні з плеєра.
- * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
- * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
- * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
- * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку, через яку список торрентів не 
+ * відображався після рефакторингу. Відновлено метод генерації HTML-елементів,
+ * сумісний з API Lampa, повернувши код до робочого стану.
+ * • СТАБІЛЬНІСТЬ: Збережено всю нову структуру та оптимізації.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_7_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_8_render_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -757,6 +753,11 @@
         this.draw(this.applyFiltersAndSort());
     };
 
+    /**
+     * [FIXED] Draws the torrent list.
+     * Reverted to creating items from an HTML string to ensure compatibility with Lampa's rendering engine.
+     * @param {Array} torrents_list - The list of torrents to display.
+     */
     TorBoxComponent.prototype.draw = function(torrents_list) {
         this.state.last = null;
         this.state.scroll.clear();
@@ -769,72 +770,65 @@
         const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
         
         torrents_list.forEach(t => {
-            const item = this._createTorrentDOMItem(t, lastTorrentHash);
-            const $item = $(item);
-            $item.on('hover:focus', () => { this.state.last = item; this.state.scroll.update($item, true); });
+            const itemHTML = this._createTorrentDOMItem(t, lastTorrentHash);
+            const $item = $(itemHTML); // Create jQuery object from the HTML string
+
+            $item.on('hover:focus', () => { this.state.last = $item[0]; this.state.scroll.update($item, true); });
             $item.on('hover:enter', () => this._handleTorrentClick(t));
-            this.state.scroll.append($item);
+            
+            this.state.scroll.append($item); // Append the jQuery object, same as the old working version
         });
     };
     
+    /**
+     * [FIXED] Creates an HTML string for a single torrent item.
+     * @param {object} t - Torrent data.
+     * @param {string} lastTorrentHash - The hash of the last played torrent.
+     * @returns {string} - The HTML string for the torrent item.
+     */
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
-        const item = document.createElement('div');
-        item.className = 'torbox-item selector';
-        if (lastTorrentHash && t.hash === lastTorrentHash) {
-            item.classList.add('torbox-item--last-played');
-        }
+        const isLastPlayed = lastTorrentHash && t.hash === lastTorrentHash;
+        const itemClasses = `torbox-item selector ${isLastPlayed ? 'torbox-item--last-played' : ''}`;
 
-        const title = document.createElement('div');
-        title.className = 'torbox-item__title';
-        title.textContent = `${t.cached ? '⚡ ' : '☁️ '}${t.raw_title || t.title}`;
+        const escapedTitle = Utils.escapeHtml(t.raw_title || t.title);
+        const icon = t.cached ? '⚡ ' : '☁️ ';
         
-        const mainInfo = document.createElement('div');
-        mainInfo.className = 'torbox-item__main-info';
-        mainInfo.innerHTML = `[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
-        
-        const meta = document.createElement('div');
-        meta.className = 'torbox-item__meta';
-        meta.textContent = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
-        
-        item.append(title, mainInfo, meta);
+        const titleHtml = `<div class="torbox-item__title">${icon}${escapedTitle}</div>`;
+        const mainInfoHtml = `<div class="torbox-item__main-info">[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span></div>`;
+        const metaHtml = `<div class="torbox-item__meta">Трекери: ${Utils.escapeHtml(t.trackers?.join(', ')||'н/д')} | Додано: ${Utils.escapeHtml(t.age||'н/д')}</div>`;
+        const techBarHtml = t.video_resolution ? this._createTechBar(t) : '';
 
-        if (t.video_resolution) {
-            const techBar = this._createTechBar(t);
-            item.appendChild(techBar);
-        }
-        return item;
+        return `<div class="${itemClasses}">${titleHtml}${mainInfoHtml}${metaHtml}${techBarHtml}</div>`;
     };
 
+    /**
+     * [FIXED] Creates an HTML string for the tech info bar.
+     * @param {object} t - Torrent data.
+     * @returns {string} - The HTML string for the tech bar.
+     */
     TorBoxComponent.prototype._createTechBar = function(t) {
-        const techBar = document.createElement('div');
-        techBar.className = 'torbox-item__tech-bar';
+        const createTag = (text, type) => `<div class="torbox-item__tech-item torbox-item__tech-item--${type}">${Utils.escapeHtml(text)}</div>`;
         
-        const createTag = (text, type) => {
-            const tag = document.createElement('div');
-            tag.className = `torbox-item__tech-item torbox-item__tech-item--${type}`;
-            tag.textContent = text;
-            return tag;
-        };
-
-        techBar.appendChild(createTag(t.video_resolution, 'res'));
-        if (t.video_codec) techBar.appendChild(createTag(t.video_codec.toUpperCase(), 'codec'));
-        if (t.has_hdr) techBar.appendChild(createTag('HDR', 'hdr'));
-        if (t.has_dv) techBar.appendChild(createTag('Dolby Vision', 'dv'));
+        let tags = [];
+        tags.push(createTag(t.video_resolution, 'res'));
+        if (t.video_codec) tags.push(createTag(t.video_codec.toUpperCase(), 'codec'));
+        if (t.has_hdr) tags.push(createTag('HDR', 'hdr'));
+        if (t.has_dv) tags.push(createTag('Dolby Vision', 'dv'));
         
         t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').forEach(s => {
             const lang = s.tags?.language?.toUpperCase() || '???';
             const codec = s.codec_name?.toUpperCase() || '';
             const layout = s.channel_layout || '';
-            techBar.appendChild(createTag(`${lang} ${codec} ${layout}`, 'audio'));
+            tags.push(createTag(`${lang} ${codec} ${layout}`, 'audio'));
         });
         
-        return techBar;
+        return `<div class="torbox-item__tech-bar">${tags.join('')}</div>`;
     };
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
         scrollRender.empty();
-        const emptyMsg = $(`<div class="empty"><div class="empty__text">${msg || 'Торренти не знайдені'}</div></div>`);
+        const emptyMsg = $(`<div class="empty"><div class="empty__text">${Utils.escapeHtml(msg || 'Торренти не знайдені')}</div></div>`);
         scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
@@ -1079,7 +1073,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.6 (Refactored) ready');
+            LOG('TorBox v30.0.8 (Render Fix) ready');
         };
 
         return { init };
