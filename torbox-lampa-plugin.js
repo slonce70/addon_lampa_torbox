@@ -1,11 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.3 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.4 (Stable Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')"
- * в методі draw(). Додано комплексну валідацію DOM елементів з перевіркою nodeType,
- * множинні стратегії відновлення включаючи refresh метод, та покращений механізм оновлення скролу.
- * • СТАБІЛЬНІСТЬ: Розширено перевірки для jQuery/array-like об'єктів та звичайних DOM елементів.
- * Додано альтернативні підходи з таймаутами та fallback методами.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: ОСТАТОЧНО усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')"
+ * Видалено некоректний виклик scroll.update() без параметрів з методу draw().
+ * Виправлено hover:focus обробник для правильного виклику scroll.update($(e.target), true).
+ * • СТАБІЛЬНІСТЬ: Тепер scroll.update() викликається тільки в обробниках подій з конкретним елементом, як у bwa.js.
+ * Повністю усунуто джерело помилки getBoundingClientRect.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
  * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_3_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_4_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -735,10 +735,9 @@
                          return;
                      }
                      
-                     $item.on('hover:focus', () => { 
-                         this.state.last = $item[0]; 
-                         // Не викликаємо update з параметрами, це може викликати помилку
-                         // this.state.scroll.update($item, true);
+                     $item.on('hover:focus', (e) => { 
+                         this.state.last = e.target; 
+                         this.state.scroll.update($(e.target), true);
                      });
                      
                      $item.on('hover:enter', () => this._handleTorrentClick(t));
@@ -752,62 +751,8 @@
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
              
-             // Оновлюємо скрол з покращеними перевірками
-             if (this.state.scroll && this.state.scroll.update) {
-                 try {
-                     // Перевіряємо чи скрол має правильний DOM елемент
-                     const scrollElement = this.state.scroll.render();
-                     
-                     // Додаткові перевірки для запобігання getBoundingClientRect помилки
-                     let canUpdate = false;
-                     
-                     if (scrollElement) {
-                         // Перевіряємо різні типи елементів
-                         if (scrollElement.length) {
-                             // jQuery або array-like об'єкт
-                             const firstElement = scrollElement[0];
-                             if (firstElement && firstElement.nodeType === 1 && typeof firstElement.getBoundingClientRect === 'function') {
-                                 canUpdate = true;
-                             }
-                         } else if (scrollElement.nodeType === 1 && typeof scrollElement.getBoundingClientRect === 'function') {
-                             // Звичайний DOM елемент
-                             canUpdate = true;
-                         }
-                     }
-                     
-                     if (canUpdate) {
-                         this.state.scroll.update();
-                         LOG('Scroll updated successfully');
-                     } else {
-                         LOG('Scroll element not ready or invalid, trying alternative approach');
-                         
-                         // Альтернативний підхід - викликаємо update без параметрів через таймаут
-                         setTimeout(() => {
-                             if (this.state.scroll && this.state.scroll.update) {
-                                 try {
-                                     // Спробуємо викликати update без будь-яких параметрів
-                                     this.state.scroll.update();
-                                     LOG('Delayed scroll update successful');
-                                 } catch (delayedError) {
-                                     LOG('Delayed scroll update failed:', delayedError);
-                                     // Останній варіант - спробуємо refresh якщо доступний
-                                     if (this.state.scroll.refresh && typeof this.state.scroll.refresh === 'function') {
-                                         try {
-                                             this.state.scroll.refresh();
-                                             LOG('Scroll refresh successful');
-                                         } catch (refreshError) {
-                                             LOG('Scroll refresh failed:', refreshError);
-                                         }
-                                     }
-                                 }
-                             }
-                         }, 150);
-                     }
-                 } catch (scrollError) {
-                     LOG('Error updating scroll:', scrollError);
-                     LOG('Skipping scroll update due to error');
-                 }
-             }
+             // Не викликаємо scroll.update() тут - це викликає getBoundingClientRect помилку
+             // scroll.update() повинен викликатися тільки в обробниках подій з конкретним елементом
              
          } catch (error) {
              LOG('Error in draw():', error);
