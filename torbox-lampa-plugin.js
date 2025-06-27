@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v25.2.0 (Stable Architecture)
+ * TorBox Enhanced – Universal Lampa Plugin v25.2.1 (Stable Architecture)
  * =================================================================================
  * • ИСПРАВЛЕНИЕ ЗАПУСКА: Полностью устранена ошибка "TypeError: Class extends value is not a constructor".
  * Компонент переписан с использованием стабильного синтаксиса функций-конструкторов,
@@ -67,7 +67,152 @@
   const LOG  = (...a) => CFG.debug && console.log('[TorBox]', ...a);
 
   if (!$('#torbox-component-styles').length) {
-      $('head').append(`<style id="torbox-component-styles">.torbox-head{display:flex;padding:0 1em;margin-bottom:.5em}.torbox-filter-btn{margin-right:1em;padding:.5em 1em;background:var(--color-background-light);border-radius:.5em;cursor:pointer}.torbox-filter-btn.focus,.torbox-filter-btn:hover{background:var(--color-primary);color:var(--color-background)}.torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}.torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}.torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}.torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}.torbox-list-container{padding:1em}.torbox-status{padding:1.5em 2em;text-align:center;min-height:200px}.torbox-status__title{font-size:1.4em;margin-bottom:1em;font-weight:600}.torbox-status__info{font-size:1.1em;margin-bottom:.8em;color:var(--color-text)}.torbox-status__progress-container{margin:1.5em 0;background:rgba(255,255,255,.1);border-radius:8px;overflow:hidden;height:12px;position:relative}.torbox-status__progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--color-primary),var(--color-primary-light,#4CAF50));transition:width .5s ease-out;border-radius:8px;position:relative}.torbox-status__progress-bar::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(45deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);animation:shimmer 2s infinite}@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}.modal .torbox-status__progress-container{background:rgba(255,255,255,.2)!important}.modal .torbox-status__progress-bar{background:linear-gradient(90deg,#4CAF50,#66BB6A)!important}</style>`);
+      $('head').append(`<style id="torbox-component-styles">
+        .torbox-main {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: transparent;
+        }
+        .torbox-head {
+          display: flex;
+          padding: 0 1em;
+          margin-bottom: .5em;
+          flex-shrink: 0;
+          height: 60px;
+          box-sizing: border-box;
+        }
+        .card-content__results {
+          flex: 1;
+          overflow: hidden;
+          position: relative;
+          height: calc(100% - 80px);
+          background: transparent;
+        }
+        .torbox-list-container {
+          height: 100%;
+          overflow-y: auto;
+          padding: 1em;
+          background: transparent !important;
+        }
+        .scroll {
+          height: 100% !important;
+          overflow-y: auto !important;
+          background: transparent !important;
+        }
+        .scroll .scroll__body {
+           background: transparent !important;
+         }
+         .empty {
+           background: transparent !important;
+           color: rgba(255,255,255,0.7) !important;
+         }
+         .activity {
+           background: transparent !important;
+         }
+         .activity__body {
+           background: transparent !important;
+         }
+        .torbox-filter-btn {
+          margin-right: 1em;
+          padding: .5em 1em;
+          background: var(--color-background-light);
+          border-radius: .5em;
+          cursor: pointer;
+        }
+        .torbox-filter-btn.focus,
+        .torbox-filter-btn:hover {
+          background: var(--color-primary);
+          color: var(--color-background);
+        }
+        .torbox-item {
+          padding: 1.2em;
+          margin: .5em 0;
+          border-radius: .8em;
+          background: var(--color-background-light);
+          cursor: pointer;
+          transition: all .3s ease;
+          border: 2px solid transparent;
+        }
+        .torbox-item:hover,
+        .torbox-item.focus {
+          background: var(--color-primary);
+          color: var(--color-background);
+          transform: translateX(.8em);
+          border-color: rgba(255,255,255,.3);
+          box-shadow: 0 4px 20px rgba(0,0,0,.2);
+        }
+        .torbox-item__title {
+          font-weight: 600;
+          margin-bottom: .5em;
+          font-size: 1.1em;
+          line-height: 1.3;
+        }
+        .torbox-item__subtitle {
+          font-size: .95em;
+          opacity: .8;
+          line-height: 1.4;
+        }
+        .torbox-status {
+          padding: 1.5em 2em;
+          text-align: center;
+          min-height: 200px;
+          background: transparent;
+        }
+        .torbox-status__title {
+          font-size: 1.4em;
+          margin-bottom: 1em;
+          font-weight: 600;
+        }
+        .torbox-status__info {
+          font-size: 1.1em;
+          margin-bottom: .8em;
+          color: var(--color-text);
+        }
+        .torbox-status__progress-container {
+          margin: 1.5em 0;
+          background: rgba(255,255,255,.1);
+          border-radius: 8px;
+          overflow: hidden;
+          height: 12px;
+          position: relative;
+        }
+        .torbox-status__progress-bar {
+          height: 100%;
+          width: 0%;
+          background: linear-gradient(90deg,var(--color-primary),var(--color-primary-light,#4CAF50));
+          transition: width .5s ease-out;
+          border-radius: 8px;
+          position: relative;
+        }
+        .torbox-status__progress-bar::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(45deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);
+          animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .modal .torbox-status__progress-container {
+          background: rgba(255,255,255,.2) !important;
+        }
+        .modal .torbox-status__progress-bar {
+          background: linear-gradient(90deg,#4CAF50,#66BB6A) !important;
+        }
+        .empty.selector {
+          background: transparent !important;
+          color: var(--color-text) !important;
+          padding: 2em;
+          text-align: center;
+          font-size: 1.1em;
+        }
+      </style>`);
   }
 
   function initPlugin() {
@@ -299,13 +444,20 @@
             filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
             last_focused: null,
         };
-        this.scroll = new Lampa.Scroll({ mask: true, over: true });
-        this.scroll.body().addClass('torbox-list-container');
         
-        // Додаємо обробку подій для scroll
-        this.scroll.onWheel = (step) => {
-            this.scroll.wheel(step);
-        };
+        // Створюємо scroll з правильними параметрами
+        this.scroll = new Lampa.Scroll({ 
+            mask: true, 
+            over: true,
+            step: 250
+        });
+        
+        // Додаємо CSS класи для правильного відображення
+        this.scroll.body().addClass('torbox-list-container');
+        this.scroll.render().css({
+            'height': '100%',
+            'overflow-y': 'auto'
+        });
         
         const mainHtml = $(`
             <div class="torbox-main">
@@ -313,8 +465,18 @@
                 <div class="card-content__results"></div>
             </div>
         `);
-        mainHtml.find('.card-content__results').append(this.scroll.render());
+        
+        // Додаємо scroll до контейнера результатів
+        const resultsContainer = mainHtml.find('.card-content__results');
+        resultsContainer.append(this.scroll.render());
+        
+        // Очищуємо та додаємо до activity
         this.activity.render().empty().append(mainHtml);
+        
+        // Забезпечуємо правильну висоту для scroll
+        setTimeout(() => {
+            this.scroll.render().css('height', '100%');
+        }, 100);
     };
       
     TorBoxComponent.prototype.start = function() {
@@ -519,7 +681,7 @@
     
     TorBoxComponent.prototype.renderStatus = function(message) {
         this.scroll.clear();
-        const statusElement = $(`<div class="empty selector">${escapeHtml(message)}</div>`);
+        const statusElement = $(`<div class="torbox-status selector">${escapeHtml(message)}</div>`);
         this.scroll.append(statusElement);
         this.updateNavController();
     };
