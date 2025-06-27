@@ -1,18 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v28.1.0 (Settings Cleanup)
+ * TorBox Enhanced – Universal Lampa Plugin v28.0.0 (Advanced Filtering & UI)
  * =================================================================================
- * • УПРОЩЕНИЕ НАСТРОЕК: Полностью удалена настройка "Использовать свои поисковики"
- * и вся связанная с ней логика для упрощения и повышения стабильности.
- * • ОБНОВЛЕНИЕ URL: Заменен URL CORS-прокси по умолчанию на предоставленный вами.
- * • СТАБИЛЬНОСТЬ: Сохранены все предыдущие исправления интерфейса, фильтрации,
- * жизненного цикла и навигации.
+ * • НОВЫЙ ИНТЕРФЕЙС: Полностью переработан внешний вид списка торрентов для 
+ * источников jacred/viewbox. Теперь отображается детальная информация: разрешение, 
+ * аудиодорожки, видео/аудио кодеки, HDR/DV и другая информация из ffprobe/info.
+ * • ПРОДВИНУТЫЙ ФИЛЬТР: Меню фильтрации значительно расширено. Добавлены новые
+ * параметры: тип видео (HDR/DV), перевод, язык дорожек, видео/аудио кодеки.
+ * • ЛОГИКА ТРЕКЕРОВ: Исправлена логика обработки трекеров. Теперь каждый трекер из 
+ * списка (через запятую) обрабатывается как отдельная сущность в фильтре.
+ * • КОНФИГУРАЦИЯ: URL прокси по умолчанию сохранен как https://my-torbox-proxy.slonce70.workers.dev/
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v28_1_0_cleanup';
+  const PLUGIN_ID = 'torbox_enhanced_v28_0_0_advanced_filters';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -67,10 +70,16 @@
 
   if (!$('#torbox-component-styles').length) {
       $('head').append(`<style id="torbox-component-styles">
-        .torbox-item{padding:1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}
+        .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}
         .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
         .torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}
         .torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}
+        .torbox-item__details{display:flex;flex-wrap:wrap;gap:.5em;margin-top:.7em}
+        .torbox-item__detail-tag{background:rgba(255,255,255,.1);padding:.2em .6em;border-radius:.5em;font-size:.85em;font-weight:500}
+        .torbox-item__detail-tag--video{background-color:var(--color-blue)}
+        .torbox-item__detail-tag--audio{background-color:var(--color-green)}
+        .torbox-item__detail-tag--hdr{background:linear-gradient(45deg, #ff8c00, #ffa500)}
+        .torbox-item__detail-tag--dv{background:linear-gradient(45deg, #4b0082, #8a2be2)}
         .torrent-list{padding:1em}
         .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
         .torbox-status__title{font-size:1.4em; margin-bottom:1em; font-weight:600;}
@@ -81,8 +90,6 @@
         @keyframes shimmer{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
         .modal .torbox-status__progress-container{background:rgba(255,255,255,0.2) !important;}
         .modal .torbox-status__progress-bar{background:linear-gradient(90deg, #4CAF50, #66BB6A) !important;}
-        .torbox-item__details { display: flex; flex-wrap: wrap; gap: 0.5em; margin-top: 0.5em; }
-        .torbox-item__tag { background-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); padding: 0.2em 0.6em; border-radius: 0.4em; font-size: 0.85em; }
       </style>`);
   }
 
@@ -158,46 +165,13 @@
       }
     };
 
-    const ql = (title) => {
+    const ql = (title, raw) => {
+        if (raw?.info?.quality) return `${raw.info.quality}p`;
         if (!title) return 'SD';
         if (title.match(/2160p|4K|UHD/i)) return '4K';
         if (title.match(/1080p|FHD/i)) return 'FHD';
-        if (title.match(/720p|HD/i)) return '720p';
+        if (title.match(/720p|HD/i)) return 'HD';
         return 'SD';
-    };
-
-    const parseTitle = (title) => {
-        const details = {
-            quality: 'SD',
-            hdr: false,
-            dolby_vision: false,
-            source: 'Unknown',
-            audio: [],
-            subs: []
-        };
-        
-        if (!title) return details;
-
-        if (title.match(/2160p|4K|UHD/i)) details.quality = '4K';
-        else if (title.match(/1080p|FHD/i)) details.quality = '1080p';
-        else if (title.match(/720p|HD/i)) details.quality = '720p';
-
-        if (title.match(/\bHDR(10)?\b/i)) details.hdr = true;
-        if (title.match(/\bDV\b|Dolby[\s-]?Vision/i)) details.dolby_vision = true;
-
-        const sourceMatch = title.match(/BDRemux|Blu-?Ray|BDRip|WEB-DL|WEBRip|HDTV/i);
-        if (sourceMatch) details.source = sourceMatch[0].toUpperCase().replace('-', '');
-
-        const audioSubMatch = title.match(/\((.*?)\)/);
-        if (audioSubMatch && audioSubMatch[1]) {
-            const content = audioSubMatch[1];
-            details.audio = content.match(/\b(RUS|UKR|ENG)\b/gi) || [];
-            if (content.match(/Sub/i)) {
-                details.subs = content.match(/\b(RUS|UKR|ENG)\b/gi) || [' vorhanden'];
-            }
-        }
-
-        return details;
     };
 
     function processResponse(responseText, status) {
@@ -364,6 +338,16 @@
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
         ];
         
+        const defaultFilters = {
+            quality: 'all',
+            tracker: 'all',
+            video_type: 'all', // sdr, hdr, dv
+            translation: 'all',
+            lang: 'all',
+            video_codec: 'all',
+            audio_codec: 'all'
+        };
+
         this.state = {
             scroll: null,
             files: null,
@@ -372,7 +356,7 @@
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
-            filters: JSON.parse(Store.get('torbox_filters_v2', '{"quality":"all","tracker":"all","hdr":"any","dolby_vision":"any"}')),
+            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(defaultFilters))),
             ageCache: new Map()
         };
     }
@@ -411,10 +395,12 @@
 
     TorBoxComponent.prototype.pause = function() {
         LOG('Component pause()');
+        Lampa.Controller.add('content', null);
     };
 
     TorBoxComponent.prototype.stop = function() {
         LOG('Component stop()');
+        Lampa.Controller.add('content', null);
     };
 
     TorBoxComponent.prototype.destroy = function() {
@@ -452,23 +438,23 @@
     TorBoxComponent.prototype.initializeFilterHandlers = function() {
         this.state.filter.onSelect = (type, a, b) => {
             Lampa.Select.close();
+            const storeKey = 'torbox_filters_v2';
             if (type === 'sort') {
                 this.state.sort = a.key;
                 Store.set('torbox_sort_method', a.key);
-                this.display();
             }
             if (type === 'filter') {
-                if (a.refresh) this.loadAndDisplayTorrents(true);
-                else if (a.reset) {
-                    this.state.filters = { quality: 'all', tracker: 'all', hdr: 'any', dolby_vision: 'any' };
-                    Store.set('torbox_filters_v2', JSON.stringify(this.state.filters));
-                    this.display();
+                if (a.refresh) {
+                    this.loadAndDisplayTorrents(true);
+                    return; // a.refresh triggers its own display update
+                } else if (a.reset) {
+                    this.state.filters = JSON.parse(JSON.stringify(this.state.defaultFilters)); // Deep copy
                 } else if (a.stype) {
                     this.state.filters[a.stype] = b.value; 
-                    Store.set('torbox_filters_v2', JSON.stringify(this.state.filters));
-                    this.display();
                 }
+                Store.set(storeKey, JSON.stringify(this.state.filters));
             }
+            this.display();
             Lampa.Controller.toggle('content');
         };
         this.state.filter.onBack = () => Lampa.Controller.toggle('content');
@@ -476,6 +462,8 @@
 
     TorBoxComponent.prototype.updateFilterUI = function() {
         const { filter, sort, filters, all_torrents } = this.state;
+        
+        // --- Sort ---
         const sort_items = this.sort_types.map(item => ({...item, selected: item.key === sort}));
         filter.set('sort', sort_items);
         filter.render().find('.filter--sort span').text('Сортировка');
@@ -483,26 +471,25 @@
         
         if (!Array.isArray(all_torrents)) this.state.all_torrents = [];
 
-        // Correctly gather unique trackers
-        const trackers = new Set();
-        all_torrents.forEach(t => {
-            if (t.tracker) {
-                t.tracker.split(',').forEach(trackerName => {
-                    if (trackerName.trim()) trackers.add(trackerName.trim());
-                });
-            }
-        });
-        const tracker_items = ['all', ...Array.from(trackers)].map(t => ({ title: t === 'all' ? 'Все' : t, value: t, selected: filters.tracker === t }));
-        
-        const quality_items = ['all', '4K', '1080p', '720p', 'SD'].map(q => ({ title: q === 'all' ? 'Все' : q, value: q, selected: filters.quality === q }));
-        const hdr_items = [{title: 'Неважно', value: 'any'}, {title: 'Да', value: 'yes'}, {title: 'Нет', value: 'no'}].map(item => ({...item, selected: filters.hdr === item.value}));
-        const dv_items = [{title: 'Неважно', value: 'any'}, {title: 'Да', value: 'yes'}, {title: 'Нет', value: 'no'}].map(item => ({...item, selected: filters.dolby_vision === item.value}));
-        
+        // --- Filters ---
+        const buildFilter = (key, title, allItems) => {
+            const items = ['all', ...new Set(allItems.flat().filter(Boolean))].map(i => ({
+                title: i === 'all' ? 'Все' : i.toUpperCase(),
+                value: i,
+                selected: filters[key] === i
+            }));
+            const sub = filters[key] === 'all' ? 'Все' : filters[key].toUpperCase();
+            return { title, subtitle: sub, items, stype: key };
+        };
+
         const filter_items = [
-            {title:'Качество', subtitle:filters.quality==='all'?'Все':filters.quality, items:quality_items, stype:'quality'},
-            {title:'Трекер', subtitle:filters.tracker==='all'?'Все':filters.tracker, items:tracker_items, stype:'tracker'},
-            {title:'HDR', subtitle:hdr_items.find(i => i.selected)?.title || 'Неважно', items:hdr_items, stype:'hdr'},
-            {title:'Dolby Vision', subtitle:dv_items.find(i => i.selected)?.title || 'Неважно', items:dv_items, stype:'dolby_vision'},
+            buildFilter('quality', 'Качество', all_torrents.map(t => t.quality)),
+            buildFilter('video_type', 'Тип видео', all_torrents.map(t => t.video_type)),
+            buildFilter('translation', 'Перевод', all_torrents.map(t => t.voices)),
+            buildFilter('lang', 'Язык аудио', all_torrents.map(t => t.audio_langs)),
+            buildFilter('video_codec', 'Видео кодек', all_torrents.map(t => t.video_codec)),
+            buildFilter('audio_codec', 'Аудио кодек', all_torrents.map(t => t.audio_codecs)),
+            buildFilter('tracker', 'Трекер', all_torrents.map(t => t.trackers)),
             {title:'Сбросить фильтры', reset: true},
             {title:'Обновить список', refresh: true}
         ];
@@ -511,10 +498,12 @@
         filter.render().find('.filter--filter span').text('Фильтр');
         
         const filter_titles = [];
-        if(filters.quality !== 'all') filter_titles.push(`Качество: ${filters.quality}`);
-        if(filters.tracker !== 'all') filter_titles.push(`Трекер: ${filters.tracker}`);
-        if(filters.hdr !== 'any') filter_titles.push(`HDR: ${filters.hdr === 'yes' ? 'Да' : 'Нет'}`);
-        if(filters.dolby_vision !== 'any') filter_titles.push(`DV: ${filters.dolby_vision === 'yes' ? 'Да' : 'Нет'}`);
+        Object.keys(filters).forEach(key => {
+            if(filters[key] !== 'all') {
+                const item = filter_items.find(f => f.stype === key);
+                if (item) filter_titles.push(`${item.title}: ${filters[key]}`);
+            }
+        });
         filter.chosen('filter', filter_titles);
     };
 
@@ -522,15 +511,16 @@
         const { all_torrents, filters, sort } = this.state;
         if (!Array.isArray(all_torrents)) return [];
         
-        let filtered = all_torrents.slice();
-        
-        // Apply filters
-        if (filters.quality !== 'all') filtered = filtered.filter(t => t.parsed.quality === filters.quality);
-        if (filters.tracker !== 'all') {
-            filtered = filtered.filter(t => t.tracker && t.tracker.split(',').map(tr => tr.trim()).includes(filters.tracker));
-        }
-        if (filters.hdr !== 'any') filtered = filtered.filter(t => t.parsed.hdr === (filters.hdr === 'yes'));
-        if (filters.dolby_vision !== 'any') filtered = filtered.filter(t => t.parsed.dolby_vision === (filters.dolby_vision === 'yes'));
+        let filtered = all_torrents.slice().filter(t => {
+             if (filters.quality !== 'all' && t.quality !== filters.quality) return false;
+             if (filters.video_type !== 'all' && t.video_type !== filters.video_type) return false;
+             if (filters.translation !== 'all' && !t.voices?.includes(filters.translation)) return false;
+             if (filters.lang !== 'all' && !t.audio_langs?.includes(filters.lang)) return false;
+             if (filters.video_codec !== 'all' && t.video_codec !== filters.video_codec) return false;
+             if (filters.audio_codec !== 'all' && !t.audio_codecs?.includes(filters.audio_codec)) return false;
+             if (filters.tracker !== 'all' && !t.trackers?.includes(filters.tracker)) return false;
+             return true;
+        });
         
         const sort_method = this.sort_types.find(s => s.key === sort);
         if (sort_method) {
@@ -592,19 +582,34 @@
             const cachedDataObject = await API.checkCached(torrentsWithHashes.map(t => t.hash), this.abortController.signal);
             const cachedHashes = new Set(Object.keys(cachedDataObject).map(h => h.toLowerCase()));
             
-            this.state.all_torrents = torrentsWithHashes.map(({ raw, hash }) => ({
-                raw_title: raw.Title, 
-                size: raw.Size, 
-                magnet: raw.MagnetUri, 
-                hash: hash,
-                last_known_seeders: raw.Seeders, 
-                last_known_peers: raw.Peers || raw.Leechers,
-                tracker: raw.Tracker, 
-                cached: cachedHashes.has(hash.toLowerCase()), 
-                publish_date: raw.PublishDate,
-                age: formatAge(raw.PublishDate),
-                parsed: parseTitle(raw.Title) // Add parsed details
-            }));
+            this.state.all_torrents = torrentsWithHashes.map(({ raw, hash }) => {
+                const videoStream = raw.ffprobe?.find(s => s.codec_type === 'video');
+                const audioStreams = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+
+                return {
+                    raw_title: raw.Title, 
+                    size: raw.Size, 
+                    magnet: raw.MagnetUri, 
+                    hash: hash,
+                    last_known_seeders: raw.Seeders, 
+                    last_known_peers: raw.Peers || raw.Leechers,
+                    trackers: (raw.Tracker || '').split(/, ?/).map(t => t.trim()).filter(Boolean),
+                    cached: cachedHashes.has(hash.toLowerCase()), 
+                    publish_date: raw.PublishDate,
+                    age: formatAge(raw.PublishDate),
+                    // -- Enriched data --
+                    quality: ql(raw.Title, raw),
+                    video_type: raw.info?.videotype?.toLowerCase(),
+                    voices: raw.info?.voices,
+                    video_codec: videoStream?.codec_name,
+                    video_resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : null,
+                    audio_langs: audioStreams.map(s => s.tags?.language).filter(Boolean),
+                    audio_codecs: audioStreams.map(s => s.codec_name).filter(Boolean),
+                    has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
+                    has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
+                    raw_data: raw // keep raw data for potential future use
+                }
+            });
             
             Cache.set(cacheKey, this.state.all_torrents);
             this.display();
@@ -637,23 +642,35 @@
             const title = escapeHtml(t.raw_title || t.title);
             const playedIcon = isLastPlayed ? '🎬 ' : '';
             
-            let detailsHtml = `<div class="torbox-item__details">`;
-            detailsHtml += `<div class="torbox-item__tag">${t.parsed.quality}</div>`;
-            if(t.parsed.hdr) detailsHtml += `<div class="torbox-item__tag">HDR</div>`;
-            if(t.parsed.dolby_vision) detailsHtml += `<div class="torbox-item__tag">Dolby Vision</div>`;
-            if(t.parsed.source !== 'Unknown') detailsHtml += `<div class="torbox-item__tag">${t.parsed.source}</div>`;
-            if(t.parsed.audio.length) detailsHtml += `<div class="torbox-item__tag">звук: ${t.parsed.audio.join(', ')}</div>`;
-            if(t.parsed.subs.length) detailsHtml += `<div class="torbox-item__tag">субтитры: ${t.parsed.subs.join(', ')}</div>`;
-            detailsHtml += `</div>`;
+            let detailsHtml = '';
+            if (t.video_resolution) { // Assume if we have resolution, we have other details
+                const videoTags = [
+                    `<div class="torbox-item__detail-tag torbox-item__detail-tag--video">${t.video_resolution}</div>`,
+                    t.has_hdr ? `<div class="torbox-item__detail-tag torbox-item__detail-tag--hdr">HDR</div>` : '',
+                    t.has_dv ? `<div class="torbox-item__detail-tag torbox-item__detail-tag--dv">DV</div>` : '',
+                    t.video_codec ? `<div class="torbox-item__detail-tag">${t.video_codec.toUpperCase()}</div>` : ''
+                ].filter(Boolean).join('');
+                
+                const audioTags = [...new Set(t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
+                    const lang = s.tags?.language?.toUpperCase() || '';
+                    const codec = s.codec_name?.toUpperCase() || '';
+                    const layout = s.channel_layout || '';
+                    return `<div class="torbox-item__detail-tag torbox-item__detail-tag--audio">${lang} ${codec} ${layout}</div>`;
+                }))].join('');
+
+                detailsHtml = `<div class="torbox-item__details">${videoTags}${audioTags}</div>`;
+            }
 
             const item = $(`<div class="torbox-item selector">
                 <div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${playedIcon}${title}</div>
                 <div class="torbox-item__subtitle">
-                    ${formatBytes(t.size)} | 🟢<span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴<span style="color:var(--color-bad);">${t.last_known_peers||0}</span> | 
-                    Трекер: ${escapeHtml(t.tracker||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}
+                    [${t.quality}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>
+                    <br>
+                    <span style="opacity:0.7;">Трекеры: ${escapeHtml(t.trackers?.join(', ')||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span>
                 </div>
                 ${detailsHtml}
             </div>`);
+            
             item.on('hover:focus', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
             item.on('hover:enter', () => handleTorrent(t, this.movie, this));
             this.state.scroll.append(item);
@@ -841,7 +858,6 @@
       const fields = [
           {k:'torbox_proxy_url', n:'URL вашего CORS-прокси', d:`По умолчанию: ${DEFAULTS.proxyUrl}`, t:'input', def:Store.get('torbox_proxy_url','')},
           {k:'torbox_api_key', n:'Ваш личный API-Key', d:'По умолчанию используется гостевой ключ', t:'input', def:Store.get('torbox_api_key','')},
-          {k:'torbox_use_user_engines', n:'Использовать свои поисковики', d:'Включить поиск через свои поисковые системы, настроенные в TorBox', t:'trigger', def:Store.get('torbox_use_user_engines', 'false') === 'true'},
           {k:'torbox_debug', n:'Режим отладки', d:'Записывать подробную информацию в консоль', t:'trigger', def:CFG.debug}
       ];
       fields.forEach(p => {
@@ -854,11 +870,6 @@
                   if (p.k === 'torbox_proxy_url') CFG.proxyUrl = a;
                   if (p.k === 'torbox_api_key') CFG.apiKey = a;
                   if (p.k === 'torbox_debug') CFG.debug = Boolean(v);
-                  if (p.k === 'torbox_use_user_engines') {
-                    Store.set('torbox_use_user_engines', String(v));
-                    Cache.store = {}; // Clear the entire cache
-                    Lampa.Noty.show('Настройка поисковиков изменена. Кэш поиска очищен.');
-                  }
               }
           });
       });
@@ -918,7 +929,7 @@
     addSettings();
     boot();
     setupGlobalActivityListener();
-    LOG('TorBox v27.0.0 (Hybrid Search & Player Logic Merged) ready');
+    LOG('TorBox v28.0.0 (Advanced Filtering & UI) ready');
   }
 
   (function bootLoop () {
@@ -932,4 +943,4 @@
     }
   })();
 
-})()
+})();
