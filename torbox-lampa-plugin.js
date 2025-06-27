@@ -757,30 +757,42 @@
     };
 
 TorBoxComponent.prototype.draw = function (torrents_list) {
+    // Скидаємо попередній стан
     this.state.last = null;
     this.state.scroll.clear();
 
-    if (!torrents_list?.length) {
+    // Якщо торентів немає — показуємо заглушку й виходимо
+    if (!torrents_list || !torrents_list.length) {
         return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
     }
 
+    // Ключ останнього програваного торента для цього фільму
     const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
-    const lastTorrentHash      = Store.get(lastPlayedTorrentKey, null);
+    const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
 
-    torrents_list.forEach(t => {
-        const item  = this._createTorrentDOMItem(t, lastTorrentHash);
+    // Створюємо DOM‑елементи під кожний торент
+    torrents_list.forEach(torrent => {
+        const item = this._createTorrentDOMItem(torrent, lastTorrentHash);
         const $item = $(item);
 
+        // При фокусі прокручуємо до елемента (item — нативний DOM, тому безпечний)
         $item.on('hover:focus', () => {
             this.state.last = item;
-            this.state.scroll.update(item, true);   // тут DOM-елемент, усе ок
+            this.state.scroll.update(item, true);
         });
 
-        $item.on('hover:enter', () => this._handleTorrentClick(t));
+        // Обробник кліку / Enter
+        $item.on('hover:enter', () => this._handleTorrentClick(torrent));
+
+        // Додаємо елемент до скрол‑контейнера
         this.state.scroll.append($item);
     });
 
-    this.state.scroll.update();
+    const firstItem = this.state.scroll.render().children().first()[0];
+    if (firstItem) {
+        this.state.last = firstItem;
+        this.state.scroll.update(firstItem, true);
+    }
 };
 
     
