@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.2 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.3 (Refactored & Stabilized)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
  * повернення до сумісного з Lampa методу додавання елементів та виклику 
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_2_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_3_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1104,4 +1104,5 @@
             setTimeout(bootLoop, 300);
         }
     })();
-})();
+})();" in the Canvas.
+I have another que
