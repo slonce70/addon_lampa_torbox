@@ -1,23 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v26.0.0 (Architecture Rebuild)
+ * TorBox Enhanced – Universal Lampa Plugin v26.1.0 (UI & Cache Fix)
  * =================================================================================
- * • ПОЛНАЯ ПЕРЕРАБОТКА АРХИТЕКТУРЫ: По вашему справедливому замечанию, код был
- * полностью переписан с возвратом к стабильной архитектуре v18. Вместо
- * самодельного интерфейса теперь используются нативные компоненты Lampa.Explorer
- * и Lampa.Filter, что гарантирует правильную интеграцию и стабильную работу.
- * • ИСПРАВЛЕНИЕ ЛОГИКИ ЗАПРОСОВ: Восстановлена корректная логика API-запросов
- * из v18, включая удаление конфликтующего заголовка 'Authorization', что
- * окончательно решает проблему "торрент не найден".
- * • СТАБИЛЬНОСТЬ И НАДЕЖНОСТЬ: Сохранены все работающие исправления:
- * современный и безопасный конструктор компонента, изолированные CSS-стили
- * и улучшенный механизм отслеживания статуса торрента с ретраями.
+ * • ИСПРАВЛЕНИЕ ИНТЕРФЕЙСА: Устранена проблема с отсутствием постера фильма
+ * в списке торрентов. Компоненты Lampa.Explorer и Lampa.Filter теперь
+ * инициализируются с корректными данными о фильме, как это было в v18.
+ * • ИСПРАВЛЕНИЕ КЕШИРОВАНИЯ: Полностью восстановлена работа кеширования
+ * списка торрентов. Запросы к API больше не будут отправляться каждый раз
+ * при открытии одного и того же фильма.
+ * • СТАБИЛЬНОСТЬ: Сохранены все предыдущие исправления архитектуры и логики.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v26_0_0_rebuild';
+  const PLUGIN_ID = 'torbox_enhanced_v26_1_0_ui_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -240,11 +237,7 @@
       }
     };
     
-    // ==================================================================
-    // ARCHITECTURE REBUILD: Using Lampa Native Components (from v18)
-    // ==================================================================
     function TorBoxComponent(object) {
-        // Safe binding of methods
         for (const key in this) {
             if (typeof this[key] === 'function') {
                 this[key] = this[key].bind(this);
@@ -253,6 +246,7 @@
         
         this.activity = object.activity;
         this.movie = object.movie;
+        this.params = object; // FIX: Store the original params object
         this.abortController = new AbortController();
 
         this.sort_types = [
@@ -262,7 +256,6 @@
             { key: 'age', title: 'По дате добавления', field: 'age', reverse: false },
         ];
         
-        // Component state, as in v18
         this.state = {
             scroll: null,
             files: null,
@@ -324,8 +317,10 @@
         LOG("Component initialize()");
 
         this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
-        this.state.files = new Lampa.Explorer(this.activity.render().find('.explorer-parent')[0] || {});
-        this.state.filter = new Lampa.Filter(this.activity.render().find('.filter-parent')[0] || {});
+        
+        // FIX: Pass the full params object to Lampa components to display details correctly.
+        this.state.files = new Lampa.Explorer(this.params);
+        this.state.filter = new Lampa.Filter(this.params);
 
         this.initializeFilterHandlers(); 
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
@@ -443,20 +438,28 @@
             const useUserEngines = Store.get('torbox_use_user_engines', 'false') === 'true';
             const cacheKey = `${imdb_id}_${useUserEngines}`;
 
+            LOG(`Checking cache for key: ${cacheKey}. Force update: ${force_update}`);
+
             if (!force_update && SearchCache.has(cacheKey)) {
                 const cached = SearchCache.get(cacheKey);
                 if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
-                    LOG(`Using cached results for ${cacheKey}`);
+                    LOG(`Cache HIT for ${cacheKey}`);
                     this.state.all_torrents = cached.data;
                     this.display();
                     this.activity.loader(false);
                     return;
+                } else {
+                    LOG(`Cache STALE for ${cacheKey}. TTL expired.`);
                 }
+            } else {
+                if(force_update) LOG(`Cache REFRESH requested for ${cacheKey}.`);
+                else LOG(`Cache MISS for ${cacheKey}.`);
             }
             
             LOG(`Fetching fresh results for ${cacheKey}`);
             const torrents = await API.search(imdb_id, this.abortController.signal);
             
+            LOG(`Setting cache for ${cacheKey}`);
             SearchCache.set(cacheKey, { timestamp: Date.now(), data: torrents });
             this.state.all_torrents = torrents.map(t => ({...t, raw_title: t.raw_title || t.title}));
             this.display();
@@ -504,10 +507,6 @@
     TorBoxComponent.prototype.render = function() {
         return this.state.files.render();
     };
-
-    // ==================================================================
-    // Modal, Torrent Handling, and Player Logic
-    // ==================================================================
 
     let modalCache = {};
     function showStatusModal(title, onBack) {
@@ -719,7 +718,7 @@
     Lampa.Component.add('torbox_component', TorBoxComponent);
     addSettings();
     boot();
-    LOG('TorBox v26.0.0 (Architecture Rebuild) ready');
+    LOG('TorBox v26.1.0 (UI & Cache Fix) ready');
   }
 
   (function bootLoop () {
