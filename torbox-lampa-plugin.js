@@ -1,13 +1,12 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v25.2.7 (Search Logic Reverted)
+ * TorBox Enhanced – Universal Lampa Plugin v25.2.8 (Request Logic Fix)
  * =================================================================================
- * • ВОССТАНОВЛЕНИЕ ЛОГИКИ ПОИСКА: По вашему замечанию, логика поиска была
- * полностью возвращена к стабильной и проверенной схеме из версии 18.
- * Плагин снова использует прямой поиск по API TorBox (`search-api.torbox.app`),
- * что устраняет проблемы с добавлением и отслеживанием торрентов,
- * возникавшие при работе через публичные парсеры.
- * • УПРОЩЕНИЕ: Удалена избыточная логика гибридного поиска и проверки
- * кеша (`searchPublicTrackers`, `checkCached`), что делает код чище и надежнее.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ЗАПРОСОВ: По вашему замечанию и анализу v18,
+ * восстановлена ключевая строка, удаляющая заголовок `Authorization` из запросов.
+ * Это предотвращает конфликт аутентификации на сервере TorBox, который был
+ * основной причиной ошибки "торрент не найден".
+ * • ВОССТАНОВЛЕНИЕ ЛОГИКИ КЕША: Логика кеширования и сохранения последнего
+ * просмотренного торрента полностью синхронизирована со стабильной версией v18.
  * • СТАБИЛЬНОСТЬ: Все предыдущие исправления (жизненный цикл, CSS, API) сохранены.
  */
 
@@ -15,7 +14,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v25_2_7_search_revert';
+  const PLUGIN_ID = 'torbox_enhanced_v25_2_8_request_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -308,8 +307,11 @@
           const proxyUrl = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
           LOG('Calling via universal proxy. Target:', url);
           options.headers = options.headers || {};
-          // The search API uses the API key in the header as well
+          
+          // Use the TorBox API key
           options.headers['X-Api-Key'] = CFG.apiKey;
+          // **FIX:** Remove potential conflicting Authorization header added by Lampa/other plugins
+          delete options.headers['Authorization'];
           
           try {
               const response = await fetch(proxyUrl, { ...options, signal });
@@ -320,7 +322,6 @@
               throw { type: 'network', message: `Ошибка при обращении к прокси: ${err.message}` };
           }
       },
-      // REVERTED: Using direct search logic from v18
       search: async function(imdbId, signal) {
           if (!imdbId) throw { type: 'validation', message: 'IMDb ID не передан' };
           let formattedImdbId = imdbId.startsWith('tt') ? imdbId : `tt${imdbId}`;
@@ -390,7 +391,7 @@
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters', '{"quality":"all","tracker":"all"}')),
             last_focused: null,
-            ageCache: new Map() // Cache for parsed age strings
+            ageCache: new Map()
         };
         
         this.scroll = new Lampa.Scroll({ 
@@ -432,7 +433,6 @@
         this.loadData();
     };
       
-    // REVERTED: Using direct search logic from v18
     TorBoxComponent.prototype.loadData = async function(force_refresh = false) {
         this.activity.loader(true);
         this.renderStatus('Загрузка торрентов...');
@@ -440,6 +440,7 @@
         if (!imdb_id) {
             this.renderStatus('Ошибка: IMDb ID фильма не найден.');
             ErrorHandler.show('validation', {message: 'IMDb ID фильма не найден.'});
+            this.activity.loader(false);
             return;
         }
 
@@ -462,7 +463,7 @@
             
             this.state.all_torrents = torrents.map(t => ({
                 ...t,
-                raw_title: t.raw_title || t.title, // Ensure compatibility
+                raw_title: t.raw_title || t.title,
             }));
 
             Cache.set(cacheKey, this.state.all_torrents);
@@ -502,23 +503,17 @@
         };
         
         const sort_types = {
-            'seeders': { field: 'last_known_seeders', reverse: true, isNumeric: true },
-            'size_desc': { field: 'size', reverse: true, isNumeric: true },
-            'size_asc': { field: 'size', reverse: false, isNumeric: true },
-            'age': { field: 'age', reverse: false, isNumeric: false }, // Sort oldest first
+            'seeders': { field: 'last_known_seeders', reverse: true },
+            'size_desc': { field: 'size', reverse: true },
+            'size_asc': { field: 'size', reverse: false },
+            'age': { field: 'age', reverse: false },
         };
         const sort_method = sort_types[sort];
         if (sort_method) {
             filtered.sort((a, b) => {
                 const field = sort_method.field;
-                let valA = a[field] || 0;
-                let valB = b[field] || 0;
-                
-                if (field === 'age') {
-                    valA = parseAge(a.age);
-                    valB = parseAge(b.age);
-                }
-
+                let valA = (field === 'age') ? parseAge(a.age) : (a[field] || 0);
+                let valB = (field === 'age') ? parseAge(b.age) : (b[field] || 0);
                 const result = valA < valB ? -1 : (valA > valB ? 1 : 0);
                 return sort_method.reverse ? -result : result;
             });
@@ -536,9 +531,11 @@
     };
 
     TorBoxComponent.prototype.renderItem = function(t) {
-        const lastPlayedKey = `torbox_last_torrent_hash_${this.movie.id}`;
-        const lastTorrentHash = Store.get(lastPlayedKey, null);
-        const isLastPlayed = lastTorrentHash && t.hash && (t.hash.toLowerCase() === lastTorrentHash.toLowerCase());
+        // **FIX:** Use consistent imdb_id key from v18
+        const lastPlayedKey = `torbox_last_torrent_${this.movie.imdb_id}`;
+        const lastTorrentId = Store.get(lastPlayedKey, null);
+        const isLastPlayed = lastTorrentId && (String(t.id) === lastTorrentId || t.hash === lastTorrentId);
+
         const playedIcon = isLastPlayed ? '🎬 ' : '';
         const cacheIcon = t.cached ? '⚡' : '☁️';
 
@@ -698,7 +695,9 @@
             let isTrackingActive = true; 
             let pollTimeout;
             let retries = 0;
-            const MAX_RETRIES = 5;
+            // Increased robustness for potentially slow API responses
+            const MAX_RETRIES = 8;
+            const RETRY_DELAY = 3500;
 
             const onCancel = () => { 
                 if (isTrackingActive) { 
@@ -733,9 +732,9 @@
                             isTrackingActive = false;
                             return reject({type: 'api', message: "Торрент не появился в списке после добавления."});
                         } else {
-                            LOG(`Торрент ${torrentId} не найден, попытка ${retries}/${MAX_RETRIES}. Повтор через 3 сек.`);
+                            LOG(`Торрент ${torrentId} не найден, попытка ${retries}/${MAX_RETRIES}. Повтор через ${RETRY_DELAY} мс.`);
                             updateStatusModal({ status: `Ожидание в списке... (попытка ${retries})` });
-                            if (isTrackingActive) pollTimeout = setTimeout(poll, 3000);
+                            if (isTrackingActive) pollTimeout = setTimeout(poll, RETRY_DELAY);
                             return;
                         }
                     }
@@ -822,7 +821,10 @@
           const torrentId = result.data.torrent_id || result.data.id;
           if (!torrentId) throw {type: 'api', message: 'Не удалось получить ID торрента.'};
           const finalTorrentData = await trackTorrentStatus(torrentId, signal);
-          Store.set(`torbox_last_torrent_hash_${movie.id}`, String(finalTorrentData.hash || torrent.hash));
+          
+          // **FIX:** Use consistent imdb_id key from v18
+          Store.set(`torbox_last_torrent_${movie.imdb_id}`, String(finalTorrentData.id || torrentId));
+          
           Lampa.Modal.close();
           showFileSelection(finalTorrentData, movie, component, signal);
       } catch (e) {
@@ -876,7 +878,7 @@
     Lampa.Component.add('torbox_component', TorBoxComponent);
     addSettings();
     boot();
-    LOG('TorBox v25.2.7 (Search Logic Reverted) ready');
+    LOG('TorBox v25.2.8 (Request Logic Fix) ready');
   }
 
   (function bootLoop () {
