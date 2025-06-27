@@ -1,11 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v22.0.0 (Stable Rebuild)
+ * TorBox Enhanced – Universal Lampa Plugin v23.0.0 (Hybrid Stable Rebuild)
  * =================================================================================
  * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Структура компонента полностью возвращена к проверенной
- * и стабильной версии (аналогично v18.0.0), чтобы устранить конфликты с Lampa Activity
+ * и стабильной версии (аналогично v12/v18), чтобы устранить конфликты с Lampa Activity
  * и постоянное пересоздание компонента. Это решает все проблемы с навигацией.
- * • СОХРАНЕНИЕ ФУНКЦИОНАЛА: В стабильную структуру интегрирована вся новая логика:
- * гибридный поиск (парсеры + кэш TorBox), улучшенные API-запросы, фильтры и сортировка.
+ * • ГИБРИДНЫЙ ПОИСК: В стабильную структуру интегрирована вся новая логика:
+ * поиск через внешние парсеры с последующей проверкой кэша в TorBox.
  * • НАДЕЖНОСТЬ: Плагин сочетает стабильность старой архитектуры с возможностями новой.
  */
 
@@ -13,7 +13,7 @@
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v22_0_0_stable_rebuild';
+  const PLUGIN_ID = 'torbox_enhanced_v23_0_0_stable_rebuild';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -283,7 +283,7 @@
     }
   };
 
-  /* ───── TorBox Component (v22.0 - Stable Rebuild) ───── */
+  /* ───── TorBox Component (v23.0 - Hybrid Stable Rebuild) ───── */
   function TorBoxComponent(object) {
     this.activity = object.activity;
     this.movie = object.movie;
