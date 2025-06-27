@@ -292,40 +292,33 @@
         };
 
         const searchPublicTrackers = async (movie, signal) => {
-            const searchTasks = PUBLIC_PARSERS.map(parser => {
-                const params = new URLSearchParams({
-                    apikey: parser.key,
-                    Query: `${movie.title} ${movie.year || ''}`.trim(),
-                    title: movie.title,
-                    title_original: movie.original_title,
-                    Category: '2000,5000'
-                });
-                if (movie.year) params.append('year', movie.year);
-                const url = `https://${parser.url}/api/v2.0/indexers/all/results?${params.toString()}`;
-                LOG(`Trying parser: ${parser.name} with URL: ${url}`);
-                return request(url, { method: 'GET', is_torbox_api: false }, signal).catch(error => {
+            // Try parsers sequentially, stop on first success
+            for (const parser of PUBLIC_PARSERS) {
+                try {
+                    const params = new URLSearchParams({
+                        apikey: parser.key,
+                        Query: `${movie.title} ${movie.year || ''}`.trim(),
+                        title: movie.title,
+                        title_original: movie.original_title,
+                        Category: '2000,5000'
+                    });
+                    if (movie.year) params.append('year', movie.year);
+                    const url = `https://${parser.url}/api/v2.0/indexers/all/results?${params.toString()}`;
+                    LOG(`Trying parser: ${parser.name} with URL: ${url}`);
+                    
+                    const result = await request(url, { method: 'GET', is_torbox_api: false }, signal);
+                    
+                    if (result && Array.isArray(result.Results) && result.Results.length > 0) {
+                        LOG(`Success from parser ${parser.name}. Found ${result.Results.length} torrents.`);
+                        return result.Results;
+                    } else {
+                        LOG(`Parser ${parser.name} returned no results.`);
+                    }
+                } catch (error) {
                     LOG(`Parser ${parser.name} failed:`, error.message);
-                    return null; // Return null on failure for Promise.allSettled like behavior
-                });
-            });
-
-            const results = await Promise.allSettled(searchTasks);
-            const validResults = results
-                .filter(result => result.status === 'fulfilled' && result.value && Array.isArray(result.value.Results))
-                .map(result => result.value)
-                .find(res => res.Results.length > 0);
-
-            if (validResults) {
-                LOG(`Success from a parser. Found ${validResults.Results.length} torrents.`);
-                return validResults.Results;
+                    // Continue to next parser
+                }
             }
-            
-            // Log failed parsers for debugging
-            const failedParsers = results.filter(result => result.status === 'rejected');
-            LOG(`All parsers failed. Failed count: ${failedParsers.length}`);
-            failedParsers.forEach((result, index) => {
-                LOG(`Parser ${PUBLIC_PARSERS[index]?.name || index} error:`, result.reason?.message || result.reason);
-            });
             
             throw { type: 'api', message: 'Все публичные парсеры недоступны или не вернули результатов.' };
         };
