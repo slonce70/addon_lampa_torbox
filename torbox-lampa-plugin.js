@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v29.1.0 (Remote Control Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v29.2.0 (Sort & Highlight Fix)
  * =================================================================================
- * • ВИПРАВЛЕННЯ НАВІГАЦІЇ: Повністю перероблено логіку контролера для коректної 
- * роботи з пультом ДК на телевізорах. Тепер фокус переміщується між списком 
- * та кнопками фільтра/сортування за допомогою кнопок "Вгору" та "Вниз".
- * • НОВИЙ ІНТЕРФЕЙС: Збережено новий блочний дизайн списку торрентів.
- * • ПРОДВИНУТИЙ ФІЛЬТР: Весь функціонал з попередньої версії збережено.
+ * • КОРЕКТНЕ СОРТУВАННЯ: Реалізовано природне ("натуральне") сортування файлів 
+ * у списку вибору серій. Тепер епізоди сортуються за номером, а не за алфавітом (1, 2, ..., 10).
+ * • ПОКРАЩЕНЕ ПІДСВІЧУВАННЯ: Останній переглянутий торрент у загальному списку 
+ * та останній файл у списку вибору тепер мають яскраве візуальне виділення.
+ * • СТАБІЛЬНІСТЬ: Збережено весь функціонал та виправлення з попередніх версій.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v29_1_0_rc_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v29_2_0_sort_highlight';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -68,6 +68,7 @@
   if (!$('#torbox-component-styles').length) {
       $('head').append(`<style id="torbox-component-styles">
         .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent; overflow: hidden;}
+        .torbox-item--last-played { border-left: 4px solid var(--color-second); background-color: rgba(var(--color-second-rgb), 0.1); }
         .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
         .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0,0,0,0.2); }
         .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3}
@@ -80,6 +81,7 @@
         .torbox-item__tech-item--audio { background-color: #f97316; color: white; }
         .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: white; }
         .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: white; }
+        .select__item--last-played { color: var(--color-second) !important; font-weight: 600; }
         .torrent-list{padding:1em}
         .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
         .torbox-status__title{font-size:1.4em; margin-bottom:1em; font-weight:600;}
@@ -204,6 +206,31 @@
             throw { type: 'api', message: 'Получен некорректный ответ от сервера (не JSON).' };
         }
     }
+    
+    // SORT FIX: Natural sorting function for filenames
+    const naturalSort = (a, b) => {
+        const re = /(\d+)/g;
+        const a_parts = a.name.split(re);
+        const b_parts = b.name.split(re);
+
+        for (let i = 0; i < Math.min(a_parts.length, b_parts.length); i++) {
+            const a_part = a_parts[i];
+            const b_part = b_parts[i];
+
+            if (i % 2 === 1) { // It's a number
+                const a_num = parseInt(a_part, 10);
+                const b_num = parseInt(b_part, 10);
+                if (a_num !== b_num) {
+                    return a_num - b_num;
+                }
+            } else { // It's a string
+                if (a_part !== b_part) {
+                    return a_part.localeCompare(b_part);
+                }
+            }
+        }
+        return a.name.length - b.name.length;
+    };
 
     const API = {
       MAIN_API: 'https://api.torbox.app/v1/api',
@@ -367,7 +394,6 @@
         return this.render();
     };
 
-    // RC FIX: Reworked controller logic for remote control compatibility
     TorBoxComponent.prototype.start = function () {
         LOG("Component start()");
         this.activity.loader(false);
@@ -427,13 +453,13 @@
     TorBoxComponent.prototype.pause = function() {
         LOG('Component pause()');
         Lampa.Controller.add('content', null);
-        Lampa.Controller.add('head', null); // RC FIX: Clear head controller
+        Lampa.Controller.add('head', null); 
     };
 
     TorBoxComponent.prototype.stop = function() {
         LOG('Component stop()');
         Lampa.Controller.add('content', null);
-        Lampa.Controller.add('head', null); // RC FIX: Clear head controller
+        Lampa.Controller.add('head', null); 
     };
 
     TorBoxComponent.prototype.destroy = function() {
@@ -497,7 +523,6 @@
     TorBoxComponent.prototype.updateFilterUI = function() {
         const { filter, sort, filters, all_torrents } = this.state;
         
-        // --- Sort ---
         const sort_items = this.sort_types.map(item => ({...item, selected: item.key === sort}));
         filter.set('sort', sort_items);
         filter.render().find('.filter--sort span').text('Сортировка');
@@ -505,7 +530,6 @@
         
         if (!Array.isArray(all_torrents)) this.state.all_torrents = [];
 
-        // --- Filters ---
         const buildFilter = (key, title, allItems) => {
             const items = ['all', ...new Set(allItems.flat().filter(Boolean))].map(i => ({
                 title: i === 'all' ? 'Все' : i.toUpperCase(),
@@ -631,7 +655,6 @@
                     cached: cachedHashes.has(hash.toLowerCase()), 
                     publish_date: raw.PublishDate,
                     age: formatAge(raw.PublishDate),
-                    // -- Enriched data --
                     quality: ql(raw.Title, raw),
                     video_type: raw.info?.videotype?.toLowerCase(),
                     voices: raw.info?.voices,
@@ -668,16 +691,15 @@
             this.empty('Ничего не найдено по заданным фильтрам');
             return;
         }
-        const lastPlayedKey = `torbox_last_torrent_${this.movie.imdb_id}`;
-        const lastTorrentId = Store.get(lastPlayedKey, null);
+        // HIGHLIGHT FIX: Get last played torrent ID
+        const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
+        const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
 
         torrents_list.forEach(t => {
-            const isLastPlayed = lastTorrentId && (String(t.id) === lastTorrentId || t.hash === lastTorrentId);
+            const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
             const title = escapeHtml(t.raw_title || t.title);
-            const playedIcon = isLastPlayed ? '🎬 ' : '';
             
             let techBarHtml = '';
-            // UI Redesign: Create a tech bar similar to the screenshot
             if (t.video_resolution) { 
                 let techItems = [];
                 techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--res">${t.video_resolution}</div>`);
@@ -695,9 +717,9 @@
                 techItems = techItems.concat(audioItems);
                 techBarHtml = `<div class="torbox-item__tech-bar">${techItems.join('')}</div>`;
             }
-
-            const item = $(`<div class="torbox-item selector">
-                <div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${playedIcon}${title}</div>
+            // HIGHLIGHT FIX: Add class if it's the last played torrent
+            const item = $(`<div class="torbox-item selector ${isLastPlayedTorrent ? 'torbox-item--last-played' : ''}">
+                <div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${title}</div>
                 <div class="torbox-item__main-info">
                     [${t.quality}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>
                 </div>
@@ -835,33 +857,58 @@
 
     function showFileSelection(torrentData, movie, component) {
         if (!torrentData?.files?.length) throw {type: 'validation', message: 'Видеофайлы не найдены в торренте.'};
-        const files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
+        let files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
         if (!files.length) throw {type: 'validation', message: 'Воспроизводимые видеофайлы не найдены.'};
-        files.sort((a,b) => b.size - a.size);
-        if (files.length === 1) return play(torrentData.id, files[0], movie, component.abortController.signal);
         
-        const lastPlayedFileId = Store.get(`torbox_last_played_${movie.imdb_id}`, null);
+        // SORT FIX: Use natural sort for episodes
+        files.sort(naturalSort);
+        
+        if (files.length === 1) {
+            play(torrentData.id, torrentData.hash, files[0], movie, component.abortController.signal)
+            return;
+        }
+        
+        // HIGHLIGHT FIX: Get last played file ID
+        const lastPlayedFileId = Store.get(`torbox_last_played_${movie.imdb_id || movie.id}`, null);
+
         const fileItems = files.map(f => {
+            const isLastPlayedFile = lastPlayedFileId && String(f.id) === String(lastPlayedFileId);
             let title = escapeHtml(f.name);
-            if (lastPlayedFileId && String(f.id) === String(lastPlayedFileId)) title = `▶️ ${title} (прошлый просмотр)`;
+            
+            if (isLastPlayedFile) {
+                // Add icon and apply class for highlighting
+                title = `<span class="select__item--last-played">▶️ ${title}</span>`;
+            }
             return { title: title, subtitle: formatBytes(f.size), file: f };
         });
+
         Lampa.Select.show({ 
             title: 'Выбор файла для воспроизведения', 
             items: fileItems, 
-            onSelect: item => play(torrentData.id, item.file, movie, component.abortController.signal), 
+            onSelect: item => play(torrentData.id, torrentData.hash, item.file, movie, component.abortController.signal), 
             onBack: () => Lampa.Controller.toggle('content') 
         });
     }
 
-    async function play(torrentId, file, movie, signal) {
+    async function play(torrentId, torrentHash, file, movie, signal) {
       showStatusModal('Получение ссылки на файл...');
       try {
         const dlResponse = await API.requestDl(torrentId, file.id, signal);
-        Store.set(`torbox_last_played_${movie.imdb_id}`, String(file.id));
+        
+        // HIGHLIGHT FIX: Store both torrent hash and file id
+        const movieId = movie.imdb_id || movie.id;
+        Store.set(`torbox_last_torrent_${movieId}`, torrentHash);
+        Store.set(`torbox_last_played_${movieId}`, String(file.id));
+
         const player_data = { url: dlResponse.data || dlResponse.url, title: file.name || movie.title, poster: movie.img };
         Lampa.Modal.close();
         Lampa.Player.play(player_data);
+        Lampa.Player.listener.follow('complite', (e) => {
+            if (e.data.percent > 90) {
+                 // Optionally clear the last played status after full watch
+                 // Store.set(`torbox_last_played_${movieId}`, '');
+            }
+        });
       } catch (e) {
         ErrorHandler.show(e.type || 'unknown', e);
         Lampa.Modal.close();
@@ -877,8 +924,7 @@
           if (!torrentId) throw {type: 'api', message: 'Не удалось получить ID торрента.'};
           
           const finalTorrentData = await trackTorrentStatus(torrentId, component.abortController.signal);
-          
-          Store.set(`torbox_last_torrent_${movie.imdb_id}`, String(finalTorrentData.id || torrentId));
+          finalTorrentData.hash = torrent.hash; // Pass the original hash for storage
           
           Lampa.Modal.close();
           showFileSelection(finalTorrentData, movie, component);
@@ -946,13 +992,14 @@
                   try {
                       const torboxActivity = Lampa.Activity.active();
                       if (torboxActivity && torboxActivity.component === 'torbox_component') {
+                          torboxActivity.activity.component.display();
                           Lampa.Controller.toggle('content');
-                          LOG('Navigation restored after external player');
+                          LOG('Navigation and display restored after external player');
                       }
                   } catch (error) {
                       LOG('Error restoring navigation:', error);
                   }
-              }, 500);
+              }, 250);
           }
           
           lastActivity = currentActivity;
@@ -965,7 +1012,7 @@
     addSettings();
     boot();
     setupGlobalActivityListener();
-    LOG('TorBox v29.0.0 (Rich UI Blocks & Bugfix) ready');
+    LOG('TorBox v29.2.0 (Sort & Highlight Fix) ready');
   }
 
   (function bootLoop () {
