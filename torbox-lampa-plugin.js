@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.0 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.1 (Stable Refactored)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Повністю відновлено сумісність з API Lampa. Усунуто
  * всі відомі помилки рендерингу, навігації та оновлення стану, що виникали
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_0_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_1_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -98,9 +98,6 @@
     };
 
     // ─── core: storage ────────────────────────────────────────────
-    /**
-     * @description A safe storage wrapper that falls back to a memory-only object if localStorage is unavailable (e.g., on some Smart TVs).
-     */
     const safeStorage = (() => {
         try {
             localStorage.setItem('__torbox_test', '1');
@@ -120,17 +117,11 @@
         }
     })();
     
-    /**
-     * @description Manages persistent data using safeStorage.
-     */
     const Store = {
         get: (key, defaultValue) => safeStorage.getItem(key) ?? defaultValue,
         set: (key, value) => safeStorage.setItem(key, String(value))
     };
 
-    /**
-     * @description A simple LRU (Least Recently Used) cache to prevent memory leaks on low-spec devices.
-     */
     const Cache = (() => {
         const store = {};
         const order = [];
@@ -159,7 +150,6 @@
             if (store[key]) {
                 _remove(key);
             }
-
             store[key] = { timestamp: Date.now(), data: data };
             order.push(key);
 
@@ -180,9 +170,6 @@
         return { get, set };
     })();
     
-    /**
-     * @description Manages plugin configuration and constants.
-     */
     const Config = (() => {
         const DEFAULTS = {
             proxyUrl: 'https://my-torbox-proxy.slonce70.workers.dev/',
@@ -982,7 +969,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.5 (Refactored) ready');
+            LOG('TorBox v30.2.0 (Refactored) ready');
         };
 
         return { init };
