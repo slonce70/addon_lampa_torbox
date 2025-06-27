@@ -1,19 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.2 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.5 (Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
- * повернення до сумісного з Lampa методу додавання елементів та виклику 
- * scroll.update() для коректного перерахунку сітки.
- * • ВИПРАВЛЕННЯ СУМІСНОСТІ: Виправлено передачу DOM-елементів у методи Lampa
- * та усунуто помилку при поверненні з плеєра.
- * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ, СТАБІЛЬНІСТЬ: Збережено всі попередні покращення.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
+ * `appendChild is not a function`, які виникали через несумісність з API Lampa 
+ * після рефакторингу. Плагін знову повністю функціональний.
+ * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
+ * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
+ * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
+ * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
+ * • ЗАХИСТ КЛЮЧА: API-ключ зберігається у кодованому вигляді (Base64).
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_2_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_5_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -593,8 +595,7 @@
         this.state.scroll.body().addClass('torrent-list');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
-        const headBlock = this.state.files.render().find('.explorer__files-head')[0];
-        if (headBlock) this.state.scroll.minus(headBlock);
+        this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
         
         this.loadAndDisplayTorrents();
         this.state.initialized = true;
@@ -756,54 +757,26 @@
         this.draw(this.applyFiltersAndSort());
     };
 
-/* === TorBoxComponent.prototype.draw (оновлено: липень 2025) ===
- * Усуває падіння getBoundingClientRect і одразу показує сітку торентів
- */
-TorBoxComponent.prototype.draw = function (torrents_list) {
-    /* 1. Скидаємо попередній стан */
-    this.state.last = null;
-    this.state.scroll.clear();
-
-    /* 2. Порожній результат - показуємо плейсхолдер */
-    if (!Array.isArray(torrents_list) || !torrents_list.length) {
-        return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
-    }
-
-    /* 3. Готуємо “останній програний” хеш для підсвічування */
-    const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
-    const lastTorrentHash      = Store.get(lastPlayedTorrentKey, null);
-
-    /* 4. Рендеримо всі торенти та підʼєднуємо ховери */
-    torrents_list.forEach(t => {
-        const item  = this._createTorrentDOMItem(t, lastTorrentHash);
-        const $item = $(item);
-
-        /* — фокус → прокрутка до елемента */
-        $item.on('hover:focus', () => {
-            this.state.last = item;
-            this.state.scroll.update(item, true);
+    TorBoxComponent.prototype.draw = function(torrents_list) {
+        this.state.last = null;
+        $(this.state.scroll.render()).empty();
+        
+        if (!torrents_list?.length) {
+            return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
+        }
+        
+        const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
+        const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
+        
+        const fragment = document.createDocumentFragment();
+        torrents_list.forEach(t => {
+            const item = this._createTorrentDOMItem(t, lastTorrentHash);
+            $(item).on('hover:focus', () => { this.state.last = item; this.state.scroll.update($(item), true); });
+            $(item).on('hover:enter', () => this._handleTorrentClick(t));
+            fragment.appendChild(item);
         });
-
-        /* — «OK / Enter» → відкриваємо карточку торента */
-        $item.on('hover:enter', () => this._handleTorrentClick(t));
-
-        this.state.scroll.append($item);          // додаємо в скрол-контейнер
-    });
-
-    /* 5. Ключовий момент: оновлюємо сітку, передаючи ПЕРШИЙ елемент,
-          щоб scroll.update не отримав undefined/false */
-    const firstItem = this.state.scroll
-        .render()                       // корінь скрола
-        .find('.torbox-item')           // усі елементи списку
-        .first()[0];                    // <div class=\"torbox-item …\">
-
-    if (firstItem) {
-        this.state.last = firstItem;    // для коректного фокусу контролера
-        this.state.scroll.update(firstItem, true);
-    }
-};
-
-
+        this.state.scroll.render().append(fragment);
+    };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
         const item = document.createElement('div');
@@ -862,7 +835,12 @@ TorBoxComponent.prototype.draw = function (torrents_list) {
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
         scrollRender.empty();
-        const emptyMsg = $(`<div class="empty"><div class="empty__text">${msg || 'Торренти не знайдені'}</div></div>`);
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'empty';
+        const text = document.createElement('div');
+        text.className = 'empty__text';
+        text.textContent = msg || 'Торренти не знайдені';
+        emptyMsg.appendChild(text);
         scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
@@ -1054,11 +1032,9 @@ TorBoxComponent.prototype.draw = function (torrents_list) {
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 if (e.object.component && typeof e.object.component.display === 'function') {
-                                     e.object.component.display(); // Refresh view to show highlights
-                                     Lampa.Controller.toggle('content');
-                                     LOG('Navigation and display restored');
-                                 }
+                                 e.object.activity.component.display(); // Refresh view to show highlights
+                                 Lampa.Controller.toggle('content');
+                                 LOG('Navigation and display restored');
                              } catch (error) {
                                  LOG('Error restoring navigation:', error);
                              }
@@ -1092,6 +1068,11 @@ TorBoxComponent.prototype.draw = function (torrents_list) {
                 .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: white; }
                 .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: white; }
                 .select__item.select__item--last-played > .select__item-title { color: var(--color-second) !important; font-weight: 600; }
+                .select__items { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important; gap: 0.5em !important; max-height: 60vh !important; overflow-y: auto !important; }
+                .select__item { margin: 0 !important; padding: 0.8em 1em !important; border-radius: 0.5em !important; background: var(--color-background-light) !important; border: 1px solid rgba(255,255,255,0.1) !important; }
+                .select__item:hover, .select__item.focus { background: var(--color-primary) !important; color: var(--color-background) !important; transform: scale(1.02) !important; }
+                .select__item-title { font-weight: 600 !important; margin-bottom: 0.3em !important; }
+                .select__item-subtitle { opacity: 0.7 !important; font-size: 0.9em !important; }
                 .torrent-list{padding:1em}
                 .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
                 .torbox-status__title{font-size:1.4em; margin-bottom:1em; font-weight:600;}
@@ -1107,7 +1088,7 @@ TorBoxComponent.prototype.draw = function (torrents_list) {
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.2 (Refactored) ready');
+            LOG('TorBox v30.0.5 (Refactored) ready');
         };
 
         return { init };
