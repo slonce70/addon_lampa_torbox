@@ -1,17 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.10 (Timing Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.5 (Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "getBoundingClientRect", яка виникала
- * через асинхронність рендерингу. Виклик оновлення списку тепер відбувається
- * з невеликою затримкою, що гарантує коректне відображення елементів.
- * • СТАБІЛЬНІСТЬ: Збережено всю нову структуру та оптимізації.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
+ * `appendChild is not a function`, які виникали через несумісність з API Lampa 
+ * після рефакторингу. Плагін знову повністю функціональний.
+ * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
+ * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
+ * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
+ * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
+ * • ЗАХИСТ КЛЮЧА: API-ключ зберігається у кодованому вигляді (Base64).
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_10_timing_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_5_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -591,15 +595,7 @@
         this.state.scroll.body().addClass('torrent-list');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
-        
-        // [FIXED] Guard the minus() call to prevent errors when the head element is not yet in the DOM.
-        const headBlock = this.state.files
-            .render()
-            .find('.explorer__files-head')[0]; // Get the raw DOM element
-        
-        if (headBlock) { // Pass to minus() only if found
-            this.state.scroll.minus(headBlock);
-        }
+        this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
         
         this.loadAndDisplayTorrents();
         this.state.initialized = true;
@@ -761,13 +757,9 @@
         this.draw(this.applyFiltersAndSort());
     };
 
-    /**
-     * [FIXED] Draws the torrent list.
-     * @param {Array} torrents_list - The list of torrents to display.
-     */
     TorBoxComponent.prototype.draw = function(torrents_list) {
         this.state.last = null;
-        this.state.scroll.clear();
+        $(this.state.scroll.render()).empty();
         
         if (!torrents_list?.length) {
             return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
@@ -776,73 +768,79 @@
         const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
         const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
         
+        const fragment = document.createDocumentFragment();
         torrents_list.forEach(t => {
-            const itemHTML = this._createTorrentDOMItem(t, lastTorrentHash);
-            const $item = $(itemHTML); // Create jQuery object from the HTML string
-
-            $item.on('hover:focus', () => { this.state.last = $item[0]; this.state.scroll.update($item, true); });
-            $item.on('hover:enter', () => this._handleTorrentClick(t));
-            
-            this.state.scroll.append($item); // Append the jQuery object
+            const item = this._createTorrentDOMItem(t, lastTorrentHash);
+            $(item).on('hover:focus', () => { this.state.last = item; this.state.scroll.update($(item), true); });
+            $(item).on('hover:enter', () => this._handleTorrentClick(t));
+            fragment.appendChild(item);
         });
-
-        // [FIXED] Delay update() to prevent race conditions where elements are not yet measurable in the DOM.
-        setTimeout(() => {
-            if(this.state.scroll) { // Add a guard in case component is destroyed during the timeout
-                this.state.scroll.update();
-            }
-        }, 0);
+        this.state.scroll.render().append(fragment);
     };
     
-    /**
-     * Creates an HTML string for a single torrent item.
-     * @param {object} t - Torrent data.
-     * @param {string} lastTorrentHash - The hash of the last played torrent.
-     * @returns {string} - The HTML string for the torrent item.
-     */
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
-        const isLastPlayed = lastTorrentHash && t.hash === lastTorrentHash;
-        const itemClasses = `torbox-item selector ${isLastPlayed ? 'torbox-item--last-played' : ''}`;
+        const item = document.createElement('div');
+        item.className = 'torbox-item selector';
+        if (lastTorrentHash && t.hash === lastTorrentHash) {
+            item.classList.add('torbox-item--last-played');
+        }
 
-        const escapedTitle = Utils.escapeHtml(t.raw_title || t.title);
-        const icon = t.cached ? '⚡ ' : '☁️ ';
+        const title = document.createElement('div');
+        title.className = 'torbox-item__title';
+        title.textContent = `${t.cached ? '⚡ ' : '☁️ '}${t.raw_title || t.title}`;
         
-        const titleHtml = `<div class="torbox-item__title">${icon}${escapedTitle}</div>`;
-        const mainInfoHtml = `<div class="torbox-item__main-info">[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span></div>`;
-        const metaHtml = `<div class="torbox-item__meta">Трекери: ${Utils.escapeHtml(t.trackers?.join(', ')||'н/д')} | Додано: ${Utils.escapeHtml(t.age||'н/д')}</div>`;
-        const techBarHtml = t.video_resolution ? this._createTechBar(t) : '';
+        const mainInfo = document.createElement('div');
+        mainInfo.className = 'torbox-item__main-info';
+        mainInfo.innerHTML = `[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
+        
+        const meta = document.createElement('div');
+        meta.className = 'torbox-item__meta';
+        meta.textContent = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
+        
+        item.append(title, mainInfo, meta);
 
-        return `<div class="${itemClasses}">${titleHtml}${mainInfoHtml}${metaHtml}${techBarHtml}</div>`;
+        if (t.video_resolution) {
+            const techBar = this._createTechBar(t);
+            item.appendChild(techBar);
+        }
+        return item;
     };
 
-    /**
-     * Creates an HTML string for the tech info bar.
-     * @param {object} t - Torrent data.
-     * @returns {string} - The HTML string for the tech bar.
-     */
     TorBoxComponent.prototype._createTechBar = function(t) {
-        const createTag = (text, type) => `<div class="torbox-item__tech-item torbox-item__tech-item--${type}">${Utils.escapeHtml(text)}</div>`;
+        const techBar = document.createElement('div');
+        techBar.className = 'torbox-item__tech-bar';
         
-        let tags = [];
-        tags.push(createTag(t.video_resolution, 'res'));
-        if (t.video_codec) tags.push(createTag(t.video_codec.toUpperCase(), 'codec'));
-        if (t.has_hdr) tags.push(createTag('HDR', 'hdr'));
-        if (t.has_dv) tags.push(createTag('Dolby Vision', 'dv'));
+        const createTag = (text, type) => {
+            const tag = document.createElement('div');
+            tag.className = `torbox-item__tech-item torbox-item__tech-item--${type}`;
+            tag.textContent = text;
+            return tag;
+        };
+
+        techBar.appendChild(createTag(t.video_resolution, 'res'));
+        if (t.video_codec) techBar.appendChild(createTag(t.video_codec.toUpperCase(), 'codec'));
+        if (t.has_hdr) techBar.appendChild(createTag('HDR', 'hdr'));
+        if (t.has_dv) techBar.appendChild(createTag('Dolby Vision', 'dv'));
         
         t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').forEach(s => {
             const lang = s.tags?.language?.toUpperCase() || '???';
             const codec = s.codec_name?.toUpperCase() || '';
             const layout = s.channel_layout || '';
-            tags.push(createTag(`${lang} ${codec} ${layout}`, 'audio'));
+            techBar.appendChild(createTag(`${lang} ${codec} ${layout}`, 'audio'));
         });
         
-        return `<div class="torbox-item__tech-bar">${tags.join('')}</div>`;
+        return techBar;
     };
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
         scrollRender.empty();
-        const emptyMsg = $(`<div class="empty"><div class="empty__text">${Utils.escapeHtml(msg || 'Торренти не знайдені')}</div></div>`);
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'empty';
+        const text = document.createElement('div');
+        text.className = 'empty__text';
+        text.textContent = msg || 'Торренти не знайдені';
+        emptyMsg.appendChild(text);
         scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
@@ -1034,11 +1032,9 @@
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 if (e.object.component && typeof e.object.component.display === 'function') {
-                                     e.object.component.display(); // Refresh view to show highlights
-                                     Lampa.Controller.toggle('content');
-                                     LOG('Navigation and display restored');
-                                 }
+                                 e.object.activity.component.display(); // Refresh view to show highlights
+                                 Lampa.Controller.toggle('content');
+                                 LOG('Navigation and display restored');
                              } catch (error) {
                                  LOG('Error restoring navigation:', error);
                              }
@@ -1087,7 +1083,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.10 (Timing Fix) ready');
+            LOG('TorBox v30.0.5 (Refactored) ready');
         };
 
         return { init };
@@ -1104,6 +1100,3 @@
         }
     })();
 })();
-```
-
-Я оновив версію до **30.0.10** та додав відповідний коментар до заголовка. Тепер все має працювати стабіль
