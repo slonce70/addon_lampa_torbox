@@ -1,20 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v26.1.0 (UI & Cache Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v26.1.1 (Lifecycle Fix)
  * =================================================================================
- * • ИСПРАВЛЕНИЕ ИНТЕРФЕЙСА: Устранена проблема с отсутствием постера фильма
- * в списке торрентов. Компоненты Lampa.Explorer и Lampa.Filter теперь
- * инициализируются с корректными данными о фильме, как это было в v18.
- * • ИСПРАВЛЕНИЕ КЕШИРОВАНИЯ: Полностью восстановлена работа кеширования
- * списка торрентов. Запросы к API больше не будут отправляться каждый раз
- * при открытии одного и того же фильма.
- * • СТАБИЛЬНОСТЬ: Сохранены все предыдущие исправления архитектуры и логики.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка 'Lampa.Controller.remove is not a function',
+ * возникавшая при выходе из плагина. Метод destroy теперь использует правильный
+ * синтаксис API Lampa 'Lampa.Controller.add('content', null)' для очистки,
+ * что обеспечивает стабильную навигацию.
+ * • СТАБИЛЬНОСТЬ: Сохранены все предыдущие исправления.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v26_1_0_ui_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v26_1_1_lifecycle_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -246,7 +244,7 @@
         
         this.activity = object.activity;
         this.movie = object.movie;
-        this.params = object; // FIX: Store the original params object
+        this.params = object;
         this.abortController = new AbortController();
 
         this.sort_types = [
@@ -304,7 +302,8 @@
     TorBoxComponent.prototype.destroy = function() {
         LOG('Destroying TorBox component');
         this.abortController.abort();
-        Lampa.Controller.remove('content');
+        // FIX: Use the correct API call to clear the controller
+        Lampa.Controller.add('content', null);
         if (this.state.ageCache) this.state.ageCache.clear();
         if (this.state.scroll) this.state.scroll.destroy();
         if (this.state.files) this.state.files.destroy();
@@ -318,7 +317,6 @@
 
         this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
         
-        // FIX: Pass the full params object to Lampa components to display details correctly.
         this.state.files = new Lampa.Explorer(this.params);
         this.state.filter = new Lampa.Filter(this.params);
 
@@ -718,7 +716,7 @@
     Lampa.Component.add('torbox_component', TorBoxComponent);
     addSettings();
     boot();
-    LOG('TorBox v26.1.0 (UI & Cache Fix) ready');
+    LOG('TorBox v26.1.1 (Lifecycle Fix) ready');
   }
 
   (function bootLoop () {
