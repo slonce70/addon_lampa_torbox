@@ -1,21 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v27.0.0 (Hybrid Search & Player Logic Merged)
+ * TorBox Enhanced – Universal Lampa Plugin v27.1.0 (Navigation & Lifecycle Fix)
  * =================================================================================
- * • ВОССТАНОВЛЕН ГИБРИДНЫЙ ПОИСК: По вашему запросу, полностью восстановлена
- * логика поиска через внешние парсеры (searchPublicTrackers) с последующей
- * проверкой кеша в TorBox (checkCached), как в стабильных версиях v25.x.
- * • СТАБИЛЬНАЯ АРХИТЕКТУРА: Сохранена надежная архитектура на базе нативных
- * компонентов Lampa (Explorer, Filter), что обеспечивает корректное
- * отображение интерфейса, постеров и правильное кеширование.
- * • ИНТЕГРАЦИЯ ПЛЕЕРА: Сохранен механизм отслеживания активности для
- * корректного выхода из внешних плееров (setupGlobalActivityListener).
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАВИГАЦИИ: Устранена ошибка 'component.pause is not a function',
+ * которая полностью блокировала навигацию (включая кнопку "Главная") после входа в плагин.
+ * Добавлены недостающие методы жизненного цикла 'pause' и 'stop', что обеспечивает
+ * полную совместимость с менеджером активностей Lampa.
+ * • СТАБИЛЬНОСТЬ: Сохранен весь рабочий функционал из предыдущей версии, включая
+ * гибридный поиск и логику работы с плеером.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v27_0_0_hybrid_search';
+  const PLUGIN_ID = 'torbox_enhanced_v27_1_0_nav_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -328,7 +326,7 @@
             { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
             { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
             { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
-            { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }, // Newest first
+            { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
         ];
         
         this.state = {
@@ -374,6 +372,17 @@
             }
         });
         Lampa.Controller.toggle('content');
+    };
+
+    // FIX: Added missing lifecycle methods to prevent crashes
+    TorBoxComponent.prototype.pause = function() {
+        LOG('Component pause()');
+        Lampa.Controller.add('content', null);
+    };
+
+    TorBoxComponent.prototype.stop = function() {
+        LOG('Component stop()');
+        Lampa.Controller.add('content', null);
     };
 
     TorBoxComponent.prototype.destroy = function() {
@@ -541,7 +550,7 @@
                 tracker: raw.Tracker, 
                 cached: cachedHashes.has(hash.toLowerCase()), 
                 publish_date: raw.PublishDate,
-                age: formatAge(raw.PublishDate) // Add formatted age for display
+                age: formatAge(raw.PublishDate)
             }));
             
             Cache.set(cacheKey, this.state.all_torrents);
@@ -778,7 +787,7 @@
                   if (p.k === 'torbox_debug') CFG.debug = Boolean(v);
                   if (p.k === 'torbox_use_user_engines') {
                     Store.set('torbox_use_user_engines', String(v));
-                    SearchCache.clear();
+                    Cache.store = {}; // Clear the entire cache
                     Lampa.Noty.show('Настройка поисковиков изменена. Кэш поиска очищен.');
                   }
               }
@@ -840,7 +849,7 @@
     addSettings();
     boot();
     setupGlobalActivityListener();
-    LOG('TorBox v26.2.0 (Search & Player Logic Merged) ready');
+    LOG('TorBox v27.0.0 (Hybrid Search & Player Logic Merged) ready');
   }
 
   (function bootLoop () {
