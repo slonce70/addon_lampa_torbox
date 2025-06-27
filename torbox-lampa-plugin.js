@@ -1,21 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.3 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.4 (Refactored & Stabilized)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
- * повернення до сумісного з Lampa методу додавання елементів та виклику 
- * scroll.update() для коректного перерахунку сітки.
- * • ВИПРАВЛЕННЯ СУМІСНОСТІ: Виправлено передачу DOM-елементів у методи Lampa
- * та усунуто помилку при поверненні з плеєра.
- * • ОПТИМІЗАЦІЯ ЗАПИТІВ: Пошук тепер відбувається послідовно (failover), а не 
- * паралельно, як ви й просили.
- * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ, СТАБІЛЬНІСТЬ: Збережено всі попередні покращення.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто синтаксичну помилку 'Invalid or unexpected token', 
+ * яка повністю блокувала завантаження плагіна.
+ * • СТАБІЛЬНІСТЬ: Збережено всі попередні виправлення, включаючи коректне
+ * відображення списку та роботу з API Lampa.
+ * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ: Збережено всі попередні покращення.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_3_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_4_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1088,7 +1085,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.1 (Refactored) ready');
+            LOG('TorBox v30.1.3 (Refactored) ready');
         };
 
         return { init };
