@@ -726,7 +726,7 @@
     };
 
     TorBoxComponent.prototype.render = function() {
-        return this.state.files.render();
+        return this.scroll.render();
     };
 
     let modalCache = {};
