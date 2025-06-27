@@ -1,9 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.8 (Render Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Scroll Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку, через яку список торрентів не 
- * відображався після рефакторингу. Відновлено метод генерації HTML-елементів,
- * сумісний з API Lampa, повернувши код до робочого стану.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Виправлено логіку роботи з Lampa.Scroll. Додано 
+ * примусове оновлення списку після додавання елементів та захищено виклик
+ * для розрахунку висоти, що усунуло проблему порожнього екрана.
  * • СТАБІЛЬНІСТЬ: Збережено всю нову структуру та оптимізації.
  */
 
@@ -11,7 +11,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_8_render_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_scroll_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -591,7 +591,15 @@
         this.state.scroll.body().addClass('torrent-list');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
-        this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
+        
+        // [FIXED] Guard the minus() call to prevent errors when the head element is not yet in the DOM.
+        const headBlock = this.state.files
+            .render()
+            .find('.explorer__files-head')[0]; // Get the raw DOM element
+        
+        if (headBlock) { // Pass to minus() only if found
+            this.state.scroll.minus(headBlock);
+        }
         
         this.loadAndDisplayTorrents();
         this.state.initialized = true;
@@ -755,7 +763,6 @@
 
     /**
      * [FIXED] Draws the torrent list.
-     * Reverted to creating items from an HTML string to ensure compatibility with Lampa's rendering engine.
      * @param {Array} torrents_list - The list of torrents to display.
      */
     TorBoxComponent.prototype.draw = function(torrents_list) {
@@ -776,12 +783,15 @@
             $item.on('hover:focus', () => { this.state.last = $item[0]; this.state.scroll.update($item, true); });
             $item.on('hover:enter', () => this._handleTorrentClick(t));
             
-            this.state.scroll.append($item); // Append the jQuery object, same as the old working version
+            this.state.scroll.append($item); // Append the jQuery object
         });
+
+        // [FIXED] Force scroll update to make the newly added items visible.
+        this.state.scroll.update();
     };
     
     /**
-     * [FIXED] Creates an HTML string for a single torrent item.
+     * Creates an HTML string for a single torrent item.
      * @param {object} t - Torrent data.
      * @param {string} lastTorrentHash - The hash of the last played torrent.
      * @returns {string} - The HTML string for the torrent item.
@@ -802,7 +812,7 @@
     };
 
     /**
-     * [FIXED] Creates an HTML string for the tech info bar.
+     * Creates an HTML string for the tech info bar.
      * @param {object} t - Torrent data.
      * @returns {string} - The HTML string for the tech bar.
      */
@@ -1073,7 +1083,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.8 (Render Fix) ready');
+            LOG('TorBox v30.0.9 (Scroll Fix) ready');
         };
 
         return { init };
