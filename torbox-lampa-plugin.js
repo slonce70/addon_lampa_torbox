@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.4 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.5 (Refactored & Stabilized)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто синтаксичну помилку 'Invalid or unexpected token', 
- * яка повністю блокувала завантаження плагіна.
- * • СТАБІЛЬНІСТЬ: Збережено всі попередні виправлення, включаючи коректне
- * відображення списку та роботу з API Lampa.
- * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ: Збережено всі попередні покращення.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'target.getBoundingClientRect is not a function', 
+ * яка виникала під час спроби відобразити список торрентів.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'display is not a function', яка
+ * виникала при поверненні з плеєра.
+ * • СТАБІЛЬНІСТЬ: Збережено всі попередні виправлення та покращення.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_4_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_5_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -774,7 +774,7 @@
             const $item = $(item);
             $item.on('hover:focus', () => { 
                 this.state.last = item; 
-                this.state.scroll.update(item, true); 
+                this.state.scroll.update($item, true); // FIXED
             });
             $item.on('hover:enter', () => this._handleTorrentClick(t));
             this.state.scroll.append($item);
@@ -1031,15 +1031,16 @@
                          LOG('Detected return to TorBox from external player');
                          wasInExternalPlayer = false;
                          setTimeout(() => {
-                             try {
-                                 if (e.object.activity && typeof e.object.activity.component.display === 'function') {
-                                     e.object.activity.component.display(); // Refresh view to show highlights
-                                     Lampa.Controller.toggle('content');
-                                     LOG('Navigation and display restored');
-                                 }
-                             } catch (error) {
-                                 LOG('Error restoring navigation:', error);
-                             }
+                            const activeActivity = Lampa.Activity.active();
+                            if (activeActivity && activeActivity.component && typeof activeActivity.component.display === 'function') {
+                                try {
+                                    activeActivity.component.display();
+                                    Lampa.Controller.toggle('content');
+                                    LOG('Navigation and display restored');
+                                } catch (err) {
+                                    LOG('Error restoring navigation:', err);
+                                }
+                            }
                          }, 250);
                     }
                 } else if (e.type === 'destroy') {
@@ -1085,7 +1086,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.3 (Refactored) ready');
+            LOG('TorBox v30.1.5 (Refactored) ready');
         };
 
         return { init };
