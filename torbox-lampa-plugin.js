@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.4 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.5 (Refactored)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
  * `appendChild is not a function`, які виникали через несумісність з API Lampa 
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_4_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_5_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1006,9 +1006,8 @@
                 if (e.type !== 'complite' || !e.data.movie) return;
                 const root_jq = e.object.activity.render();
                 if (!root_jq || !root_jq.length) return;
-                const root_dom = root_jq[0];
-
-                if (root_dom.querySelector('.view--torbox')) return;
+                
+                if (root_jq.find('.view--torbox').length) return;
                 
                 const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
 
@@ -1084,7 +1083,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.0 (Refactored) ready');
+            LOG('TorBox v30.0.5 (Refactored) ready');
         };
 
         return { init };
