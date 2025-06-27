@@ -1104,5 +1104,4 @@
             setTimeout(bootLoop, 300);
         }
     })();
-})();" in the Canvas.
-I have another que
+})();
