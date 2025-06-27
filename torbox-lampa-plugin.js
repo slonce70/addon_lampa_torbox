@@ -667,6 +667,8 @@
 
     TorBoxComponent.prototype.applyFiltersAndSort = function() {
         const { all_torrents, filters, sort } = this.state;
+        console.log('[[TorBox]] applyFiltersAndSort() - all_torrents count:', all_torrents?.length || 0);
+        console.log('[[TorBox]] Current filters:', filters);
         if (!Array.isArray(all_torrents)) return [];
         
         let filtered = all_torrents.filter(t => {
@@ -695,6 +697,7 @@
             });
             if (sort_method.reverse) filtered.reverse();
         }
+        console.log('[[TorBox]] Filtered torrents count after filtering:', filtered.length);
         return filtered;
     };
 
@@ -727,7 +730,9 @@
                 this.state.all_torrents = torrentsWithHashes.map(({ raw, hash }) => this._processRawTorrent(raw, hash, cachedHashes));
                 Cache.set(cacheKey, this.state.all_torrents);
             }
+            console.log('[[TorBox]] About to call display() with', this.state.all_torrents.length, 'torrents');
             this.display();
+            console.log('[[TorBox]] display() call completed');
 
         } catch (error) {
             this._renderEmpty(error.message || 'Произошла ошибка');
@@ -760,15 +765,22 @@
     };
 
     TorBoxComponent.prototype.display = function() {
+        console.log('[[TorBox]] display() called');
         this.updateFilterUI();
-        this.draw(this.applyFiltersAndSort());
+        const filteredTorrents = this.applyFiltersAndSort();
+        console.log('[[TorBox]] Filtered torrents count:', filteredTorrents.length);
+        this.draw(filteredTorrents);
     };
 
     TorBoxComponent.prototype.draw = function(torrents_list) {
+        console.log('[[TorBox]] draw() called with torrents_list length:', torrents_list?.length || 0);
         this.state.last = null;
-        $(this.state.scroll.render()).empty();
+        const scrollElement = this.state.scroll.render();
+        console.log('[[TorBox]] Scroll element:', scrollElement);
+        $(scrollElement).empty();
         
         if (!torrents_list?.length) {
+            console.log('[[TorBox]] No torrents to display, showing empty message');
             return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
         }
         
@@ -782,7 +794,34 @@
             $(item).on('hover:enter', () => this._handleTorrentClick(t));
             fragment.appendChild(item);
         });
+        console.log('[[TorBox]] Appending', torrents_list.length, 'torrents to scroll');
         this.state.scroll.render().append(fragment);
+        console.log('[[TorBox]] Fragment appended, calling scroll update');
+        
+        // Force scroll update with multiple approaches
+        if (this.state.scroll.update) {
+            this.state.scroll.update();
+        }
+        console.log('[[TorBox]] Scroll update called');
+        
+        // Try forcing DOM update with setTimeout
+        setTimeout(() => {
+            console.log('[[TorBox]] Forcing scroll refresh with setTimeout');
+            if (this.state.scroll.update) this.state.scroll.update();
+            if (this.state.scroll.refresh) this.state.scroll.refresh();
+            const scrollElement = this.state.scroll.render();
+            if (scrollElement && scrollElement.style) {
+                scrollElement.style.display = 'none';
+                scrollElement.offsetHeight; // Force reflow
+                scrollElement.style.display = '';
+            }
+        }, 10);
+        
+        // Try with requestAnimationFrame
+        requestAnimationFrame(() => {
+            console.log('[[TorBox]] Forcing scroll refresh with requestAnimationFrame');
+            if (this.state.scroll.update) this.state.scroll.update();
+        });
     };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
