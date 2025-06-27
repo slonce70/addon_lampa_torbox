@@ -1,18 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.5 (Refactored & Stabilized)
- * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'target.getBoundingClientRect is not a function', 
- * яка виникала під час спроби відобразити список торрентів.
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'display is not a function', яка
- * виникала при поверненні з плеєра.
- * • СТАБІЛЬНІСТЬ: Збережено всі попередні виправлення та покращення.
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.6 (Hot‑Fix)
+ * =============================================================================
+ * • FIX: Replaced jQuery object passed to Scroll.update with native DOM element
+ *   to resolve "target.getBoundingClientRect is not a function" when rendering
+ *   torrent list (#783).
+ * • FIX: Guarded this.display() call after player completion to prevent
+ *   "display is not a function" when the component is already destroyed.
+ *
+ *   Only the relevant sections were modified; everything else remains unchanged.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_5_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_6_hotfix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -774,7 +776,7 @@
             const $item = $(item);
             $item.on('hover:focus', () => { 
                 this.state.last = item; 
-                this.state.scroll.update($item, true); // FIXED
+                this.state.scroll.update(item, true);
             });
             $item.on('hover:enter', () => this._handleTorrentClick(t));
             this.state.scroll.append($item);
@@ -964,7 +966,9 @@
         const player_data = { url: dlResponse.data || dlResponse.url, title: file.name || this.movie.title, poster: this.movie.img };
         Lampa.Modal.close();
         Lampa.Player.play(player_data);
-        Lampa.Player.listener.follow('complite', () => this.display()); // Refresh highlights on completion
+        Lampa.Player.listener.follow('complite', () => {
+            if (typeof this.display === 'function') this.display();
+        });
       } catch (e) {
         ErrorHandler.show(e.type || 'unknown', e);
         Lampa.Modal.close();
