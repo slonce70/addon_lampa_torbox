@@ -309,13 +309,24 @@
                 });
             });
 
-            const results = await Promise.all(searchTasks);
-            const validResults = results.find(res => res && Array.isArray(res.Results));
+            const results = await Promise.allSettled(searchTasks);
+            const validResults = results
+                .filter(result => result.status === 'fulfilled' && result.value && Array.isArray(result.value.Results))
+                .map(result => result.value)
+                .find(res => res.Results.length > 0);
 
             if (validResults) {
                 LOG(`Success from a parser. Found ${validResults.Results.length} torrents.`);
                 return validResults.Results;
             }
+            
+            // Log failed parsers for debugging
+            const failedParsers = results.filter(result => result.status === 'rejected');
+            LOG(`All parsers failed. Failed count: ${failedParsers.length}`);
+            failedParsers.forEach((result, index) => {
+                LOG(`Parser ${PUBLIC_PARSERS[index]?.name || index} error:`, result.reason?.message || result.reason);
+            });
+            
             throw { type: 'api', message: 'Все публичные парсеры недоступны или не вернули результатов.' };
         };
 
@@ -714,8 +725,11 @@
                 if (torrentsWithHashes.length === 0) return this._renderEmpty('Не знайдено жодного валідного торрента.');
 
                 this._renderEmpty(`Перевірка кешу для ${torrentsWithHashes.length} торрентів...`);
-                const cachedDataObject = await Api.checkCached(torrentsWithHashes.map(t => t.hash), this.abortController.signal);
+                const hashes = torrentsWithHashes.map(t => t.hash);
+                LOG(`Checking cache for hashes:`, hashes.slice(0, 5), hashes.length > 5 ? `... and ${hashes.length - 5} more` : '');
+                const cachedDataObject = await Api.checkCached(hashes, this.abortController.signal);
                 const cachedHashes = new Set(Object.keys(cachedDataObject).map(h => h.toLowerCase()));
+                LOG(`Cache check result: ${cachedHashes.size} cached out of ${hashes.length} total`);
                 
                 this.state.all_torrents = torrentsWithHashes.map(({ raw, hash }) => this._processRawTorrent(raw, hash, cachedHashes));
                 Cache.set(cacheKey, this.state.all_torrents);
@@ -1032,7 +1046,7 @@
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 e.object.activity.component.display(); // Refresh view to show highlights
+                                 e.object.activity.display(); // Refresh view to show highlights
                                  Lampa.Controller.toggle('content');
                                  LOG('Navigation and display restored');
                              } catch (error) {
