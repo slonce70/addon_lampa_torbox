@@ -656,34 +656,75 @@
     };
 
     TorBoxComponent.prototype.display = function() {
-        this.updateFilterUI();
-        this.draw(this.applyFiltersAndSort());
-    };
+         LOG('display() called - updating UI and drawing torrents');
+         try {
+             this.updateFilterUI();
+             const filteredTorrents = this.applyFiltersAndSort();
+             LOG('display() - filtered torrents count:', filteredTorrents.length);
+             this.draw(filteredTorrents);
+             LOG('display() completed successfully');
+         } catch (error) {
+             LOG('Error in display():', error);
+             this._renderEmpty('Помилка відображення списку торрентів');
+         }
+     };
 
     TorBoxComponent.prototype.draw = function(torrents_list) {
-        this.state.last = null;
-        this.state.scroll.clear();
-        
-        if (!torrents_list?.length) {
-            return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
-        }
-        
-        const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
-        const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
-        
-        torrents_list.forEach(t => {
-            const itemHtml = this._createTorrentHTML(t, lastTorrentHash);
-            const $item = $(itemHtml);
-            $item.on('hover:focus', () => { 
-                this.state.last = $item[0]; 
-                this.state.scroll.update($item, true);
-            });
-            $item.on('hover:enter', () => this._handleTorrentClick(t));
-            this.state.scroll.append($item);
-        });
-        
-        this.state.scroll.update(false, true);
-    };
+         LOG('draw() called with torrents_list length:', torrents_list?.length || 0);
+         
+         try {
+             this.state.last = null;
+             
+             // Очищуємо попередній вміст
+             if (this.state.scroll && this.state.scroll.clear) {
+                 this.state.scroll.clear();
+             } else {
+                 LOG('Warning: scroll.clear() not available, using alternative method');
+                 this.state.scroll.render().empty();
+             }
+             
+             if (!torrents_list?.length) {
+                 LOG('No torrents to display');
+                 return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
+             }
+
+             const movieId = this.movie.imdb_id || this.movie.id;
+             const lastTorrentHash = Store.get(`torbox_last_played_torrent_${movieId}`, null);
+             LOG('Last played torrent hash for movie', movieId, ':', lastTorrentHash);
+             
+             let itemsAdded = 0;
+             torrents_list.forEach((t, index) => {
+                 try {
+                     const itemHtml = this._createTorrentHTML(t, lastTorrentHash);
+                     const $item = $(itemHtml);
+                     
+                     $item.on('hover:focus', () => { 
+                         this.state.last = $item[0]; 
+                         this.state.scroll.update($item, true);
+                     });
+                     
+                     $item.on('hover:enter', () => this._handleTorrentClick(t));
+                     
+                     this.state.scroll.append($item);
+                     itemsAdded++;
+                 } catch (itemError) {
+                     LOG('Error creating torrent item at index', index, ':', itemError);
+                 }
+             });
+             
+             LOG('Successfully added', itemsAdded, 'torrent items to scroll');
+             
+             // Оновлюємо скрол
+             if (this.state.scroll && this.state.scroll.update) {
+                 this.state.scroll.update(false, true);
+                 LOG('Scroll updated successfully');
+             }
+             
+         } catch (error) {
+             LOG('Error in draw():', error);
+             this._renderEmpty('Помилка відображення списку торрентів');
+         }
+     };
     
     TorBoxComponent.prototype._createTorrentHTML = function(t, lastTorrentHash) {
         const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
@@ -730,19 +771,53 @@
     
     TorBoxComponent.prototype._handleTorrentClick = async function(torrent) {
       try {
-          if (!torrent?.magnet) throw {type: 'validation', message: 'Не найдена magnet-ссылка.'};
+          LOG('Torrent clicked:', torrent?.title || 'Unknown');
+          
+          if (!torrent) {
+              throw {type: 'validation', message: 'Дані торрента відсутні'};
+          }
+          
+          if (!torrent.magnet) {
+              throw {type: 'validation', message: 'Не найдена magnet-ссылка.'};
+          }
+          
+          LOG('Adding torrent with magnet:', torrent.magnet.substring(0, 50) + '...');
           UI.showStatusModal('Додавання торрента...');
+          
           const result = await Api.addMagnet(torrent.magnet, this.abortController.signal);
           const torrentId = result.data.torrent_id || result.data.id;
-          if (!torrentId) throw {type: 'api', message: 'Не вдалося отримати ID торрента.'};
+          
+          if (!torrentId) {
+              throw {type: 'api', message: 'Не вдалося отримати ID торрента.'};
+          }
+          
+          LOG('Torrent added with ID:', torrentId);
           
           const finalTorrentData = await this._trackTorrentStatus(torrentId, this.abortController.signal);
-          finalTorrentData.hash = torrent.hash; // Pass the original hash
+          
+          // Створюємо копію об'єкта замість мутації
+          const torrentDataWithHash = {
+              ...finalTorrentData,
+              hash: torrent.hash || torrent.info_hash
+          };
+          
+          LOG('Torrent ready for file selection with hash:', torrentDataWithHash.hash);
+          
+          // Зберігаємо останній відтворений торрент
+          const movieId = this.movie.imdb_id || this.movie.id;
+          if (movieId && torrentDataWithHash.hash) {
+              Store.set(`torbox_last_played_torrent_${movieId}`, torrentDataWithHash.hash);
+              LOG('Saved last played torrent for movie:', movieId);
+          }
           
           Lampa.Modal.close();
-          this._showFileSelection(finalTorrentData);
+          this._showFileSelection(torrentDataWithHash);
+          
       } catch (e) {
-          if (e.type !== "user" && e.name !== "AbortError") ErrorHandler.show(e.type || 'unknown', e);
+          LOG('Error in _handleTorrentClick:', e);
+          if (e.type !== "user" && e.name !== "AbortError") {
+              ErrorHandler.show(e.type || 'unknown', e);
+          }
           Lampa.Modal.close();
       }
     };
@@ -805,34 +880,92 @@
     };
 
     TorBoxComponent.prototype._showFileSelection = function(torrentData) {
-        let files = torrentData.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
-        if (!files.length) throw {type: 'validation', message: 'Відтворювані відеофайли не знайдені.'};
+        LOG('_showFileSelection called with data:', torrentData);
         
+        // Перевірка наявності файлів
+        if (!torrentData || !torrentData.files || !Array.isArray(torrentData.files)) {
+            LOG('Invalid torrent data or missing files array');
+            throw {type: 'validation', message: 'Дані торрента не містять інформації про файли.'};
+        }
+        
+        LOG('Files available:', torrentData.files.length);
+        
+        // Фільтрація відеофайлів з розширеним списком форматів
+        let files = torrentData.files.filter(f => {
+            if (!f || !f.name) {
+                LOG('Skipping file with missing name:', f);
+                return false;
+            }
+            return /\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$/i.test(f.name);
+        });
+        
+        LOG('Video files found:', files.length);
+        
+        if (!files.length) {
+            throw {type: 'validation', message: 'Відтворювані відеофайли не знайдені.'};
+        }
+        
+        // Сортування файлів
         files.sort(Utils.naturalSort);
         
-        const playFile = (file) => this._playFile(torrentData.id, torrentData.hash, file);
+        const playFile = (file) => {
+            try {
+                LOG('Playing file:', file.name);
+                this._playFile(torrentData.id, torrentData.hash, file);
+            } catch (error) {
+                LOG('Error playing file:', error);
+                ErrorHandler.show(error.type || 'unknown', error);
+            }
+        };
 
-        if (files.length === 1) return playFile(files[0]);
+        // Якщо один файл - відразу відтворюємо
+        if (files.length === 1) {
+            LOG('Single file found, playing directly');
+            return playFile(files[0]);
+        }
         
-        const lastPlayedFileId = Store.get(`torbox_last_played_${this.movie.imdb_id || this.movie.id}`, null);
+        // Отримуємо останній відтворений файл
+        const movieId = this.movie.imdb_id || this.movie.id;
+        const lastPlayedFileId = Store.get(`torbox_last_played_${movieId}`, null);
+        LOG('Last played file ID:', lastPlayedFileId);
 
+        // Створюємо елементи для вибору
         const fileItems = files.map(f => {
             const isLast = lastPlayedFileId && String(f.id) === String(lastPlayedFileId);
             const item = {
                 title: isLast ? `▶️ ${f.name}` : f.name,
-                subtitle: Utils.formatBytes(f.size),
+                subtitle: Utils.formatBytes(f.size || 0),
                 file: f
             };
-            if(isLast) item.cls = 'select__item--last-played';
+            if (isLast) {
+                item.cls = 'select__item--last-played';
+            }
             return item;
         });
 
-        Lampa.Select.show({ 
-            title: 'Вибір файлу для відтворення', 
-            items: fileItems, 
-            onSelect: item => playFile(item.file), 
-            onBack: () => Lampa.Controller.toggle('content') 
-        });
+        // Показуємо список для вибору
+        try {
+            LOG('Showing file selection dialog with', fileItems.length, 'items');
+            Lampa.Select.show({ 
+                title: 'Вибір файлу для відтворення', 
+                items: fileItems, 
+                onSelect: (item) => {
+                    if (item && item.file) {
+                        playFile(item.file);
+                    } else {
+                        LOG('Invalid file selection:', item);
+                        ErrorHandler.show('validation', {message: 'Неправильний вибір файлу'});
+                    }
+                }, 
+                onBack: () => {
+                    LOG('File selection cancelled');
+                    Lampa.Controller.toggle('content');
+                }
+            });
+        } catch (error) {
+            LOG('Error showing file selection:', error);
+            ErrorHandler.show('ui', {message: 'Помилка відображення списку файлів: ' + error.message});
+        }
     };
     
     TorBoxComponent.prototype._playFile = async function(torrentId, torrentHash, file) {
