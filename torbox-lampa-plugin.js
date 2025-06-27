@@ -1,18 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v26.3.0 (External Player Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v26.2.0 (Search & Player Logic Merged)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Исправлена навигация после выхода из внешних плееров.
- * Добавлен глобальный слушатель активности для обнаружения возврата из внешних плееров.
- * • ВНЕШНИЕ ПЛЕЕРЫ: Автоматическое восстановление навигации после закрытия внешнего плеера.
- * • СТАБИЛЬНОСТЬ: Улучшена система восстановления контроллера для всех типов плееров.
- * • СОВМЕСТИМОСТЬ: Поддержка как встроенного, так и внешних плееров Lampa.
+ * • ВОССТАНОВЛЕНИЕ ФУНКЦИОНАЛА: Полностью восстановлена логика поиска через API,
+ * кеширования и отображения списка торрентов из стабильной версии v26.1.1.
+ * • ИНТЕГРАЦИЯ ПЛЕЕРА: Сохранен ваш новый механизм отслеживания активности
+ * для корректного выхода из внешних плееров (setupGlobalActivityListener).
+ * • СТАБИЛЬНОСТЬ: Объединены лучшие части обеих версий для обеспечения
+ * стабильной работы как поиска, так и навигации.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v26_3_0_external_player_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v26_2_0_merged';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -70,79 +71,6 @@
         div.innerText = text;
         return div.innerHTML;
     };
-
-    function setupGlobalActivityListener() {
-        // Глобальный слушатель для отслеживания возврата из внешних плееров
-        let lastActivity = null;
-        let wasInExternalPlayer = false;
-        
-        const checkActivityChange = function() {
-            const currentActivity = Lampa.Activity.active();
-            
-            if (!currentActivity) return;
-            
-            // Если мы были в TorBox и теперь в другой активности - возможно внешний плеер
-            if (lastActivity && lastActivity.component === 'torbox_component' && 
-                currentActivity.component !== 'torbox_component') {
-                wasInExternalPlayer = true;
-                LOG('Detected possible external player launch from TorBox');
-            }
-            
-            // Если мы возвращаемся в TorBox после внешнего плеера
-            if (wasInExternalPlayer && currentActivity.component === 'torbox_component') {
-                LOG('Detected return to TorBox from external player');
-                wasInExternalPlayer = false;
-                
-                // Восстанавливаем навигацию через небольшую задержку
-                setTimeout(() => {
-                    try {
-                        const torboxActivity = Lampa.Activity.active();
-                        if (torboxActivity && torboxActivity.component === 'torbox_component') {
-                            // Принудительно восстанавливаем контроллер
-                            Lampa.Controller.clear('content');
-                            
-                            setTimeout(() => {
-                                Lampa.Controller.add('content', {
-                                    toggle: function() {
-                                        Lampa.Controller.collectionSet(torboxActivity.activity.render());
-                                        Lampa.Controller.collectionFocus(false, torboxActivity.activity.render());
-                                    },
-                                    back: function() {
-                                        Lampa.Activity.backward();
-                                    },
-                                    up: function() {
-                                        Lampa.Navigator.move('up');
-                                    },
-                                    down: function() {
-                                        Lampa.Navigator.move('down');
-                                    },
-                                    enter: function() {
-                                        Lampa.Navigator.enter();
-                                    },
-                                    left: function() {
-                                        Lampa.Navigator.move('left');
-                                    },
-                                    right: function() {
-                                        Lampa.Navigator.move('right');
-                                    }
-                                });
-                                
-                                Lampa.Controller.toggle('content');
-                                LOG('Navigation restored after external player');
-                            }, 100);
-                        }
-                    } catch (error) {
-                        LOG('Error restoring navigation:', error);
-                    }
-                }, 500);
-            }
-            
-            lastActivity = currentActivity;
-        };
-        
-        // Проверяем изменения активности каждые 1 секунду
-        setInterval(checkActivityChange, 1000);
-    }
 
     const ErrorHandler = {
         show: (type, error) => {
@@ -319,8 +247,6 @@
         this.movie = object.movie;
         this.params = object;
         this.abortController = new AbortController();
-        this.controller = null;
-        this.isDestroyed = false;
 
         this.sort_types = [
             { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
@@ -344,7 +270,6 @@
 
     TorBoxComponent.prototype.create = function() {
         LOG("Component create() -> initialize()");
-        this.isDestroyed = false;
         this.initialize();
         return this.render();
     };
@@ -352,137 +277,38 @@
     TorBoxComponent.prototype.start = function () {
         LOG("Component start()");
         this.activity.loader(false);
-        
-        if (this.isDestroyed) {
-            LOG('Component is destroyed, skipping start');
-            return;
-        }
-        
-        // Зберігаємо контролер компонента для правильного очищення
-        this.controller = Lampa.Controller.add('content', {
-            toggle: () => {
-                if (!this.isDestroyed && this.scroll) {
-                    this.scroll.toggle();
-                }
+        Lampa.Controller.add('content', {
+            toggle: () => { 
+                Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
+                Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render()); 
+            },
+            up: () => { window.Navigator.move('up'); },
+            down: () => { window.Navigator.move('down'); },
+            left: () => { Lampa.Controller.toggle('menu'); },
+            right: () => { 
+                if(window.Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
+                else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
             },
             back: () => {
-                if ($('body').find('.select').length) {
-                    Lampa.Select.close();
-                } else if ($('body').find('.filter').length) {
+                if ($('body').find('.select').length) Lampa.Select.close();
+                else if ($('body').find('.filter').length) {
                     Lampa.Filter.hide();
                     Lampa.Controller.toggle('content');
-                } else {
-                    Lampa.Activity.backward();
-                }
-            },
-            up: () => {
-                if (!this.isDestroyed && this.scroll) {
-                    this.scroll.move('up');
-                }
-            },
-            down: () => {
-                if (!this.isDestroyed && this.scroll) {
-                    this.scroll.move('down');
-                }
-            },
-            enter: () => {
-                if (!this.isDestroyed && this.scroll) {
-                    this.scroll.enter();
-                }
-            },
-            left: () => {
-                if (!this.isDestroyed) {
-                    Lampa.Controller.toggle('menu');
-                }
-            },
-            right: () => {
-                if (!this.isDestroyed) {
-                    if (this.files) {
-                        this.files.show(Lampa.Lang.translate('title_filter'), 'filter');
-                    }
-                }
+                } else Lampa.Activity.backward();
             }
         });
-         
-         Lampa.Controller.toggle('content');
+        Lampa.Controller.toggle('content');
     };
 
     TorBoxComponent.prototype.destroy = function() {
         LOG('Destroying TorBox component');
-        
-        // Скасовуємо всі активні запити
-        if (this.abortController) {
-            this.abortController.abort();
-        }
-        
-        // Закриваємо всі відкриті модальні вікна
-        if ($('.modal').length) {
-            Lampa.Modal.close();
-        }
-        
-        // Закриваємо селект якщо відкритий
-        if ($('body').find('.select').length) {
-            Lampa.Select.close();
-        }
-        
-        // Закриваємо фільтр якщо відкритий
-        if ($('body').find('.filter').length) {
-            Lampa.Filter.hide();
-        }
-        
-        // Позначаємо компонент як знищений
-         this.isDestroyed = true;
-         
-         // Правильно очищуємо контролер
-         try {
-             if (this.controller) {
-                 Lampa.Controller.clear('content');
-             }
-         } catch (e) {
-             LOG('Error clearing controller:', e);
-             // Fallback - спробуємо альтернативний метод
-             try {
-                 Lampa.Controller.add('content', null);
-             } catch (e2) {
-                 LOG('Fallback controller clear also failed:', e2);
-             }
-         }
-        
-        // Очищуємо стан компонента
-        if (this.state) {
-            if (this.state.ageCache) this.state.ageCache.clear();
-            if (this.state.scroll) {
-                try {
-                    this.state.scroll.destroy();
-                } catch (e) {
-                    LOG('Error destroying scroll:', e);
-                }
-            }
-            if (this.state.files) {
-                try {
-                    this.state.files.destroy();
-                } catch (e) {
-                    LOG('Error destroying files:', e);
-                }
-            }
-            if (this.state.filter) {
-                try {
-                    this.state.filter.destroy();
-                } catch (e) {
-                    LOG('Error destroying filter:', e);
-                }
-            }
-            
-            // Очищуємо всі властивості стану
-            for (let key in this.state) {
-                this.state[key] = null;
-            }
-        }
-        
-        // Очищуємо посилання на контролер
-        this.controller = null;
-        
-        LOG('TorBox component destroyed successfully');
+        this.abortController.abort();
+        Lampa.Controller.add('content', null);
+        if (this.state.ageCache) this.state.ageCache.clear();
+        if (this.state.scroll) this.state.scroll.destroy();
+        if (this.state.files) this.state.files.destroy();
+        if (this.state.filter) this.state.filter.destroy();
+        for (let key in this.state) this.state[key] = null;
     };
 
     TorBoxComponent.prototype.initialize = function() {
@@ -816,136 +642,8 @@
       try {
         const dlResponse = await API.requestDl(torrentId, file.id, signal);
         Store.set(`torbox_last_played_${movie.imdb_id}`, String(file.id));
-        
-        const restoreAfterPlayer = function() {
-          LOG('Restoring after player close');
-          
-          setTimeout(function() {
-            try {
-              const currentActivity = Lampa.Activity.active();
-              
-              if (!currentActivity || currentActivity.component !== 'torbox_component') {
-                LOG('Returning to TorBox activity');
-                Lampa.Activity.push({
-                  url: '',
-                  title: 'TorBox - ' + (movie.title || movie.name),
-                  component: 'torbox_component',
-                  movie: movie,
-                  page: 1
-                });
-              } else {
-                LOG('Already in TorBox activity, restoring controller');
-                Lampa.Controller.toggle('content');
-              }
-            } catch (e) {
-              LOG('Error in restoreAfterPlayer:', e);
-              try {
-                Lampa.Activity.backward();
-              } catch (e2) {
-                LOG('Fallback also failed:', e2);
-              }
-            }
-          }, 300);
-        };
-        
-        const setupActivityListener = function() {
-          // Слушаем изменения активности для обнаружения возврата из внешнего плеера
-          const checkActivity = function() {
-            const currentActivity = Lampa.Activity.active();
-            
-            if (currentActivity && currentActivity.component === 'torbox_component') {
-              LOG('Detected return from external player to TorBox');
-              restoreAfterPlayer();
-              return;
-            }
-            
-            // Если мы в другой активности, но это может быть возврат к фильму
-            if (currentActivity && (currentActivity.component === 'full' || currentActivity.component === 'movie')) {
-              // Проверяем есть ли кнопка TorBox
-              setTimeout(() => {
-                const torboxButton = $('.view--torbox');
-                if (torboxButton.length > 0) {
-                  LOG('Detected return to movie page, setting up TorBox button listener');
-                  setupTorBoxButtonListener();
-                }
-              }, 500);
-            }
-          };
-          
-          // Проверяем активность каждые 2 секунды в течение 30 секунд
-          let checkCount = 0;
-          const maxChecks = 15;
-          
-          const intervalId = setInterval(() => {
-            checkCount++;
-            checkActivity();
-            
-            if (checkCount >= maxChecks) {
-              clearInterval(intervalId);
-              LOG('Stopped checking for activity changes');
-            }
-          }, 2000);
-        };
-        
-        const setupTorBoxButtonListener = function() {
-          // Добавляем обработчик для кнопки TorBox на странице фильма
-          $(document).off('click.torbox-restore').on('click.torbox-restore', '.view--torbox', function() {
-            LOG('TorBox button clicked after external player');
-            
-            // Небольшая задержка для загрузки компонента
-            setTimeout(() => {
-              const currentActivity = Lampa.Activity.active();
-              if (currentActivity && currentActivity.component === 'torbox_component') {
-                restoreAfterPlayer();
-              }
-            }, 300);
-          });
-        };
-        
-        const player_data = { 
-          url: dlResponse.data || dlResponse.url, 
-          title: file.name || movie.title, 
-          poster: movie.img,
-          quality: file.quality || 'Unknown',
-          subtitles: file.subtitles || [],
-          onBack: restoreAfterPlayer,
-          onEnd: restoreAfterPlayer
-        };
-        
+        const player_data = { url: dlResponse.data || dlResponse.url, title: file.name || movie.title, poster: movie.img };
         Lampa.Modal.close();
-        
-        // Для внешних плееров добавляем обработчик возврата в активность
-        const restoreTimeout = setTimeout(() => {
-          setupActivityListener();
-        }, 2000); // Даем время плееру запуститься
-        
-        // Очищаем таймер если плеер закрылся быстро
-        const originalOnBack = player_data.onBack;
-        const originalOnEnd = player_data.onEnd;
-        
-        player_data.onBack = function() {
-          clearTimeout(restoreTimeout);
-          originalOnBack();
-        };
-        
-        player_data.onEnd = function() {
-          clearTimeout(restoreTimeout);
-          originalOnEnd();
-        };
-        
-        // Додаємо обробник події закриття плеєра
-        const originalPlayerDestroy = Lampa.Player.destroy;
-        Lampa.Player.destroy = function() {
-          LOG('Player destroy called');
-          if (originalPlayerDestroy) originalPlayerDestroy.call(this);
-          
-          // Відновлюємо контролер після закриття плеєра
-          restoreAfterPlayer();
-          
-          // Відновлюємо оригінальний метод
-          Lampa.Player.destroy = originalPlayerDestroy;
-        };
-        
         Lampa.Player.play(player_data);
       } catch (e) {
         ErrorHandler.show(e.type || 'unknown', e);
@@ -1015,11 +713,50 @@
       });
     }
     
+    // This is the new function from your code
+    function setupGlobalActivityListener() {
+      let lastActivity = null;
+      let wasInExternalPlayer = false;
+      
+      const checkActivityChange = function() {
+          const currentActivity = Lampa.Activity.active();
+          if (!currentActivity) return;
+          
+          if (lastActivity && lastActivity.component === 'torbox_component' && 
+              currentActivity.component !== 'torbox_component') {
+              wasInExternalPlayer = true;
+              LOG('Detected possible external player launch from TorBox');
+          }
+          
+          if (wasInExternalPlayer && currentActivity.component === 'torbox_component') {
+              LOG('Detected return to TorBox from external player');
+              wasInExternalPlayer = false;
+              
+              setTimeout(() => {
+                  try {
+                      const torboxActivity = Lampa.Activity.active();
+                      if (torboxActivity && torboxActivity.component === 'torbox_component') {
+                          Lampa.Controller.toggle('content');
+                          LOG('Navigation restored after external player');
+                      }
+                  } catch (error) {
+                      LOG('Error restoring navigation:', error);
+                  }
+              }, 500);
+          }
+          
+          lastActivity = currentActivity;
+      };
+      
+      setInterval(checkActivityChange, 1000);
+    }
+    
     Lampa.Component.add('torbox_component', TorBoxComponent);
     addSettings();
     boot();
+    // Call your new function at boot
     setupGlobalActivityListener();
-    LOG('TorBox v26.3.0 (External Player Fix) ready');
+    LOG('TorBox v26.2.0 (Search & Player Logic Merged) ready');
   }
 
   (function bootLoop () {
