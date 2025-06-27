@@ -1,9 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Scroll Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.10 (Timing Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Виправлено логіку роботи з Lampa.Scroll. Додано 
- * примусове оновлення списку після додавання елементів та захищено виклик
- * для розрахунку висоти, що усунуло проблему порожнього екрана.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "getBoundingClientRect", яка виникала
+ * через асинхронність рендерингу. Виклик оновлення списку тепер відбувається
+ * з невеликою затримкою, що гарантує коректне відображення елементів.
  * • СТАБІЛЬНІСТЬ: Збережено всю нову структуру та оптимізації.
  */
 
@@ -11,7 +11,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_scroll_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_10_timing_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -786,8 +786,12 @@
             this.state.scroll.append($item); // Append the jQuery object
         });
 
-        // [FIXED] Force scroll update to make the newly added items visible.
-        this.state.scroll.update();
+        // [FIXED] Delay update() to prevent race conditions where elements are not yet measurable in the DOM.
+        setTimeout(() => {
+            if(this.state.scroll) { // Add a guard in case component is destroyed during the timeout
+                this.state.scroll.update();
+            }
+        }, 0);
     };
     
     /**
@@ -1083,7 +1087,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.9 (Scroll Fix) ready');
+            LOG('TorBox v30.0.10 (Timing Fix) ready');
         };
 
         return { init };
@@ -1100,3 +1104,6 @@
         }
     })();
 })();
+```
+
+Я оновив версію до **30.0.10** та додав відповідний коментар до заголовка. Тепер все має працювати стабіль
