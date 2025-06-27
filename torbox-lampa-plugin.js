@@ -717,7 +717,17 @@
   }
 
   (function bootLoop () {
-    if (window.Lampa && window.Lampa.Utils.isObject(Lampa.Activity)) {
+    if (window.Lampa && 
+        window.Lampa.Activity && 
+        window.Lampa.Component && 
+        window.Lampa.Controller && 
+        window.Lampa.Scroll && 
+        window.Lampa.Select && 
+        window.Lampa.Modal && 
+        window.Lampa.Player && 
+        window.Lampa.Noty && 
+        window.Lampa.Listener && 
+        typeof window.Lampa.Activity === 'object') {
       try {
         initPlugin();
       }
