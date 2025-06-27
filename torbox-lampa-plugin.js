@@ -1,21 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.6 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.7 (Refactored)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій, через який список торрентів 
  * відображався некоректно (горизонтально). Відновлено правильний метод
- * додавання елементів, сумісний з API Lampa.
+ * додавання елементів, сумісний з API Lampa. Також виправлено помилку
+ * оновлення інтерфейсу при поверненні з плеєра.
  * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
  * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
  * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
  * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
- * • ЗАХИСТ КЛЮЧА: API-ключ зберігається у кодованому вигляді (Base64).
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_6_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_7_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1026,9 +1026,11 @@
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 e.object.activity.component.display(); // Refresh view to show highlights
-                                 Lampa.Controller.toggle('content');
-                                 LOG('Navigation and display restored');
+                                 if (e.object.component && typeof e.object.component.display === 'function') {
+                                     e.object.component.display(); // Refresh view to show highlights
+                                     Lampa.Controller.toggle('content');
+                                     LOG('Navigation and display restored');
+                                 }
                              } catch (error) {
                                  LOG('Error restoring navigation:', error);
                              }
@@ -1077,7 +1079,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.5 (Refactored) ready');
+            LOG('TorBox v30.0.6 (Refactored) ready');
         };
 
         return { init };
