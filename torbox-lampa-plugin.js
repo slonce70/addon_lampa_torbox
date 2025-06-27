@@ -1,22 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.1 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.2 (Refactored)
  * =================================================================================
- * • ВИПРАВЛЕННЯ: Усунуто критичну помилку `root.querySelector is not a function`,
- * яка призводила до збою плагіна на сторінці фільму.
- * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості шляхом заміни всіх вставок
- * HTML на безпечні операції через DOM API.
- * • ПРОДУКТИВНІСТЬ: Запити для перевірки кешу тепер виконуються паралельно,
- * що значно прискорює завантаження списку. Внутрішній кеш обмежений (LRU).
- * • СТАБІЛЬНІСТЬ: Усунуто нескінченний таймер, додано захисний шар для localStorage.
+ * • ВИПРАВЛЕННЯ: Усунуто помилку `Cannot read properties of undefined`, яка виникала
+ * при переході до налаштувань плагіна через некоректну ініціалізацію параметрів.
+ * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
+ * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
+ * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
  * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
- * • ЗАХИСТ КЛЮЧА: API-ключ тепер зберігається у кодованому вигляді (Base64).
+ * • ЗАХИСТ КЛЮЧА: API-ключ зберігається у кодованому вигляді (Base64).
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_1_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_2_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -983,7 +981,7 @@
             fields.forEach(p => {
                 Lampa.SettingsApi.addParam({
                     component: 'torbox_enh',
-                    param: { name: p.k, type: p.t, default: p.v },
+                    param: { name: p.k, type: p.t, values: '', default: p.v },
                     field: { name: p.n, description: p.d },
                     onChange: v => {
                         const val = (typeof v === 'object' ? v.value : v);
