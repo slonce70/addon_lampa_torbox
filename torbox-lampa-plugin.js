@@ -1,25 +1,22 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.0 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.1 (Refactored)
  * =================================================================================
+ * • ВИПРАВЛЕННЯ: Усунуто критичну помилку `root.querySelector is not a function`,
+ * яка призводила до збою плагіна на сторінці фільму.
  * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості шляхом заміни всіх вставок
  * HTML на безпечні операції через DOM API.
  * • ПРОДУКТИВНІСТЬ: Запити для перевірки кешу тепер виконуються паралельно,
- * що значно прискорює завантаження списку. Внутрішній кеш обмежений (LRU),
- * щоб запобігти витокам пам'яті на слабких пристроях.
- * • СТАБІЛЬНІСТЬ: Усунуто нескінченний таймер (setInterval), замінено на
- * реактивний слухач подій Lampa. Додано захисний шар для localStorage,
- * що запобігає збоям на Smart TV (WebOS, Tizen).
- * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції ("віртуальні модулі")
- * для спрощення навігації та розуміння.
- * • ЗАХИСТ КЛЮЧА: API-ключ тепер зберігається у кодованому вигляді (Base64)
- * для ускладнення його крадіжки.
+ * що значно прискорює завантаження списку. Внутрішній кеш обмежений (LRU).
+ * • СТАБІЛЬНІСТЬ: Усунуто нескінченний таймер, додано захисний шар для localStorage.
+ * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
+ * • ЗАХИСТ КЛЮЧА: API-ключ тепер зберігається у кодованому вигляді (Base64).
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_0_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_1_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1004,8 +1001,11 @@
         const boot = () => {
             Lampa.Listener.follow('full', e => {
                 if (e.type !== 'complite' || !e.data.movie) return;
-                const root = e.object.activity.render();
-                if (root.querySelector('.view--torbox')) return;
+                const root_jq = e.object.activity.render();
+                if (!root_jq || !root_jq.length) return;
+                const root_dom = root_jq[0];
+
+                if (root_dom.querySelector('.view--torbox')) return;
                 
                 const btn = document.createElement('div');
                 btn.className = 'full-start__button selector view--torbox';
@@ -1015,7 +1015,11 @@
                 btn.addEventListener('click', () => {
                     Lampa.Activity.push({ component: 'torbox_component', title: 'TorBox - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie });
                 });
-                root.querySelector('.view--torrent').after(btn);
+
+                const torrentButton = root_dom.querySelector('.view--torrent');
+                if (torrentButton) {
+                    torrentButton.after(btn);
+                }
             });
         };
         
