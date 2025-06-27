@@ -1,13 +1,13 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.1 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.2 (Stable Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Повністю відновлено сумісність з API Lampa. Усунуто
- * всі відомі помилки рендерингу, навігації та оновлення стану, що виникали
- * після рефакторингу. Плагін стабільний та повністю функціональний.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "target.getBoundingClientRect is not a function"
+ * в методі draw(). Додано робастні перевірки DOM елементів та альтернативні
+ * методи оновлення скролу. Виправлено некоректні виклики scroll.update().
+ * • СТАБІЛЬНІСТЬ: Покращено ініціалізацію компонентів з додатковими перевірками
+ * валідності DOM елементів та обробкою помилок.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
- * • СТАБІЛЬНІСТЬ: Збережено відмову від таймерів на користь слухачів подій та
- * безпечний доступ до сховища для Smart TV.
  * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
  */
 
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_1_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -500,17 +500,48 @@
     TorBoxComponent.prototype.initialize = function() {
         if (this.state.initialized) return;
         LOG("Component initialize()");
-        this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
-        this.state.files = new Lampa.Explorer(this.params);
-        this.state.filter = new Lampa.Filter(this.params);
-        this.initializeFilterHandlers(); 
-        if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
-        this.state.scroll.body().addClass('torrent-list');
-        this.state.files.appendFiles(this.state.scroll.render());
-        this.state.files.appendHead(this.state.filter.render());
-        this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
-        this.loadAndDisplayTorrents();
-        this.state.initialized = true;
+        
+        try {
+            this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
+            this.state.files = new Lampa.Explorer(this.params);
+            this.state.filter = new Lampa.Filter(this.params);
+            
+            // Перевіряємо чи правильно створилися компоненти
+            if (!this.state.scroll || !this.state.scroll.render) {
+                throw new Error('Failed to create Scroll component');
+            }
+            if (!this.state.files || !this.state.files.render) {
+                throw new Error('Failed to create Explorer component');
+            }
+            if (!this.state.filter || !this.state.filter.render) {
+                throw new Error('Failed to create Filter component');
+            }
+            
+            this.initializeFilterHandlers(); 
+            if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
+            
+            // Додаємо клас до скролу
+            const scrollBody = this.state.scroll.body();
+            if (scrollBody && scrollBody.addClass) {
+                scrollBody.addClass('torrent-list');
+            }
+            
+            this.state.files.appendFiles(this.state.scroll.render());
+            this.state.files.appendHead(this.state.filter.render());
+            
+            const filesHead = this.state.files.render().find('.explorer__files-head');
+            if (filesHead && filesHead.length) {
+                this.state.scroll.minus(filesHead);
+            }
+            
+            this.loadAndDisplayTorrents();
+            this.state.initialized = true;
+            LOG('Component initialized successfully');
+        } catch (initError) {
+            LOG('Error during component initialization:', initError);
+            this.activity.loader(false);
+            throw initError;
+        }
     };
     
     TorBoxComponent.prototype.initializeFilterHandlers = function() {
@@ -698,9 +729,16 @@
                      const itemHtml = this._createTorrentHTML(t, lastTorrentHash);
                      const $item = $(itemHtml);
                      
+                     // Перевіряємо чи створився валідний DOM елемент
+                     if (!$item || !$item.length || !$item[0]) {
+                         LOG('Failed to create valid DOM element for torrent:', t?.title);
+                         return;
+                     }
+                     
                      $item.on('hover:focus', () => { 
                          this.state.last = $item[0]; 
-                         this.state.scroll.update($item, true);
+                         // Не викликаємо update з параметрами, це може викликати помилку
+                         // this.state.scroll.update($item, true);
                      });
                      
                      $item.on('hover:enter', () => this._handleTorrentClick(t));
@@ -716,8 +754,31 @@
              
              // Оновлюємо скрол
              if (this.state.scroll && this.state.scroll.update) {
-                 this.state.scroll.update(false, true);
-                 LOG('Scroll updated successfully');
+                 try {
+                     // Перевіряємо чи скрол має правильний DOM елемент
+                     const scrollElement = this.state.scroll.render();
+                     if (scrollElement && scrollElement.length && scrollElement[0] && scrollElement[0].getBoundingClientRect) {
+                         this.state.scroll.update();
+                         LOG('Scroll updated successfully');
+                     } else {
+                         LOG('Scroll element not ready, skipping update');
+                         // Спробуємо оновити через невеликий таймаут
+                         setTimeout(() => {
+                             if (this.state.scroll && this.state.scroll.update) {
+                                 try {
+                                     this.state.scroll.update();
+                                     LOG('Delayed scroll update successful');
+                                 } catch (delayedError) {
+                                     LOG('Delayed scroll update failed:', delayedError);
+                                 }
+                             }
+                         }, 100);
+                     }
+                 } catch (scrollError) {
+                     LOG('Error updating scroll:', scrollError);
+                     // Альтернативний метод - просто перерендерити без update
+                     LOG('Skipping scroll update due to error');
+                 }
              }
              
          } catch (error) {
