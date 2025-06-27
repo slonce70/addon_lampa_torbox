@@ -1,19 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v29.0.0 (Rich UI Blocks & Bugfix)
+ * TorBox Enhanced – Universal Lampa Plugin v29.1.0 (Remote Control Fix)
  * =================================================================================
- * • НОВЫЙ БЛОЧНЫЙ ИНТЕРФЕЙС: Полностью переработан дизайн списка торрентов, 
- * чтобы соответствовать предоставленному примеру. Добавлена красочная нижняя 
- * панель с техническими данными (разрешение, кодеки, аудиодорожки).
- * • ИСПРАВЛЕНИЕ ОШИБКИ: Устранена критическая ошибка 'Uncaught SyntaxError: "undefined" is not valid JSON',
- * которая возникала при сбросе фильтров.
- * • ПРОДВИНУТЫЙ ФИЛЬТР И ЛОГИКА ТРЕКЕРОВ: Весь функционал из предыдущей версии сохранен.
+ * • ВИПРАВЛЕННЯ НАВІГАЦІЇ: Повністю перероблено логіку контролера для коректної 
+ * роботи з пультом ДК на телевізорах. Тепер фокус переміщується між списком 
+ * та кнопками фільтра/сортування за допомогою кнопок "Вгору" та "Вниз".
+ * • НОВИЙ ІНТЕРФЕЙС: Збережено новий блочний дизайн списку торрентів.
+ * • ПРОДВИНУТИЙ ФІЛЬТР: Весь функціонал з попередньої версії збережено.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v29_0_0_rich_ui';
+  const PLUGIN_ID = 'torbox_enhanced_v29_1_0_rc_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -38,7 +37,7 @@
           const TEN_MINUTES = 10 * 60 * 1000;
           if (Date.now() - entry.timestamp > TEN_MINUTES) {
               delete this.store[key];
-              LOG(`Локальный кэш для ключа '${key}' устарел и был удален.`);
+              LOG(`Локальний кеш для ключа '${key}' застарів і був видалений.`);
               return null;
           }
           LOG(`Cache HIT для ключа: ${key}`);
@@ -339,11 +338,10 @@
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
         ];
         
-        // BUGFIX: Moved defaultFilters to the instance scope
         this.defaultFilters = {
             quality: 'all',
             tracker: 'all',
-            video_type: 'all', // sdr, hdr, dv
+            video_type: 'all', 
             translation: 'all',
             lang: 'all',
             video_codec: 'all',
@@ -358,7 +356,6 @@
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
-            // Use instance `defaultFilters` for initialization
             filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters))),
             ageCache: new Map()
         };
@@ -370,20 +367,50 @@
         return this.render();
     };
 
+    // RC FIX: Reworked controller logic for remote control compatibility
     TorBoxComponent.prototype.start = function () {
         LOG("Component start()");
         this.activity.loader(false);
+
+        Lampa.Controller.add('head', {
+            toggle: () => {
+                Lampa.Controller.collectionSet(this.state.filter.render());
+                Lampa.Controller.collectionFocus(false, this.state.filter.render());
+            },
+            right: () => {
+                window.Navigator.move('right');
+            },
+            left: () => {
+                window.Navigator.move('left');
+            },
+            down: () => {
+                Lampa.Controller.toggle('content');
+            },
+            back: () => {
+                Lampa.Controller.toggle('content');
+            }
+        });
+        
         Lampa.Controller.add('content', {
             toggle: () => { 
-                Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
+                Lampa.Controller.collectionSet(this.state.scroll.render());
                 Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render()); 
             },
-            up: () => { window.Navigator.move('up'); },
-            down: () => { window.Navigator.move('down'); },
-            left: () => { Lampa.Controller.toggle('menu'); },
-            right: () => { 
-                if(window.Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
-                else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
+            up: () => { 
+                if (this.state.scroll.is_first()) {
+                    Lampa.Controller.toggle('head');
+                } else {
+                    window.Navigator.move('up'); 
+                }
+            },
+            down: () => { 
+                window.Navigator.move('down'); 
+            },
+            left: () => { 
+                Lampa.Controller.toggle('menu'); 
+            },
+            right: () => {
+                // This is now handled by pressing OK on the filter button
             },
             back: () => {
                 if ($('body').find('.select').length) Lampa.Select.close();
@@ -393,23 +420,27 @@
                 } else Lampa.Activity.backward();
             }
         });
+
         Lampa.Controller.toggle('content');
     };
 
     TorBoxComponent.prototype.pause = function() {
         LOG('Component pause()');
         Lampa.Controller.add('content', null);
+        Lampa.Controller.add('head', null); // RC FIX: Clear head controller
     };
 
     TorBoxComponent.prototype.stop = function() {
         LOG('Component stop()');
         Lampa.Controller.add('content', null);
+        Lampa.Controller.add('head', null); // RC FIX: Clear head controller
     };
 
     TorBoxComponent.prototype.destroy = function() {
         LOG('Destroying TorBox component');
         this.abortController.abort();
         Lampa.Controller.add('content', null);
+        Lampa.Controller.add('head', null);
         if (this.state.ageCache) this.state.ageCache.clear();
         if (this.state.scroll) this.state.scroll.destroy();
         if (this.state.files) this.state.files.destroy();
@@ -451,7 +482,6 @@
                     this.loadAndDisplayTorrents(true);
                     return; 
                 } else if (a.reset) {
-                    // BUGFIX: Use the instance-scoped defaultFilters
                     this.state.filters = JSON.parse(JSON.stringify(this.defaultFilters)); 
                 } else if (a.stype) {
                     this.state.filters[a.stype] = b.value; 
