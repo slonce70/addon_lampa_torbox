@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v26.1.1 (Lifecycle Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v26.2.0 (Navigation Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка 'Lampa.Controller.remove is not a function',
- * возникавшая при выходе из плагина. Метод destroy теперь использует правильный
- * синтаксис API Lampa 'Lampa.Controller.add('content', null)' для очистки,
- * что обеспечивает стабильную навигацию.
- * • СТАБИЛЬНОСТЬ: Сохранены все предыдущие исправления.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Полностью переработана система навігації після закриття плеєра.
+ * Додано правильну обробку життєвого циклу контролера та відновлення навігації.
+ * • ВИПРАВЛЕННЯ ПЛЕЄРА: Додано обробники для коректного повернення до компонента після закриття плеєра.
+ * • СТАБІЛЬНІСТЬ: Покращено очищення ресурсів та обробку помилок при знищенні компонента.
+ * • НАВІГАЦІЯ: Виправлено проблему з неактивними кнопками після закриття плеєра.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v26_1_1_lifecycle_fix';
+  const PLUGIN_ID = 'torbox_enhanced_v26_2_0_navigation_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -246,6 +246,8 @@
         this.movie = object.movie;
         this.params = object;
         this.abortController = new AbortController();
+        this.controller = null;
+        this.isDestroyed = false;
 
         this.sort_types = [
             { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
@@ -269,6 +271,7 @@
 
     TorBoxComponent.prototype.create = function() {
         LOG("Component create() -> initialize()");
+        this.isDestroyed = false;
         this.initialize();
         return this.render();
     };
@@ -276,39 +279,137 @@
     TorBoxComponent.prototype.start = function () {
         LOG("Component start()");
         this.activity.loader(false);
-        Lampa.Controller.add('content', {
-            toggle: () => { 
-                Lampa.Controller.collectionSet(this.state.scroll.render(), this.state.files.render());
-                Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render()); 
-            },
-            up: () => { window.Navigator.move('up'); },
-            down: () => { window.Navigator.move('down'); },
-            left: () => { Lampa.Controller.toggle('menu'); },
-            right: () => { 
-                if(window.Navigator.canmove('right')) Lampa.Controller.toggle('head'); 
-                else this.state.filter.show(Lampa.Lang.translate('title_filter'), 'filter'); 
+        
+        if (this.isDestroyed) {
+            LOG('Component is destroyed, skipping start');
+            return;
+        }
+        
+        // Зберігаємо контролер компонента для правильного очищення
+        this.controller = Lampa.Controller.add('content', {
+            toggle: () => {
+                if (!this.isDestroyed && this.scroll) {
+                    this.scroll.toggle();
+                }
             },
             back: () => {
-                if ($('body').find('.select').length) Lampa.Select.close();
-                else if ($('body').find('.filter').length) {
+                if ($('body').find('.select').length) {
+                    Lampa.Select.close();
+                } else if ($('body').find('.filter').length) {
                     Lampa.Filter.hide();
                     Lampa.Controller.toggle('content');
-                } else Lampa.Activity.backward();
+                } else {
+                    Lampa.Activity.backward();
+                }
+            },
+            up: () => {
+                if (!this.isDestroyed && this.scroll) {
+                    this.scroll.move('up');
+                }
+            },
+            down: () => {
+                if (!this.isDestroyed && this.scroll) {
+                    this.scroll.move('down');
+                }
+            },
+            enter: () => {
+                if (!this.isDestroyed && this.scroll) {
+                    this.scroll.enter();
+                }
+            },
+            left: () => {
+                if (!this.isDestroyed) {
+                    Lampa.Controller.toggle('menu');
+                }
+            },
+            right: () => {
+                if (!this.isDestroyed) {
+                    if (this.files) {
+                        this.files.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    }
+                }
             }
         });
-        Lampa.Controller.toggle('content');
+         
+         Lampa.Controller.toggle('content');
     };
 
     TorBoxComponent.prototype.destroy = function() {
         LOG('Destroying TorBox component');
-        this.abortController.abort();
-        // FIX: Use the correct API call to clear the controller
-        Lampa.Controller.add('content', null);
-        if (this.state.ageCache) this.state.ageCache.clear();
-        if (this.state.scroll) this.state.scroll.destroy();
-        if (this.state.files) this.state.files.destroy();
-        if (this.state.filter) this.state.filter.destroy();
-        for (let key in this.state) this.state[key] = null;
+        
+        // Скасовуємо всі активні запити
+        if (this.abortController) {
+            this.abortController.abort();
+        }
+        
+        // Закриваємо всі відкриті модальні вікна
+        if ($('.modal').length) {
+            Lampa.Modal.close();
+        }
+        
+        // Закриваємо селект якщо відкритий
+        if ($('body').find('.select').length) {
+            Lampa.Select.close();
+        }
+        
+        // Закриваємо фільтр якщо відкритий
+        if ($('body').find('.filter').length) {
+            Lampa.Filter.hide();
+        }
+        
+        // Позначаємо компонент як знищений
+         this.isDestroyed = true;
+         
+         // Правильно очищуємо контролер
+         try {
+             if (this.controller) {
+                 Lampa.Controller.clear('content');
+             }
+         } catch (e) {
+             LOG('Error clearing controller:', e);
+             // Fallback - спробуємо альтернативний метод
+             try {
+                 Lampa.Controller.add('content', null);
+             } catch (e2) {
+                 LOG('Fallback controller clear also failed:', e2);
+             }
+         }
+        
+        // Очищуємо стан компонента
+        if (this.state) {
+            if (this.state.ageCache) this.state.ageCache.clear();
+            if (this.state.scroll) {
+                try {
+                    this.state.scroll.destroy();
+                } catch (e) {
+                    LOG('Error destroying scroll:', e);
+                }
+            }
+            if (this.state.files) {
+                try {
+                    this.state.files.destroy();
+                } catch (e) {
+                    LOG('Error destroying files:', e);
+                }
+            }
+            if (this.state.filter) {
+                try {
+                    this.state.filter.destroy();
+                } catch (e) {
+                    LOG('Error destroying filter:', e);
+                }
+            }
+            
+            // Очищуємо всі властивості стану
+            for (let key in this.state) {
+                this.state[key] = null;
+            }
+        }
+        
+        // Очищуємо посилання на контролер
+        this.controller = null;
+        
+        LOG('TorBox component destroyed successfully');
     };
 
     TorBoxComponent.prototype.initialize = function() {
@@ -642,8 +743,63 @@
       try {
         const dlResponse = await API.requestDl(torrentId, file.id, signal);
         Store.set(`torbox_last_played_${movie.imdb_id}`, String(file.id));
-        const player_data = { url: dlResponse.data || dlResponse.url, title: file.name || movie.title, poster: movie.img };
+        
+        const restoreAfterPlayer = function() {
+          LOG('Restoring after player close');
+          
+          setTimeout(function() {
+            try {
+              const currentActivity = Lampa.Activity.active();
+              
+              if (!currentActivity || currentActivity.component !== 'torbox_component') {
+                LOG('Returning to TorBox activity');
+                Lampa.Activity.push({
+                  url: '',
+                  title: 'TorBox - ' + (movie.title || movie.name),
+                  component: 'torbox_component',
+                  movie: movie,
+                  page: 1
+                });
+              } else {
+                LOG('Already in TorBox activity, restoring controller');
+                Lampa.Controller.toggle('content');
+              }
+            } catch (e) {
+              LOG('Error in restoreAfterPlayer:', e);
+              try {
+                Lampa.Activity.backward();
+              } catch (e2) {
+                LOG('Fallback also failed:', e2);
+              }
+            }
+          }, 300);
+        };
+        
+        const player_data = { 
+          url: dlResponse.data || dlResponse.url, 
+          title: file.name || movie.title, 
+          poster: movie.img,
+          quality: file.quality || 'Unknown',
+          subtitles: file.subtitles || [],
+          onBack: restoreAfterPlayer,
+          onEnd: restoreAfterPlayer
+        };
+        
         Lampa.Modal.close();
+        
+        // Додаємо обробник події закриття плеєра
+        const originalPlayerDestroy = Lampa.Player.destroy;
+        Lampa.Player.destroy = function() {
+          LOG('Player destroy called');
+          if (originalPlayerDestroy) originalPlayerDestroy.call(this);
+          
+          // Відновлюємо контролер після закриття плеєра
+          restoreAfterPlayer();
+          
+          // Відновлюємо оригінальний метод
+          Lampa.Player.destroy = originalPlayerDestroy;
+        };
+        
         Lampa.Player.play(player_data);
       } catch (e) {
         ErrorHandler.show(e.type || 'unknown', e);
