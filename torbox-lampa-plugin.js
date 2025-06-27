@@ -1,21 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v28.0.0 (Advanced Filtering & UI)
+ * TorBox Enhanced – Universal Lampa Plugin v29.0.0 (Rich UI Blocks & Bugfix)
  * =================================================================================
- * • НОВЫЙ ИНТЕРФЕЙС: Полностью переработан внешний вид списка торрентов для 
- * источников jacred/viewbox. Теперь отображается детальная информация: разрешение, 
- * аудиодорожки, видео/аудио кодеки, HDR/DV и другая информация из ffprobe/info.
- * • ПРОДВИНУТЫЙ ФИЛЬТР: Меню фильтрации значительно расширено. Добавлены новые
- * параметры: тип видео (HDR/DV), перевод, язык дорожек, видео/аудио кодеки.
- * • ЛОГИКА ТРЕКЕРОВ: Исправлена логика обработки трекеров. Теперь каждый трекер из 
- * списка (через запятую) обрабатывается как отдельная сущность в фильтре.
- * • КОНФИГУРАЦИЯ: URL прокси по умолчанию сохранен как https://my-torbox-proxy.slonce70.workers.dev/
+ * • НОВЫЙ БЛОЧНЫЙ ИНТЕРФЕЙС: Полностью переработан дизайн списка торрентов, 
+ * чтобы соответствовать предоставленному примеру. Добавлена красочная нижняя 
+ * панель с техническими данными (разрешение, кодеки, аудиодорожки).
+ * • ИСПРАВЛЕНИЕ ОШИБКИ: Устранена критическая ошибка 'Uncaught SyntaxError: "undefined" is not valid JSON',
+ * которая возникала при сбросе фильтров.
+ * • ПРОДВИНУТЫЙ ФИЛЬТР И ЛОГИКА ТРЕКЕРОВ: Весь функционал из предыдущей версии сохранен.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v28_0_0_advanced_filters';
+  const PLUGIN_ID = 'torbox_enhanced_v29_0_0_rich_ui';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -70,16 +68,19 @@
 
   if (!$('#torbox-component-styles').length) {
       $('head').append(`<style id="torbox-component-styles">
-        .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent}
+        .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent; overflow: hidden;}
         .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
-        .torbox-item__title{font-weight:600;margin-bottom:.5em;font-size:1.1em;line-height:1.3}
-        .torbox-item__subtitle{font-size:.95em;opacity:.8;line-height:1.4}
-        .torbox-item__details{display:flex;flex-wrap:wrap;gap:.5em;margin-top:.7em}
-        .torbox-item__detail-tag{background:rgba(255,255,255,.1);padding:.2em .6em;border-radius:.5em;font-size:.85em;font-weight:500}
-        .torbox-item__detail-tag--video{background-color:var(--color-blue)}
-        .torbox-item__detail-tag--audio{background-color:var(--color-green)}
-        .torbox-item__detail-tag--hdr{background:linear-gradient(45deg, #ff8c00, #ffa500)}
-        .torbox-item__detail-tag--dv{background:linear-gradient(45deg, #4b0082, #8a2be2)}
+        .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0,0,0,0.2); }
+        .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3}
+        .torbox-item__main-info{font-size:.95em;opacity:.9;line-height:1.4; margin-bottom: .3em;}
+        .torbox-item__meta{font-size:.9em;opacity:.7;line-height:1.4; margin-bottom: .8em;}
+        .torbox-item__tech-bar{display:flex;flex-wrap:wrap;gap:.6em;margin:0 -1.2em -1em -1.2em;padding:.6em 1.2em;background:rgba(0,0,0,0.1);font-size:.85em;font-weight:500;}
+        .torbox-item__tech-item { display: inline-block; padding: .2em .5em; border-radius: .4em; }
+        .torbox-item__tech-item--res { background-color: #3b82f6; color: white; }
+        .torbox-item__tech-item--codec { background-color: #16a34a; color: white; }
+        .torbox-item__tech-item--audio { background-color: #f97316; color: white; }
+        .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: white; }
+        .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: white; }
         .torrent-list{padding:1em}
         .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
         .torbox-status__title{font-size:1.4em; margin-bottom:1em; font-weight:600;}
@@ -338,7 +339,8 @@
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true },
         ];
         
-        const defaultFilters = {
+        // BUGFIX: Moved defaultFilters to the instance scope
+        this.defaultFilters = {
             quality: 'all',
             tracker: 'all',
             video_type: 'all', // sdr, hdr, dv
@@ -356,7 +358,8 @@
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
-            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(defaultFilters))),
+            // Use instance `defaultFilters` for initialization
+            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters))),
             ageCache: new Map()
         };
     }
@@ -446,9 +449,10 @@
             if (type === 'filter') {
                 if (a.refresh) {
                     this.loadAndDisplayTorrents(true);
-                    return; // a.refresh triggers its own display update
+                    return; 
                 } else if (a.reset) {
-                    this.state.filters = JSON.parse(JSON.stringify(this.state.defaultFilters)); // Deep copy
+                    // BUGFIX: Use the instance-scoped defaultFilters
+                    this.state.filters = JSON.parse(JSON.stringify(this.defaultFilters)); 
                 } else if (a.stype) {
                     this.state.filters[a.stype] = b.value; 
                 }
@@ -603,11 +607,11 @@
                     voices: raw.info?.voices,
                     video_codec: videoStream?.codec_name,
                     video_resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : null,
-                    audio_langs: audioStreams.map(s => s.tags?.language).filter(Boolean),
-                    audio_codecs: audioStreams.map(s => s.codec_name).filter(Boolean),
+                    audio_langs: [...new Set(audioStreams.map(s => s.tags?.language).filter(Boolean))],
+                    audio_codecs: [...new Set(audioStreams.map(s => s.codec_name).filter(Boolean))],
                     has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
                     has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
-                    raw_data: raw // keep raw data for potential future use
+                    raw_data: raw 
                 }
             });
             
@@ -642,33 +646,35 @@
             const title = escapeHtml(t.raw_title || t.title);
             const playedIcon = isLastPlayed ? '🎬 ' : '';
             
-            let detailsHtml = '';
-            if (t.video_resolution) { // Assume if we have resolution, we have other details
-                const videoTags = [
-                    `<div class="torbox-item__detail-tag torbox-item__detail-tag--video">${t.video_resolution}</div>`,
-                    t.has_hdr ? `<div class="torbox-item__detail-tag torbox-item__detail-tag--hdr">HDR</div>` : '',
-                    t.has_dv ? `<div class="torbox-item__detail-tag torbox-item__detail-tag--dv">DV</div>` : '',
-                    t.video_codec ? `<div class="torbox-item__detail-tag">${t.video_codec.toUpperCase()}</div>` : ''
-                ].filter(Boolean).join('');
+            let techBarHtml = '';
+            // UI Redesign: Create a tech bar similar to the screenshot
+            if (t.video_resolution) { 
+                let techItems = [];
+                techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--res">${t.video_resolution}</div>`);
+                if(t.video_codec) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--codec">${t.video_codec.toUpperCase()}</div>`);
+                if(t.has_hdr) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--hdr">HDR</div>`);
+                if(t.has_dv) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--dv">Dolby Vision</div>`);
                 
-                const audioTags = [...new Set(t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
-                    const lang = s.tags?.language?.toUpperCase() || '';
+                const audioItems = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
+                    const lang = s.tags?.language?.toUpperCase() || '???';
                     const codec = s.codec_name?.toUpperCase() || '';
                     const layout = s.channel_layout || '';
-                    return `<div class="torbox-item__detail-tag torbox-item__detail-tag--audio">${lang} ${codec} ${layout}</div>`;
-                }))].join('');
+                    return `<div class="torbox-item__tech-item torbox-item__tech-item--audio">${lang} ${codec} ${layout}</div>`;
+                }) || [];
 
-                detailsHtml = `<div class="torbox-item__details">${videoTags}${audioTags}</div>`;
+                techItems = techItems.concat(audioItems);
+                techBarHtml = `<div class="torbox-item__tech-bar">${techItems.join('')}</div>`;
             }
 
             const item = $(`<div class="torbox-item selector">
                 <div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${playedIcon}${title}</div>
-                <div class="torbox-item__subtitle">
+                <div class="torbox-item__main-info">
                     [${t.quality}] ${formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>
-                    <br>
-                    <span style="opacity:0.7;">Трекеры: ${escapeHtml(t.trackers?.join(', ')||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}</span>
                 </div>
-                ${detailsHtml}
+                <div class="torbox-item__meta">
+                    Трекеры: ${escapeHtml(t.trackers?.join(', ')||'н/д')} | Добавлено: ${escapeHtml(t.age||'н/д')}
+                </div>
+                ${techBarHtml}
             </div>`);
             
             item.on('hover:focus', () => { this.state.last = item[0]; this.state.scroll.update(item, true); });
@@ -929,7 +935,7 @@
     addSettings();
     boot();
     setupGlobalActivityListener();
-    LOG('TorBox v28.0.0 (Advanced Filtering & UI) ready');
+    LOG('TorBox v29.0.0 (Rich UI Blocks & Bugfix) ready');
   }
 
   (function bootLoop () {
