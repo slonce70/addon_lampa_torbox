@@ -1,9 +1,9 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.5 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.6 (Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
- * `appendChild is not a function`, які виникали через несумісність з API Lampa 
- * після рефакторингу. Плагін знову повністю функціональний.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій, через який список торрентів 
+ * відображався некоректно (горизонтально). Відновлено правильний метод
+ * додавання елементів, сумісний з API Lampa.
  * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
  * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
  * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_5_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_6_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -759,7 +759,7 @@
 
     TorBoxComponent.prototype.draw = function(torrents_list) {
         this.state.last = null;
-        $(this.state.scroll.render()).empty();
+        this.state.scroll.clear();
         
         if (!torrents_list?.length) {
             return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
@@ -768,14 +768,13 @@
         const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
         const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
         
-        const fragment = document.createDocumentFragment();
         torrents_list.forEach(t => {
             const item = this._createTorrentDOMItem(t, lastTorrentHash);
-            $(item).on('hover:focus', () => { this.state.last = item; this.state.scroll.update($(item), true); });
-            $(item).on('hover:enter', () => this._handleTorrentClick(t));
-            fragment.appendChild(item);
+            const $item = $(item);
+            $item.on('hover:focus', () => { this.state.last = item; this.state.scroll.update($item, true); });
+            $item.on('hover:enter', () => this._handleTorrentClick(t));
+            this.state.scroll.append($item);
         });
-        this.state.scroll.render().append(fragment);
     };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
@@ -835,12 +834,7 @@
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
         scrollRender.empty();
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'empty';
-        const text = document.createElement('div');
-        text.className = 'empty__text';
-        text.textContent = msg || 'Торренти не знайдені';
-        emptyMsg.appendChild(text);
+        const emptyMsg = $(`<div class="empty"><div class="empty__text">${msg || 'Торренти не знайдені'}</div></div>`);
         scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
