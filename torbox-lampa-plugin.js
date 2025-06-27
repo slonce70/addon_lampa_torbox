@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.1 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.2 (Refactored & Stabilized)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
  * повернення до сумісного з Lampa методу додавання елементів та виклику 
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_1_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_2_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -308,7 +308,7 @@
                     LOG(`Trying parser: ${parser.name} with URL: ${url}`);
                     const result = await request(url, { method: 'GET', is_torbox_api: false }, signal);
 
-                    if (result && Array.isArray(result.Results)) {
+                    if (result && Array.isArray(result.Results) && result.Results.length > 0) {
                         LOG(`Success from ${parser.name}. Found ${result.Results.length} torrents.`);
                         return result.Results;
                     }
@@ -1088,7 +1088,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.0 (Refactored) ready');
+            LOG('TorBox v30.1.1 (Refactored) ready');
         };
 
         return { init };
@@ -1105,7 +1105,3 @@
         }
     })();
 })();
-``` in the Canvas.
-I have a question about the code in the Canvas.
-
-Звісно, запитуйте! Що саме вас цікавить у коді? Я готовий пояснити будь-яку части
