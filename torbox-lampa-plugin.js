@@ -1,11 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.0 (Refactored & Stabilized)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
  * повернення до сумісного з Lampa методу додавання елементів та виклику 
  * scroll.update() для коректного перерахунку сітки.
  * • ВИПРАВЛЕННЯ СУМІСНОСТІ: Виправлено передачу DOM-елементів у методи Lampa
- * для уникнення помилок 'getBoundingClientRect'.
+ * та усунуто помилку при поверненні з плеєра.
  * • БЕЗПЕКА, ПРОДУКТИВНІСТЬ, СТАБІЛЬНІСТЬ: Збережено всі попередні покращення.
  */
 
@@ -13,7 +13,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_0_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -1030,8 +1030,8 @@
                          wasInExternalPlayer = false;
                          setTimeout(() => {
                              try {
-                                 if (e.object.activity && e.object.activity.component && typeof e.object.activity.component.display === 'function') {
-                                     e.object.activity.component.display(); // Refresh view to show highlights
+                                 if (e.object.component && typeof e.object.component.display === 'function') {
+                                     e.object.component.display(); // Refresh view to show highlights
                                      Lampa.Controller.toggle('content');
                                      LOG('Navigation and display restored');
                                  }
@@ -1083,7 +1083,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.8 (Refactored) ready');
+            LOG('TorBox v30.0.9 (Refactored) ready');
         };
 
         return { init };
