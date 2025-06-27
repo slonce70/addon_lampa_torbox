@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.0 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.1 (Refactored & Stabilized)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
  * повернення до сумісного з Lampa методу додавання елементів та виклику 
