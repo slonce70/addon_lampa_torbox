@@ -1,11 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.2 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.3 (Stable Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "target.getBoundingClientRect is not a function"
- * в методі draw(). Додано робастні перевірки DOM елементів та альтернативні
- * методи оновлення скролу. Виправлено некоректні виклики scroll.update().
- * • СТАБІЛЬНІСТЬ: Покращено ініціалізацію компонентів з додатковими перевірками
- * валідності DOM елементів та обробкою помилок.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')"
+ * в методі draw(). Додано комплексну валідацію DOM елементів з перевіркою nodeType,
+ * множинні стратегії відновлення включаючи refresh метод, та покращений механізм оновлення скролу.
+ * • СТАБІЛЬНІСТЬ: Розширено перевірки для jQuery/array-like об'єктів та звичайних DOM елементів.
+ * Додано альтернативні підходи з таймаутами та fallback методами.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
  * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_3_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -752,31 +752,59 @@
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
              
-             // Оновлюємо скрол
+             // Оновлюємо скрол з покращеними перевірками
              if (this.state.scroll && this.state.scroll.update) {
                  try {
                      // Перевіряємо чи скрол має правильний DOM елемент
                      const scrollElement = this.state.scroll.render();
-                     if (scrollElement && scrollElement.length && scrollElement[0] && scrollElement[0].getBoundingClientRect) {
+                     
+                     // Додаткові перевірки для запобігання getBoundingClientRect помилки
+                     let canUpdate = false;
+                     
+                     if (scrollElement) {
+                         // Перевіряємо різні типи елементів
+                         if (scrollElement.length) {
+                             // jQuery або array-like об'єкт
+                             const firstElement = scrollElement[0];
+                             if (firstElement && firstElement.nodeType === 1 && typeof firstElement.getBoundingClientRect === 'function') {
+                                 canUpdate = true;
+                             }
+                         } else if (scrollElement.nodeType === 1 && typeof scrollElement.getBoundingClientRect === 'function') {
+                             // Звичайний DOM елемент
+                             canUpdate = true;
+                         }
+                     }
+                     
+                     if (canUpdate) {
                          this.state.scroll.update();
                          LOG('Scroll updated successfully');
                      } else {
-                         LOG('Scroll element not ready, skipping update');
-                         // Спробуємо оновити через невеликий таймаут
+                         LOG('Scroll element not ready or invalid, trying alternative approach');
+                         
+                         // Альтернативний підхід - викликаємо update без параметрів через таймаут
                          setTimeout(() => {
                              if (this.state.scroll && this.state.scroll.update) {
                                  try {
+                                     // Спробуємо викликати update без будь-яких параметрів
                                      this.state.scroll.update();
                                      LOG('Delayed scroll update successful');
                                  } catch (delayedError) {
                                      LOG('Delayed scroll update failed:', delayedError);
+                                     // Останній варіант - спробуємо refresh якщо доступний
+                                     if (this.state.scroll.refresh && typeof this.state.scroll.refresh === 'function') {
+                                         try {
+                                             this.state.scroll.refresh();
+                                             LOG('Scroll refresh successful');
+                                         } catch (refreshError) {
+                                             LOG('Scroll refresh failed:', refreshError);
+                                         }
+                                     }
                                  }
                              }
-                         }, 100);
+                         }, 150);
                      }
                  } catch (scrollError) {
                      LOG('Error updating scroll:', scrollError);
-                     // Альтернативний метод - просто перерендерити без update
                      LOG('Skipping scroll update due to error');
                  }
              }
