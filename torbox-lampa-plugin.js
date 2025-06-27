@@ -756,30 +756,33 @@
         this.draw(this.applyFiltersAndSort());
     };
 
-    TorBoxComponent.prototype.draw = function(torrents_list) {
-        this.state.last = null;
-        this.state.scroll.clear();
-        
-        if (!torrents_list?.length) {
-            return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
-        }
-        
-        const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
-        const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
-        
-        torrents_list.forEach(t => {
-            const item = this._createTorrentDOMItem(t, lastTorrentHash);
-            const $item = $(item);
-            $item.on('hover:focus', () => { 
-                this.state.last = item; 
-                this.state.scroll.update(item, true); 
-            });
-            $item.on('hover:enter', () => this._handleTorrentClick(t));
-            this.state.scroll.append($item);
+TorBoxComponent.prototype.draw = function (torrents_list) {
+    this.state.last = null;
+    this.state.scroll.clear();
+
+    if (!torrents_list?.length) {
+        return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
+    }
+
+    const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
+    const lastTorrentHash      = Store.get(lastPlayedTorrentKey, null);
+
+    torrents_list.forEach(t => {
+        const item  = this._createTorrentDOMItem(t, lastTorrentHash);
+        const $item = $(item);
+
+        $item.on('hover:focus', () => {
+            this.state.last = item;
+            this.state.scroll.update(item, true);   // тут DOM-елемент, усе ок
         });
-        
-        this.state.scroll.update(false, true);
-    };
+
+        $item.on('hover:enter', () => this._handleTorrentClick(t));
+        this.state.scroll.append($item);
+    });
+
+    this.state.scroll.update();
+};
+
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
         const item = document.createElement('div');
