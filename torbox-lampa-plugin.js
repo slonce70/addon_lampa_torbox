@@ -1,18 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v26.4.0 (Smart External Player Detection)
+ * TorBox Enhanced – Universal Lampa Plugin v26.3.0 (External Player Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Умное определение внешних плееров и восстановление навигации.
- * Добавлен точный перехват запуска плеера через Lampa.Player.play для определения внешних плееров.
- * • ИСПРАВЛЕНИЕ КОНФЛИКТА: Устранен конфликт с кнопкой "Главная" при обычной навигации.
- * • СТАБИЛЬНОСТЬ: Восстановление оригинального контроллера компонента вместо fallback.
- * • СОВМЕСТИМОСТЬ: Слушатель активируется только при реальном возврате из внешних плееров.
+ * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Исправлена навигация после выхода из внешних плееров.
+ * Добавлен глобальный слушатель активности для обнаружения возврата из внешних плееров.
+ * • ВНЕШНИЕ ПЛЕЕРЫ: Автоматическое восстановление навигации после закрытия внешнего плеера.
+ * • СТАБИЛЬНОСТЬ: Улучшена система восстановления контроллера для всех типов плееров.
+ * • СОВМЕСТИМОСТЬ: Поддержка как встроенного, так и внешних плееров Lampa.
  */
 
 (function () {
   'use strict';
 
   /* ───── Guard double-load ───── */
-  const PLUGIN_ID = 'torbox_enhanced_v26_4_0_smart_external_player_detection';
+  const PLUGIN_ID = 'torbox_enhanced_v26_3_0_external_player_fix';
   if (window[PLUGIN_ID]) return;
   window[PLUGIN_ID] = true;
 
@@ -75,38 +75,23 @@
         // Глобальный слушатель для отслеживания возврата из внешних плееров
         let lastActivity = null;
         let wasInExternalPlayer = false;
-        let playerWasLaunched = false; // Флаг для отслеживания запуска плеера
-        
-        // Перехватываем запуск плеера для точного определения внешнего плеера
-        const originalPlayerPlay = Lampa.Player.play;
-        if (originalPlayerPlay) {
-            Lampa.Player.play = function(data) {
-                const currentActivity = Lampa.Activity.active();
-                if (currentActivity && currentActivity.component === 'torbox_component') {
-                    playerWasLaunched = true;
-                    LOG('Player launched from TorBox - marking for external player detection');
-                }
-                return originalPlayerPlay.call(this, data);
-            };
-        }
         
         const checkActivityChange = function() {
             const currentActivity = Lampa.Activity.active();
             
             if (!currentActivity) return;
             
-            // Если мы были в TorBox, запустили плеер и теперь в другой активности - это внешний плеер
+            // Если мы были в TorBox и теперь в другой активности - возможно внешний плеер
             if (lastActivity && lastActivity.component === 'torbox_component' && 
-                currentActivity.component !== 'torbox_component' && playerWasLaunched) {
+                currentActivity.component !== 'torbox_component') {
                 wasInExternalPlayer = true;
-                LOG('Detected external player launch from TorBox (player was launched)');
+                LOG('Detected possible external player launch from TorBox');
             }
             
             // Если мы возвращаемся в TorBox после внешнего плеера
             if (wasInExternalPlayer && currentActivity.component === 'torbox_component') {
                 LOG('Detected return to TorBox from external player');
                 wasInExternalPlayer = false;
-                playerWasLaunched = false; // Сбрасываем флаг
                 
                 // Восстанавливаем навигацию через небольшую задержку
                 setTimeout(() => {
@@ -117,45 +102,30 @@
                             Lampa.Controller.clear('content');
                             
                             setTimeout(() => {
-                                // Восстанавливаем оригинальный контроллер компонента
-                                const component = torboxActivity.activity;
-                                if (component && component.controller) {
-                                    Lampa.Controller.add('content', component.controller);
-                                } else {
-                                    // Fallback контроллер если оригинальный недоступен
-                                    Lampa.Controller.add('content', {
-                                        toggle: function() {
-                                            if (component && component.scroll) component.scroll.toggle();
-                                        },
-                                        back: function() {
-                                            if ($('body').find('.select').length) {
-                                                Lampa.Select.close();
-                                            } else if ($('body').find('.filter').length) {
-                                                Lampa.Filter.hide();
-                                                Lampa.Controller.toggle('content');
-                                            } else {
-                                                Lampa.Activity.backward();
-                                            }
-                                        },
-                                        up: function() {
-                                            if (component && component.scroll) component.scroll.move('up');
-                                        },
-                                        down: function() {
-                                            if (component && component.scroll) component.scroll.move('down');
-                                        },
-                                        enter: function() {
-                                            if (component && component.scroll) component.scroll.enter();
-                                        },
-                                        left: function() {
-                                            Lampa.Controller.toggle('menu');
-                                        },
-                                        right: function() {
-                                            if (component && component.files) {
-                                                Lampa.Controller.toggle('filter');
-                                            }
-                                        }
-                                    });
-                                }
+                                Lampa.Controller.add('content', {
+                                    toggle: function() {
+                                        Lampa.Controller.collectionSet(torboxActivity.activity.render());
+                                        Lampa.Controller.collectionFocus(false, torboxActivity.activity.render());
+                                    },
+                                    back: function() {
+                                        Lampa.Activity.backward();
+                                    },
+                                    up: function() {
+                                        Lampa.Navigator.move('up');
+                                    },
+                                    down: function() {
+                                        Lampa.Navigator.move('down');
+                                    },
+                                    enter: function() {
+                                        Lampa.Navigator.enter();
+                                    },
+                                    left: function() {
+                                        Lampa.Navigator.move('left');
+                                    },
+                                    right: function() {
+                                        Lampa.Navigator.move('right');
+                                    }
+                                });
                                 
                                 Lampa.Controller.toggle('content');
                                 LOG('Navigation restored after external player');
@@ -165,12 +135,6 @@
                         LOG('Error restoring navigation:', error);
                     }
                 }, 500);
-            }
-            
-            // Сбрасываем флаг запуска плеера если переходим в другую активность без внешнего плеера
-            if (lastActivity && lastActivity.component === 'torbox_component' && 
-                currentActivity.component !== 'torbox_component' && !wasInExternalPlayer) {
-                playerWasLaunched = false;
             }
             
             lastActivity = currentActivity;
@@ -1055,7 +1019,7 @@
     addSettings();
     boot();
     setupGlobalActivityListener();
-    LOG('TorBox v26.4.0 (Smart External Player Detection) ready');
+    LOG('TorBox v26.3.0 (External Player Fix) ready');
   }
 
   (function bootLoop () {
