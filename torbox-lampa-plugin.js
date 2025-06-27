@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.1 (Refactored & Stabilized)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.2 (Refactored & Stabilized)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто візуальний збій ("дощ із символів") шляхом 
  * повернення до сумісного з Lampa методу додавання елементів та виклику 
@@ -13,7 +13,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_0_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_2_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -756,44 +756,53 @@
         this.draw(this.applyFiltersAndSort());
     };
 
+/* === TorBoxComponent.prototype.draw (оновлено: липень 2025) ===
+ * Усуває падіння getBoundingClientRect і одразу показує сітку торентів
+ */
 TorBoxComponent.prototype.draw = function (torrents_list) {
-    // Скидаємо попередній стан
+    /* 1. Скидаємо попередній стан */
     this.state.last = null;
     this.state.scroll.clear();
 
-    // Якщо торентів немає — показуємо заглушку й виходимо
-    if (!torrents_list || !torrents_list.length) {
+    /* 2. Порожній результат - показуємо плейсхолдер */
+    if (!Array.isArray(torrents_list) || !torrents_list.length) {
         return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
     }
 
-    // Ключ останнього програваного торента для цього фільму
+    /* 3. Готуємо “останній програний” хеш для підсвічування */
     const lastPlayedTorrentKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
-    const lastTorrentHash = Store.get(lastPlayedTorrentKey, null);
+    const lastTorrentHash      = Store.get(lastPlayedTorrentKey, null);
 
-    // Створюємо DOM‑елементи під кожний торент
-    torrents_list.forEach(torrent => {
-        const item = this._createTorrentDOMItem(torrent, lastTorrentHash);
+    /* 4. Рендеримо всі торенти та підʼєднуємо ховери */
+    torrents_list.forEach(t => {
+        const item  = this._createTorrentDOMItem(t, lastTorrentHash);
         const $item = $(item);
 
-        // При фокусі прокручуємо до елемента (item — нативний DOM, тому безпечний)
+        /* — фокус → прокрутка до елемента */
         $item.on('hover:focus', () => {
             this.state.last = item;
             this.state.scroll.update(item, true);
         });
 
-        // Обробник кліку / Enter
-        $item.on('hover:enter', () => this._handleTorrentClick(torrent));
+        /* — «OK / Enter» → відкриваємо карточку торента */
+        $item.on('hover:enter', () => this._handleTorrentClick(t));
 
-        // Додаємо елемент до скрол‑контейнера
-        this.state.scroll.append($item);
+        this.state.scroll.append($item);          // додаємо в скрол-контейнер
     });
 
-    const firstItem = this.state.scroll.render().children().first()[0];
+    /* 5. Ключовий момент: оновлюємо сітку, передаючи ПЕРШИЙ елемент,
+          щоб scroll.update не отримав undefined/false */
+    const firstItem = this.state.scroll
+        .render()                       // корінь скрола
+        .find('.torbox-item')           // усі елементи списку
+        .first()[0];                    // <div class=\"torbox-item …\">
+
     if (firstItem) {
-        this.state.last = firstItem;
+        this.state.last = firstItem;    // для коректного фокусу контролера
         this.state.scroll.update(firstItem, true);
     }
 };
+
 
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
@@ -1098,7 +1107,7 @@ TorBoxComponent.prototype.draw = function (torrents_list) {
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.9 (Refactored) ready');
+            LOG('TorBox v30.1.2 (Refactored) ready');
         };
 
         return { init };
