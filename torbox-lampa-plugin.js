@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v25.2.1 (Stable Architecture)
+ * TorBox Enhanced – Universal Lampa Plugin v25.2.0 (Stable Architecture)
  * =================================================================================
  * • ИСПРАВЛЕНИЕ ЗАПУСКА: Полностью устранена ошибка "TypeError: Class extends value is not a constructor".
  * Компонент переписан с использованием стабильного синтаксиса функций-конструкторов,
@@ -294,23 +294,32 @@
 
     function processResponse(responseText, status) {
         if (status === 401) throw { type: 'auth', message: `Ошибка авторизации (401). Проверьте API-ключ.` };
-        if (status >= 500) throw { type: 'network', message: `Внутренняя ошибка сервера (${status}).` };
+        if (status === 403) throw { type: 'auth', message: `Доступ запрещен (403). У ключа недостаточно прав.` };
+        if (status === 429) throw { type: 'network', message: `Слишком много запросов (429). Попробуйте позже.` };
+        if (status >= 500) throw { type: 'network', message: `Внутренняя ошибка сервера TorBox (${status}).` };
         if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status}). Неверный запрос.` };
         if (status < 200 || status >= 300) throw { type: 'network', message: `Неизвестная сетевая ошибка: HTTP ${status}` };
         if (!responseText || (typeof responseText === 'string' && responseText.trim() === '')) {
             throw { type: 'api', message: `Получен пустой ответ от сервера (HTTP ${status}).` };
         }
         try {
-            const json = JSON.parse(responseText);
+            if (typeof responseText === 'string' && (responseText.startsWith('http://') || responseText.startsWith('https://'))) {
+                return { success: true, data: responseText, url: responseText };
+            }
+            const json = (typeof responseText === 'object') ? responseText : JSON.parse(responseText);
             if (typeof json === 'object' && !Array.isArray(json) && json.success === false) {
-                const errorMsg = json.detail || json.message || 'API вернуло ошибку без деталей.';
+                const errorMsg = (json.detail && typeof json.detail === 'string')
+                    ? json.detail
+                    : (Array.isArray(json.detail) && json.detail[0]?.msg)
+                    ? json.detail[0].msg
+                    : (json.message || 'API вернуло ошибку без деталей.');
                 throw { type: 'api', message: errorMsg };
             }
             return json;
         } catch (e) {
             LOG('Invalid JSON or API error:', responseText, e);
             if (e.type) throw e;
-            throw { type: 'api', message: 'Получен некорректный ответ от сервера.' };
+            throw { type: 'api', message: 'Получен некорректный ответ от сервера (не JSON).' };
         }
     }
 
@@ -714,6 +723,10 @@
         for (let key in this) {
             delete this[key];
         }
+    };
+
+    TorBoxComponent.prototype.render = function() {
+        return this.state.files.render();
     };
 
     let modalCache = {};
