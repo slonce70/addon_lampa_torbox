@@ -1,17 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v36.0.0 (Strict Lifecycle)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
- * ▸ ФИНАЛЬНЫЙ РЕФАКТОРИНГ АРХИТЕКТУРЫ: Жизненный цикл компонента полностью
- * приведен в строгое соответствие с канонами Lampa и плагина bwa.js.
- * ▸ УСТРАНЕНА ОШИБКА СОЗДАНИЯ: Решена проблема "render is not a function"
- * и "Cannot read 'loader'", вся логика перенесена из create() в start().
- * ▸ ГАРАНТИРОВАННАЯ СТАБИЛЬНОСТЬ: Это наиболее стабильная архитектура для
- * Lampa, обеспечивающая корректную работу и навигацию.
+ * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
+ * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
+ * обработки движком Lampa.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v36_0_0_strict_lifecycle';
+    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -534,16 +531,24 @@
             if (item.length) item.addClass('torbox-item--just-watched');
         };
 
-        this.render = function(){
-            return files.render();
-        };
-
+        /**
+         * [РЕФАКТОРИНГ] Метод create теперь только создает "скелет".
+         * Вся логика перенесена в start/initialize.
+         */
         this.create = function () {
+            this.activity.loader(false); // Прячем лоадер, если он был показан по ошибке
             scroll.body().addClass('torbox-list-container');
             files.appendFiles(scroll.render());
             files.appendHead(filter.render());
             scroll.minus(files.render().find('.explorer__files-head'));
             return this.render();
+        };
+
+        /**
+         * [НОВЫЙ] Метод render, как того ожидает Lampa.
+         */
+        this.render = function(){
+            return files.render();
         };
 
         this.empty = function(msg) {
@@ -663,7 +668,10 @@
             }
             if(focus_element) last = focus_element;
         };
-        
+
+        /**
+         * [РЕФАКТОРИНГ] Инициализация теперь только привязывает обработчики.
+         */
         this.initialize = function() {
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
@@ -685,10 +693,14 @@
             
             this.empty('Загрузка...');
 
-            search(); 
+            search(); // Запускаем поиск отсюда
         };
 
+        /**
+         * [РЕФАКТОРИНГ] Главный управляющий метод.
+         */
         this.start = function () {
+            // Запускаем инициализацию только один раз
             if (!initialized) {
                 this.initialize();
                 initialized = true;
@@ -741,8 +753,8 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
-            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="#{hash}"><div class="torbox-item__title">#{_if(cached)}⚡#{_else}☁️#{_end} #{title}</div><div class="torbox-item__main-info">#{info_formated}</div><div class="torbox-item__meta">#{meta_formated}</div>#{_if(tech_bar_html)}<div class="torbox-item__tech-bar">#{tech_bar_html}</div>#{_end}</div>');
-            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">#{message}</div></div>');
+            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{_if(tech_bar_html)}<div class="torbox-item__tech-bar">{tech_bar_html}</div>{_end}</div>');
+            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
         }
 
         const addSettings = () => {
@@ -905,7 +917,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v36.0.0 ready');
+            LOG('TorBox v34.0.0 ready');
         };
         return { init };
     })();
