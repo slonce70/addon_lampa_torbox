@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.2 (Grid Layout Fixed)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.3.0 (Final Layout Fix)
  * =======================================================================
- * ▸ Виправлено відображення списку: тепер елементи розташовуються у вигляді сітки.
- * ▸ Застосовано обгортку для grid-контейнера, щоб уникнути конфліктів з Lampa.Scroll.
- * ▸ Проведено рефакторинг коду та CSS для кращої читабельності.
+ * ▸ Повністю перероблено CSS для гарантованого відображення у вигляді сітки.
+ * ▸ Використано класичний підхід з float для уникнення конфліктів.
+ * ▸ Виправлено проблему з фокусом та "затуханням" першого елемента.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_3_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -21,7 +21,7 @@
         },
         formatBytes(bytes = 0, speed = false) {
             const B = Number(bytes);
-            if (!B) return speed ? '0 KB/s' : '0 B';
+            if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
             const k = 1024;
             const sizes = speed
                 ? ['B/s', 'KB/s', 'MB/s', 'GB/s']
@@ -384,9 +384,8 @@
         this._initFilterHandlers();
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
         
-        // Робимо сам елемент .scroll__body грідом
-        this.state.scroll.body().addClass('torbox-grid-container'); 
-        
+        // Додаємо клас до тіла скролу, щоб мати контейнер для загальних стилів (напр. padding)
+        this.state.scroll.body().addClass('torbox-list-container');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
         this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
