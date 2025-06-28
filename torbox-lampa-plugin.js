@@ -1,11 +1,11 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.4 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.5 (Stable Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: ОСТАТОЧНО усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')"
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто проблему відсутності відображення контенту - додано scroll.render() в кінці draw().
+ * • ПОПЕРЕДНЄ ВИПРАВЛЕННЯ: Усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')"
  * Видалено некоректний виклик scroll.update() без параметрів з методу draw().
  * Виправлено hover:focus обробник для правильного виклику scroll.update($(e.target), true).
  * • СТАБІЛЬНІСТЬ: Тепер scroll.update() викликається тільки в обробниках подій з конкретним елементом, як у bwa.js.
- * Повністю усунуто джерело помилки getBoundingClientRect.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
  * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
@@ -15,7 +15,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_4_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_5_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -750,6 +750,9 @@
              });
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
+             
+             // Фінальне відображення скролу після додавання всіх елементів
+             this.state.scroll.render();
              
              // Не викликаємо scroll.update() тут - це викликає getBoundingClientRect помилку
              // scroll.update() повинен викликатися тільки в обробниках подій з конкретним елементом
