@@ -1,14 +1,14 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.7 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.8 (Stable Refactored)
  * =================================================================================
- * • СТРУКТУРНЕ ВИПРАВЛЕННЯ: Повне вирішення проблем відображення скролу:
- *   ① Видалення .empty оверлею, який закриває список торрентів
- *   ② Додано scroll.resize() для перерахунку геометрії контейнера
- *   ③ Покращено scroll.update() з використанням scroll.body().children().first()
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'scroll.resize is not a function':
+ *   ① Замінено неіснуючий scroll.resize() на стандартний scroll.render()
+ *   ② Збережено безпечний scroll.update() з використанням scroll.body().children().first()
  * • ПОПЕРЕДНІ ВИПРАВЛЕННЯ:
+ *   - Видалення .empty оверлею, який закриває список торрентів (v30.2.7)
  *   - Усунуто проблему геометрії скролу (v30.2.6)
  *   - Усунуто проблему відсутності відображення контенту (v30.2.5)
- *   - Усунуто помилку "Cannot read properties of undefined (reading 'getBoundingClientRect')" (v30.2.4)
+ *   - Усунуто помилку getBoundingClientRect (v30.2.4)
  * • СТАБІЛЬНІСТЬ: Гарантоване відображення всіх 107 торрентів без оверлеїв та з правильною геометрією.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
@@ -19,7 +19,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_7_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_8_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -759,9 +759,9 @@
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
              
-             // ② Hot-fix: перерахувати розмір контейнера після додавання елементів
-             this.state.scroll.resize();
-             LOG('Scroll container resized, height recalculated');
+             // ② Hot-fix: рендер скролу для оновлення геометрії
+             this.state.scroll.render();
+             LOG('Scroll rendered, geometry updated');
              
              // ③ Hot-fix: безпечний виклик scroll.update() з конкретним елементом
              const first = this.state.scroll.body().children().first();
