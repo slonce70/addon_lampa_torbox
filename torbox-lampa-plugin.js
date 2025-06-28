@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.11 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -544,6 +544,9 @@
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
+                // [ИСПРАВЛЕНИЕ] Улучшена логика для плейлистов.
+                // Когда видео завершается, Lampa автоматически возвращается на экран плагина.
+                // Наша задача - просто убрать слушатели и, если нужно, показать выбор следующего файла.
                 const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
@@ -551,14 +554,17 @@
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
-                        Lampa.Controller.toggle('content');
                     }
                 };
 
+                // [ИСПРАВЛЕНИЕ] Решена проблема "зависания" при выходе из плеера.
+                // Вызов Lampa.Activity.backward() оборачивается в setTimeout, чтобы избежать
+                // конфликта, когда команда на уничтожение активности вызывается изнутри
+                // обработчика события этой же активности.
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward(); // [ИСПРАВЛЕНИЕ] Корректное закрытие плеера
+                    setTimeout(Lampa.Activity.backward, 0);
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
