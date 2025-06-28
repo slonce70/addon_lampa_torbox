@@ -38,7 +38,7 @@
 
         const request = async (url, options = {}, signal) => { /* HTTP-запит через CORS-проксі, з заголовком X-Api-Key, без змін */ };
 
-        const **searchPublicTrackers = async (movie, signal) => {
+        const searchPublicTrackers = async (movie, signal) => {
             // Послідовний обхід публічних парсерів (спершу Viewbox, потім Jacred тощо)
             for (const parser of PUBLIC_PARSERS) {
                 // Формуємо URL для поточного парсера
@@ -67,7 +67,7 @@
             }
             // Якщо жоден парсер не дав результатів – генеруємо помилку
             throw { type: 'api', message: 'Усі публічні парсери недоступні або не дали результатів.' };
-        };**
+        };
 
         const checkCached = async (hashes, signal) => { /* перевірка кешу на TorBox, без змін */ };
         const addMagnet = (magnet, signal) => { /* додавання magnet до TorBox, без змін */ };
