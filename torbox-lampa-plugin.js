@@ -1,20 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.11 (Final Render Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.12 (Hybrid Render Fix)
  * =================================================================================
- * • КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Добавлено принудительное обновление интерфейса Lampa.
- * ① В конец функции draw() добавлен вызов Lampa.Controller.toggle('content').
- * ② Этот вызов заставляет Lampa перерисовать область контента после
- * асинхронного добавления элементов, решая проблему пустого экрана.
- * ③ Оптимизирован шаблон Lampa.Template для лучшей практики и чистоты кода.
- * • ПРЕДЫДУЩИЕ ИСПРАВЛЕНИЯ: Сохранены все исправления из версий до v30.2.10.
- * • СТАБИЛЬНОСТЬ: Это исправление должно обеспечить стабильное отображение торрентов.
+ * • КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Возврат к проверенному методу рендеринга из старой версии.
+ * ① Вместо стандартных классов 'online' снова используется кастомный '.torbox-item'.
+ * ② Восстановлены все CSS-стили для '.torbox-item', чтобы гарантировать его видимость.
+ * ③ HTML-код элемента создается напрямую, а не через шаблонизатор Lampa, для
+ * устранения потенциальных конфликтов рендеринга.
+ * ④ Сохранен вызов Lampa.Controller.toggle('content') для принудительного обновления
+ * интерфейса после загрузки данных.
+ * • СТАБИЛЬНОСТЬ: Этот гибридный подход должен обеспечить максимальную стабильность отображения.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_11_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_12_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -499,16 +500,6 @@
     TorBoxComponent.prototype.initialize = function() {
         if (this.state.initialized) return;
         LOG("Component initialize()");
-
-        Lampa.Template.add('torbox_item_template', `
-            <div class="online selector">
-                <div class="online__body">
-                    <div class="online__title">{title_html}</div>
-                    <div class="online__quality">{quality_html}</div>
-                    <div class="online__meta" style="opacity: 0.7; font-size: 0.9em;">{meta_html}</div>
-                </div>
-            </div>
-        `);
         
         try {
             this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
@@ -711,97 +702,92 @@
          LOG('draw() called with torrents_list length:', torrents_list?.length || 0);
          
          try {
-             this.state.last = null;
+            this.state.last = null;
              
-             if (this.state.scroll && this.state.scroll.clear) {
-                 this.state.scroll.clear();
-             } else {
-                 LOG('Warning: scroll.clear() not available, using alternative method');
-                 this.state.scroll.render().empty();
-             }
+            if (this.state.scroll && this.state.scroll.clear) {
+                this.state.scroll.clear();
+            } else {
+                LOG('Warning: scroll.clear() not available, using alternative method');
+                this.state.scroll.render().empty();
+            }
              
-             this.state.scroll.render().find('.empty').remove();
-             LOG('Removed any existing .empty overlay elements');
+            this.state.scroll.render().find('.empty').remove();
+            LOG('Removed any existing .empty overlay elements');
              
-             if (!torrents_list?.length) {
-                 LOG('No torrents to display');
-                 return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
-             }
+            if (!torrents_list?.length) {
+                LOG('No torrents to display');
+                return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
+            }
 
-             const movieId = this.movie.imdb_id || this.movie.id;
-             const lastTorrentHash = Store.get(`torbox_last_played_torrent_${movieId}`, null);
-             LOG('Last played torrent hash for movie', movieId, ':', lastTorrentHash);
+            const movieId = this.movie.imdb_id || this.movie.id;
+            const lastTorrentHash = Store.get(`torbox_last_played_torrent_${movieId}`, null);
+            LOG('Last played torrent hash for movie', movieId, ':', lastTorrentHash);
              
-             let itemsAdded = 0;
-             torrents_list.forEach((t, index) => {
-                 try {
+            let itemsAdded = 0;
+            torrents_list.forEach((t, index) => {
+                try {
                     const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
-
-                    const quality = `[${t.quality}] ${Utils.formatBytes(t.size)}`;
-                    const seeds_peers = ` | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
-            
-                    let techInfo = '';
-                    if (t.video_resolution) {
-                        const videoInfo = [t.video_resolution];
-                        if (t.video_codec) videoInfo.push(t.video_codec.toUpperCase());
-                        if (t.has_hdr) videoInfo.push('HDR');
-                        if (t.has_dv) videoInfo.push('DV');
+                    const title = Utils.escapeHtml(t.raw_title || t.title);
+                    
+                    let techBarHtml = '';
+                    if (t.video_resolution) { 
+                        let techItems = [];
+                        techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--res">${t.video_resolution}</div>`);
+                        if(t.video_codec) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--codec">${t.video_codec.toUpperCase()}</div>`);
+                        if(t.has_hdr) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--hdr">HDR</div>`);
+                        if(t.has_dv) techItems.push(`<div class="torbox-item__tech-item torbox-item__tech-item--dv">Dolby Vision</div>`);
                         
-                        const audioInfo = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
+                        const audioItems = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
                             const lang = s.tags?.language?.toUpperCase() || '???';
                             const codec = s.codec_name?.toUpperCase() || '';
-                            return `${lang} ${codec}`;
-                        }).join(', ') || '';
-            
-                        techInfo = ` | ${videoInfo.join(' ')}${audioInfo ? ' | ' + audioInfo : ''}`;
-                    }
-            
-                    const templateData = {
-                        title_html: `${t.cached ? '⚡ ' : '☁️ '}${Utils.escapeHtml(t.raw_title || t.title)}`,
-                        quality_html: `${quality}${seeds_peers}${techInfo}`,
-                        meta_html: Utils.escapeHtml(`Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`)
-                    };
-            
-                    const $item = Lampa.Template.get('torbox_item_template', templateData);
-                    
-                    if (isLastPlayedTorrent) {
-                        $item.addClass('torbox-item--last-played');
+                            return `<div class="torbox-item__tech-item torbox-item__tech-item--audio">${lang} ${codec}</div>`;
+                        }) || [];
+        
+                        techItems = techItems.concat(audioItems);
+                        techBarHtml = `<div class="torbox-item__tech-bar">${techItems.join('')}</div>`;
                     }
 
-                     if (!$item || !$item.length || !$item[0]) {
-                         LOG('Failed to create valid DOM element for torrent:', t?.title);
-                         return;
-                     }
-                     
-                     $item.on('hover:focus', (e) => { 
-                         this.state.last = e.target; 
-                         this.state.scroll.update($(e.target), true);
-                     });
-                     
-                     $item.on('hover:enter', () => this._handleTorrentClick(t));
-                     
-                     this.state.scroll.append($item);
-                     itemsAdded++;
-                 } catch (itemError) {
-                     LOG('Error creating torrent item at index', index, ':', itemError);
-                 }
-             });
-             
-             LOG('Successfully added', itemsAdded, 'torrent items to scroll');
-             
-             const first = this.state.scroll.body().children().first();
-             if (first.length) {
-                 this.state.scroll.update(first, true);
-                 LOG('Scroll geometry updated with first element, focus set');
-             } else {
-                 LOG('Warning: No first element found in scroll body for focus');
-             }
+                    const itemHtml = `
+                        <div class="torbox-item selector ${isLastPlayedTorrent ? 'torbox-item--last-played' : ''}">
+                            <div class="torbox-item__title">${t.cached?'⚡':'☁️'} ${title}</div>
+                            <div class="torbox-item__main-info">
+                                [${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>
+                            </div>
+                            <div class="torbox-item__meta">
+                                Трекеры: ${Utils.escapeHtml(t.trackers?.join(', ')||'н/д')} | Додано: ${Utils.escapeHtml(t.age||'н/д')}
+                            </div>
+                            ${techBarHtml}
+                        </div>`;
 
-             //
-             // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: "Активируем" контент после его добавления
-             //
-             Lampa.Controller.toggle('content');
-             LOG('Forced content toggle to refresh view.');
+                    const $item = $(itemHtml);
+                     
+                    $item.on('hover:focus', (e) => { 
+                        this.state.last = e.target; 
+                        this.state.scroll.update($(e.target), true);
+                    });
+                     
+                    $item.on('hover:enter', () => this._handleTorrentClick(t));
+                     
+                    this.state.scroll.append($item);
+                    itemsAdded++;
+
+                } catch (itemError) {
+                    LOG('Error creating torrent item at index', index, ':', itemError);
+                }
+            });
+             
+            LOG('Successfully added', itemsAdded, 'torrent items to scroll');
+             
+            const first = this.state.scroll.body().children().first();
+            if (first.length) {
+                this.state.scroll.update(first, true);
+                LOG('Scroll geometry updated with first element, focus set');
+            } else {
+                LOG('Warning: No first element found in scroll body for focus');
+            }
+
+            Lampa.Controller.toggle('content');
+            LOG('Forced content toggle to refresh view.');
              
          } catch (error) {
              LOG('Error in draw():', error);
@@ -1110,7 +1096,20 @@
             const style = document.createElement('style');
             style.id = 'torbox-component-styles';
             style.textContent = `
+                .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent; overflow: hidden;}
                 .torbox-item--last-played { border-left: 4px solid var(--color-second); background-color: rgba(var(--color-second-rgb), 0.1); }
+                .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
+                .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0,0,0,0.2); }
+                .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3}
+                .torbox-item__main-info{font-size:.95em;opacity:.9;line-height:1.4; margin-bottom: .3em;}
+                .torbox-item__meta{font-size:.9em;opacity:.7;line-height:1.4; margin-bottom: .8em;}
+                .torbox-item__tech-bar{display:flex;flex-wrap:wrap;gap:.6em;margin:0 -1.2em -1em -1.2em;padding:.6em 1.2em;background:rgba(0,0,0,0.1);font-size:.85em;font-weight:500;}
+                .torbox-item__tech-item { display: inline-block; padding: .2em .5em; border-radius: .4em; }
+                .torbox-item__tech-item--res { background-color: #3b82f6; color: white; }
+                .torbox-item__tech-item--codec { background-color: #16a34a; color: white; }
+                .torbox-item__tech-item--audio { background-color: #f97316; color: white; }
+                .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: white; }
+                .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: white; }
                 .select__item.select__item--last-played > .select__item-title { color: var(--color-second) !important; font-weight: 600; }
                 .torrent-list{padding:1em}
                 .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
@@ -1127,7 +1126,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.2.11 (Refactored) ready');
+            LOG('TorBox v30.2.12 (Refactored) ready');
         };
 
         return { init };
