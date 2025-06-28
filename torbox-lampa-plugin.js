@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.1 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -529,7 +529,11 @@
         const play = async (torrent_data, file, all_video_files = []) => {
             Lampa.Loading.start();
             try {
-                const link = (await Api.requestDl(torrent_data.id, file.id, abort.signal)).url;
+                // [ИСПРАВЛЕНИЕ] API может вернуть ссылку в свойстве 'url' или 'data'.
+                // Проверяем оба варианта, чтобы избежать ошибки 'undefined'.
+                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
+                const link = dlResponse.url || dlResponse.data;
+                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 const mid = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
