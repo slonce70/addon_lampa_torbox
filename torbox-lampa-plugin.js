@@ -1,27 +1,21 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.9 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.10 (Display Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Виправлено структуру HTML елементів для сумісності з Lampa:
- *   ① Замінено класи 'torbox-item selector' на стандартні 'online selector'
- *   ② Додано правильну структуру з 'online__body', 'online__title', 'online__quality'
- *   ③ Елементи тепер відображаються коректно в інтерфейсі Lampa
- * • ПОПЕРЕДНІ ВИПРАВЛЕННЯ:
- *   - Усунуто помилку 'scroll.resize is not a function' (v30.2.8)
- *   - Видалення .empty оверлею, який закриває список торрентів (v30.2.7)
- *   - Усунуто проблему геометрії скролу (v30.2.6)
- *   - Усунуто проблему відсутності відображення контенту (v30.2.5)
- *   - Усунуто помилку getBoundingClientRect (v30.2.4)
- * • СТАБІЛЬНІСТЬ: Гарантоване відображення всіх торрентів з правильною структурою HTML.
- * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
- * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
- * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
+ * • КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Переход на систему шаблонов Lampa для рендеринга.
+ * ① Добавлен Lampa.Template 'torbox_item_template' для создания элементов списка.
+ * ② Функция draw() переработана для использования Lampa.Template.get(), что гарантирует
+ * корректную регистрацию элементов в Lampa.Scroll и их отображение.
+ * ③ Удалена устаревшая функция _createTorrentHTML, логика интегрирована в draw().
+ * ④ Этот подход решает проблему, когда торренты загружались, но не отображались.
+ * • ПРЕДЫДУЩИЕ ИСПРАВЛЕНИЯ: Сохранены все исправления из версий до v30.2.9.
+ * • СТАБИЛЬНОСТЬ: Ожидается стабильное отображение списка торрентов.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_9_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_10_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -506,13 +500,25 @@
     TorBoxComponent.prototype.initialize = function() {
         if (this.state.initialized) return;
         LOG("Component initialize()");
+
+        //
+        // 1. Создаем шаблон для элемента списка
+        //
+        Lampa.Template.add('torbox_item_template', `
+            <div class="online selector {is_last_played}">
+                <div class="online__body">
+                    <div class="online__title">{title_html}</div>
+                    <div class="online__quality">{quality_html}</div>
+                    <div class="online__meta" style="opacity: 0.7; font-size: 0.9em;">{meta_html}</div>
+                </div>
+            </div>
+        `);
         
         try {
             this.state.scroll = new Lampa.Scroll({ mask: true, over: true });
             this.state.files = new Lampa.Explorer(this.params);
             this.state.filter = new Lampa.Filter(this.params);
             
-            // Перевіряємо чи правильно створилися компоненти
             if (!this.state.scroll || !this.state.scroll.render) {
                 throw new Error('Failed to create Scroll component');
             }
@@ -526,7 +532,6 @@
             this.initializeFilterHandlers(); 
             if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
             
-            // Додаємо клас до скролу
             const scrollBody = this.state.scroll.body();
             if (scrollBody && scrollBody.addClass) {
                 scrollBody.addClass('torrent-list');
@@ -706,13 +711,16 @@
          }
      };
 
+    //
+    // 2. Функция _createTorrentHTML удалена. Логика перенесена в draw
+    //
+
     TorBoxComponent.prototype.draw = function(torrents_list) {
          LOG('draw() called with torrents_list length:', torrents_list?.length || 0);
          
          try {
              this.state.last = null;
              
-             // Очищуємо попередній вміст
              if (this.state.scroll && this.state.scroll.clear) {
                  this.state.scroll.clear();
              } else {
@@ -720,7 +728,6 @@
                  this.state.scroll.render().empty();
              }
              
-             // ① Hot-fix: прибираємо .empty оверлей, який може закривати список
              this.state.scroll.render().find('.empty').remove();
              LOG('Removed any existing .empty overlay elements');
              
@@ -736,10 +743,39 @@
              let itemsAdded = 0;
              torrents_list.forEach((t, index) => {
                  try {
-                     const itemHtml = this._createTorrentHTML(t, lastTorrentHash);
-                     const $item = $(itemHtml);
-                     
-                     // Перевіряємо чи створився валідний DOM елемент
+                    //
+                    // 3. Создаем элемент списка через систему шаблонов Lampa
+                    //
+                    const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
+
+                    const quality = `[${t.quality}] ${Utils.formatBytes(t.size)}`;
+                    const seeds_peers = ` | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
+            
+                    let techInfo = '';
+                    if (t.video_resolution) {
+                        const videoInfo = [t.video_resolution];
+                        if (t.video_codec) videoInfo.push(t.video_codec.toUpperCase());
+                        if (t.has_hdr) videoInfo.push('HDR');
+                        if (t.has_dv) videoInfo.push('DV');
+                        
+                        const audioInfo = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
+                            const lang = s.tags?.language?.toUpperCase() || '???';
+                            const codec = s.codec_name?.toUpperCase() || '';
+                            return `${lang} ${codec}`;
+                        }).join(', ') || '';
+            
+                        techInfo = ` | ${videoInfo.join(' ')}${audioInfo ? ' | ' + audioInfo : ''}`;
+                    }
+            
+                    const templateData = {
+                        is_last_played: isLastPlayedTorrent ? 'torbox-item--last-played' : '',
+                        title_html: `${t.cached ? '⚡ ' : '☁️ '}${Utils.escapeHtml(t.raw_title || t.title)}`,
+                        quality_html: `${quality}${seeds_peers}${techInfo}`,
+                        meta_html: Utils.escapeHtml(`Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`)
+                    };
+            
+                    const $item = Lampa.Template.get('torbox_item_template', templateData);
+
                      if (!$item || !$item.length || !$item[0]) {
                          LOG('Failed to create valid DOM element for torrent:', t?.title);
                          return;
@@ -761,14 +797,12 @@
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
              
-             // ② Hot-fix: рендер скролу для оновлення геометрії
              this.state.scroll.render();
              LOG('Scroll rendered, geometry updated');
              
-             // ③ Hot-fix: безпечний виклик scroll.update() з конкретним елементом
              const first = this.state.scroll.body().children().first();
              if (first.length) {
-                 this.state.scroll.update(first, true); // ставить фокус на перший елемент
+                 this.state.scroll.update(first, true);
                  LOG('Scroll geometry updated with first element, focus set');
              } else {
                  LOG('Warning: No first element found in scroll body for focus');
@@ -779,41 +813,6 @@
              this._renderEmpty('Помилка відображення списку торрентів');
          }
      };
-    
-    TorBoxComponent.prototype._createTorrentHTML = function(t, lastTorrentHash) {
-        const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
-        const mainClass = `online selector ${isLastPlayedTorrent ? 'torbox-item--last-played' : ''}`;
-        
-        const title = `${t.cached ? '⚡ ' : '☁️ '}${Utils.escapeHtml(t.raw_title || t.title)}`;
-        const quality = `[${t.quality}] ${Utils.formatBytes(t.size)}`;
-        const info = ` | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
-        const meta = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
-
-        let techInfo = '';
-        if (t.video_resolution) {
-            const videoInfo = [t.video_resolution];
-            if (t.video_codec) videoInfo.push(t.video_codec.toUpperCase());
-            if (t.has_hdr) videoInfo.push('HDR');
-            if (t.has_dv) videoInfo.push('DV');
-            
-            const audioInfo = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
-                const lang = s.tags?.language?.toUpperCase() || '???';
-                const codec = s.codec_name?.toUpperCase() || '';
-                return `${lang} ${codec}`;
-            }).join(', ') || '';
-
-            techInfo = ` | ${videoInfo.join(' ')}${audioInfo ? ' | ' + audioInfo : ''}`;
-        }
-
-        return `
-            <div class="${mainClass}">
-                <div class="online__body">
-                    <div class="online__title">${title}</div>
-                    <div class="online__quality">${quality}${info}${techInfo}</div>
-                    <div class="online__meta" style="opacity: 0.7; font-size: 0.9em;">${Utils.escapeHtml(meta)}</div>
-                </div>
-            </div>`;
-    };
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         this.state.scroll.render().empty();
@@ -848,7 +847,6 @@
           
           const finalTorrentData = await this._trackTorrentStatus(torrentId, this.abortController.signal);
           
-          // Створюємо копію об'єкта замість мутації
           const torrentDataWithHash = {
               ...finalTorrentData,
               hash: torrent.hash || torrent.info_hash
@@ -856,7 +854,6 @@
           
           LOG('Torrent ready for file selection with hash:', torrentDataWithHash.hash);
           
-          // Зберігаємо останній відтворений торрент
           const movieId = this.movie.imdb_id || this.movie.id;
           if (movieId && torrentDataWithHash.hash) {
               Store.set(`torbox_last_played_torrent_${movieId}`, torrentDataWithHash.hash);
@@ -935,7 +932,6 @@
     TorBoxComponent.prototype._showFileSelection = function(torrentData) {
         LOG('_showFileSelection called with data:', torrentData);
         
-        // Перевірка наявності файлів
         if (!torrentData || !torrentData.files || !Array.isArray(torrentData.files)) {
             LOG('Invalid torrent data or missing files array');
             throw {type: 'validation', message: 'Дані торрента не містять інформації про файли.'};
@@ -943,7 +939,6 @@
         
         LOG('Files available:', torrentData.files.length);
         
-        // Фільтрація відеофайлів з розширеним списком форматів
         let files = torrentData.files.filter(f => {
             if (!f || !f.name) {
                 LOG('Skipping file with missing name:', f);
@@ -958,7 +953,6 @@
             throw {type: 'validation', message: 'Відтворювані відеофайли не знайдені.'};
         }
         
-        // Сортування файлів
         files.sort(Utils.naturalSort);
         
         const playFile = (file) => {
@@ -971,18 +965,15 @@
             }
         };
 
-        // Якщо один файл - відразу відтворюємо
         if (files.length === 1) {
             LOG('Single file found, playing directly');
             return playFile(files[0]);
         }
         
-        // Отримуємо останній відтворений файл
         const movieId = this.movie.imdb_id || this.movie.id;
         const lastPlayedFileId = Store.get(`torbox_last_played_${movieId}`, null);
         LOG('Last played file ID:', lastPlayedFileId);
 
-        // Створюємо елементи для вибору
         const fileItems = files.map(f => {
             const isLast = lastPlayedFileId && String(f.id) === String(lastPlayedFileId);
             const item = {
@@ -996,7 +987,6 @@
             return item;
         });
 
-        // Показуємо список для вибору
         try {
             LOG('Showing file selection dialog with', fileItems.length, 'items');
             Lampa.Select.show({ 
@@ -1033,7 +1023,7 @@
         const player_data = { url: dlResponse.data || dlResponse.url, title: file.name || this.movie.title, poster: this.movie.img };
         Lampa.Modal.close();
         Lampa.Player.play(player_data);
-        Lampa.Player.listener.follow('complite', () => this.display()); // Refresh highlights on completion
+        Lampa.Player.listener.follow('complite', () => this.display());
       } catch (e) {
         ErrorHandler.show(e.type || 'unknown', e);
         Lampa.Modal.close();
@@ -1125,20 +1115,7 @@
             const style = document.createElement('style');
             style.id = 'torbox-component-styles';
             style.textContent = `
-                .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent; overflow: hidden;}
                 .torbox-item--last-played { border-left: 4px solid var(--color-second); background-color: rgba(var(--color-second-rgb), 0.1); }
-                .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
-                .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0,0,0,0.2); }
-                .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3}
-                .torbox-item__main-info{font-size:.95em;opacity:.9;line-height:1.4; margin-bottom: .3em;}
-                .torbox-item__meta{font-size:.9em;opacity:.7;line-height:1.4; margin-bottom: .8em;}
-                .torbox-item__tech-bar{display:flex;flex-wrap:wrap;gap:.6em;margin:0 -1.2em -1em -1.2em;padding:.6em 1.2em;background:rgba(0,0,0,0.1);font-size:.85em;font-weight:500;}
-                .torbox-item__tech-item { display: inline-block; padding: .2em .5em; border-radius: .4em; }
-                .torbox-item__tech-item--res { background-color: #3b82f6; color: white; }
-                .torbox-item__tech-item--codec { background-color: #16a34a; color: white; }
-                .torbox-item__tech-item--audio { background-color: #f97316; color: white; }
-                .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: white; }
-                .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: white; }
                 .select__item.select__item--last-played > .select__item-title { color: var(--color-second) !important; font-weight: 600; }
                 .torrent-list{padding:1em}
                 .torbox-status{padding:1.5em 2em; text-align:center; min-height:200px;}
@@ -1155,7 +1132,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.2.0 (Refactored) ready');
+            LOG('TorBox v30.2.10 (Refactored) ready');
         };
 
         return { init };
