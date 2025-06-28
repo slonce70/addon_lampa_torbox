@@ -1,15 +1,17 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.8 (Stable Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.9 (Stable Refactored)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'scroll.resize is not a function':
- *   ① Замінено неіснуючий scroll.resize() на стандартний scroll.render()
- *   ② Збережено безпечний scroll.update() з використанням scroll.body().children().first()
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Виправлено структуру HTML елементів для сумісності з Lampa:
+ *   ① Замінено класи 'torbox-item selector' на стандартні 'online selector'
+ *   ② Додано правильну структуру з 'online__body', 'online__title', 'online__quality'
+ *   ③ Елементи тепер відображаються коректно в інтерфейсі Lampa
  * • ПОПЕРЕДНІ ВИПРАВЛЕННЯ:
+ *   - Усунуто помилку 'scroll.resize is not a function' (v30.2.8)
  *   - Видалення .empty оверлею, який закриває список торрентів (v30.2.7)
  *   - Усунуто проблему геометрії скролу (v30.2.6)
  *   - Усунуто проблему відсутності відображення контенту (v30.2.5)
  *   - Усунуто помилку getBoundingClientRect (v30.2.4)
- * • СТАБІЛЬНІСТЬ: Гарантоване відображення всіх 107 торрентів без оверлеїв та з правильною геометрією.
+ * • СТАБІЛЬНІСТЬ: Гарантоване відображення всіх торрентів з правильною структурою HTML.
  * • БЕЗПЕКА: Збережено захист від XSS та кодування API-ключа.
  * • ПРОДУКТИВНІСТЬ: Збережено паралельні запити та обмежений кеш (LRU).
  * • СУПРОВІДНІСТЬ: Збережено логічну структуру коду ("віртуальні модулі").
@@ -19,7 +21,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_8_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_9_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -780,37 +782,36 @@
     
     TorBoxComponent.prototype._createTorrentHTML = function(t, lastTorrentHash) {
         const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
-        const mainClass = `torbox-item selector ${isLastPlayedTorrent ? 'torbox-item--last-played' : ''}`;
+        const mainClass = `online selector ${isLastPlayedTorrent ? 'torbox-item--last-played' : ''}`;
         
-        const title = `${t.cached ? '⚡ ' : '☁️ '}${t.raw_title || t.title}`;
-        const mainInfo = `[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
+        const title = `${t.cached ? '⚡ ' : '☁️ '}${Utils.escapeHtml(t.raw_title || t.title)}`;
+        const quality = `[${t.quality}] ${Utils.formatBytes(t.size)}`;
+        const info = ` | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
         const meta = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
 
-        let techBarHtml = '';
+        let techInfo = '';
         if (t.video_resolution) {
-            const createTag = (text, type) => `<div class="torbox-item__tech-item torbox-item__tech-item--${type}">${text}</div>`;
+            const videoInfo = [t.video_resolution];
+            if (t.video_codec) videoInfo.push(t.video_codec.toUpperCase());
+            if (t.has_hdr) videoInfo.push('HDR');
+            if (t.has_dv) videoInfo.push('DV');
             
-            let videoTags = createTag(t.video_resolution, 'res');
-            if (t.video_codec) videoTags += createTag(t.video_codec.toUpperCase(), 'codec');
-            if (t.has_hdr) videoTags += createTag('HDR', 'hdr');
-            if (t.has_dv) videoTags += createTag('Dolby Vision', 'dv');
-            
-            const audioTags = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
+            const audioInfo = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').map(s => {
                 const lang = s.tags?.language?.toUpperCase() || '???';
                 const codec = s.codec_name?.toUpperCase() || '';
-                const layout = s.channel_layout || '';
-                return createTag(`${lang} ${codec} ${layout}`, 'audio');
-            }).join('');
+                return `${lang} ${codec}`;
+            }).join(', ') || '';
 
-            techBarHtml = `<div class="torbox-item__tech-bar">${videoTags}${audioTags}</div>`;
+            techInfo = ` | ${videoInfo.join(' ')}${audioInfo ? ' | ' + audioInfo : ''}`;
         }
 
         return `
             <div class="${mainClass}">
-                <div class="torbox-item__title">${Utils.escapeHtml(title)}</div>
-                <div class="torbox-item__main-info">${mainInfo}</div>
-                <div class="torbox-item__meta">${Utils.escapeHtml(meta)}</div>
-                ${techBarHtml}
+                <div class="online__body">
+                    <div class="online__title">${title}</div>
+                    <div class="online__quality">${quality}${info}${techInfo}</div>
+                    <div class="online__meta" style="opacity: 0.7; font-size: 0.9em;">${Utils.escapeHtml(meta)}</div>
+                </div>
             </div>`;
     };
 
