@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (Player Exit Fix)
  * =======================================================================
- * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
- * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
- * обработки движком Lampa.
+ * ▸ ИСПРАВЛЕН ВЫХОД ИЗ ПЛЕЕРА: Убрано прямое управление контроллером из
+ * обработчиков событий плеера. Lampa теперь самостоятельно восстанавливает
+ * предыдущий экран, что решает проблему с неработающей кнопкой "Назад" (Escape) в веб-версии.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_player_exit_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -544,6 +544,9 @@
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
+                // [ИСПРАВЛЕНИЕ] Убрано прямое управление контроллером из обработчиков плеера.
+                // Lampa должна самостоятельно восстанавливать активность после закрытия плеера.
+                // Это исправляет проблему с выходом по кнопке "Назад" (Escape) в веб-версии.
                 const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
@@ -551,14 +554,13 @@
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
-                        Lampa.Controller.toggle('content');
                     }
                 };
 
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Controller.toggle('content');
+                    // Просто выходим, Lampa восстановит предыдущий экран.
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
