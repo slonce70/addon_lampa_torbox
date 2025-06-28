@@ -21,7 +21,7 @@
         },
         formatBytes(bytes = 0, speed = false) {
             const B = Number(bytes);
-            if (!B) return speed ? '0 KB/s' : '0 B';
+            if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
             const k = 1024;
             const sizes = speed
                 ? ['B/s', 'KB/s', 'MB/s', 'GB/s']
@@ -897,11 +897,11 @@
                 .torbox-status { padding: 1.5em 2em; text-align: center; min-height: 200px; }
                 .torbox-status__title { font-size: 1.4em; margin-bottom: 1em; font-weight: 600; }
                 .torbox-status__info { font-size: 1.1em; margin-bottom: .8em; }
-                .torbox-status__progress-container { margin: 1.5em 0; background: rgba(255, 255, 255, .1); border-radius: 8px; overflow: hidden; height: 12px; position: relative; }
+                .torbox-status__progress-container { margin: 1.5em 0; background: rgba(255, 255, 255, .2) !important; border-radius: 8px; overflow: hidden; height: 12px; position: relative; }
                 .torbox-status__progress-bar { 
                     height: 100%; 
                     width: 0; 
-                    background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #4CAF50)); 
+                    background: linear-gradient(90deg, #4CAF50, #66BB6A) !important; 
                     transition: width .5s; 
                     border-radius: 8px; 
                     position: relative;
@@ -916,12 +916,6 @@
                 @keyframes torbox_shimmer {
                     0% { transform: translateX(-100%); }
                     100% { transform: translateX(100%); }
-                }
-                .modal .torbox-status__progress-container {
-                    background: rgba(255,255,255,0.2) !important;
-                }
-                .modal .torbox-status__progress-bar {
-                    background: linear-gradient(90deg, #4CAF50, #66BB6A) !important;
                 }
             `;
             css.textContent = styles;
@@ -949,3 +943,4 @@
         }
     })();
 })();
+
