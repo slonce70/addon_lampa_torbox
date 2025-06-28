@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.6 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -357,7 +357,7 @@
                 voices: raw.info?.voices,
                 ...tech_info,
                 raw_data: raw,
-                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style='color:var(--color-good);'>${raw.Seeders || 0}</span> / 🔴<span style='color:var(--color-bad);'>${raw.Peers || 0}</span>`,
+                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
                 meta_formated: `Трекеры: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
                 tech_bar_html: this.buildTechBar(tech_info, raw)
             };
@@ -553,50 +553,7 @@
 
         this.empty = function(msg) {
             scroll.clear();
-            
-            // Debug template system
-            LOG('Template system debug:');
-            LOG('- Lampa.Template type:', typeof Lampa.Template);
-            LOG('- Lampa.Template.get type:', typeof Lampa.Template.get);
-            LOG('- Available templates:', Object.keys(Lampa.Template.templates || {}));
-            
-            let html = Lampa.Template.get('torbox_empty', {});
-            
-            LOG('Template get result:');
-            LOG('- Type:', typeof html);
-            LOG('- Value:', html);
-            LOG('- Constructor:', html?.constructor?.name);
-            LOG('- Is jQuery:', !!(html && html.jquery));
-            
-            // Ensure html is a string, not a jQuery object
-            if (typeof html !== 'string') {
-                if (html && html.jquery) {
-                    // It's a jQuery object, get the HTML
-                    html = html.prop('outerHTML') || html.html() || '';
-                    LOG('Converted jQuery object to HTML:', html);
-                } else {
-                    html = html && html.toString ? html.toString() : String(html);
-                    LOG('Converted to string:', html);
-                }
-            }
-            
-            // Validate template
-            if (!html || html === '[object Object]' || html.includes('[object Object]')) {
-                LOG('Invalid template received for torbox_empty:', html);
-                html = '<div class="empty"><div class="empty__text">##message##</div></div>';
-            }
-            
-            html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
-            // Create jQuery element safely
-            let element;
-            try {
-                element = $(html);
-                LOG('Successfully created jQuery element');
-            } catch (e) {
-                LOG('Error creating jQuery element from template:', e, 'HTML:', html);
-                element = $('<div class="empty"><div class="empty__text">' + Utils.escapeHtml(msg || 'Торренты не найдены') + '</div></div>');
-            }
-            scroll.append(element);
+            scroll.append(Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' }));
         };
         
         this.reset = function() {
@@ -675,49 +632,7 @@
             const lastHash = Store.get(lastKey, null);
 
             items.forEach(item_data => {
-                let html = Lampa.Template.get('torbox_item', {});
-                
-                LOG('Item template get result:');
-                LOG('- Type:', typeof html);
-                LOG('- Value:', html);
-                LOG('- Constructor:', html?.constructor?.name);
-                LOG('- Is jQuery:', !!(html && html.jquery));
-                
-                // Ensure html is a string, not a jQuery object
-                if (typeof html !== 'string') {
-                    if (html && html.jquery) {
-                        // It's a jQuery object, get the HTML
-                        html = html.prop('outerHTML') || html.html() || '';
-                        LOG('Converted jQuery object to HTML:', html);
-                    } else {
-                        html = html && html.toString ? html.toString() : String(html);
-                        LOG('Converted to string:', html);
-                    }
-                }
-                
-                // Validate template
-                if (!html || html === '[object Object]' || html.includes('[object Object]')) {
-                    LOG('Invalid template received for torbox_item:', html);
-                    html = '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>';
-                }
-                html = html.replace('##hash##', Utils.escapeHtml(item_data.hash));
-                html = html.replace('##cached_icon##', item_data.cached ? '⚡' : '☁️');
-                html = html.replace('##title##', Utils.escapeHtml(item_data.title));
-                html = html.replace('##info_formated##', item_data.info_formated);
-                html = html.replace('##meta_formated##', item_data.meta_formated);
-                html = html.replace('##tech_bar_html##', item_data.tech_bar_html || '');
-                
-                // Create jQuery element safely
-                let item;
-                try {
-                    item = $(html);
-                } catch (e) {
-                    LOG('Error creating jQuery element from item template:', e, 'HTML:', html);
-                    // Fallback to basic structure
-                    item = $('<div class="torbox-item selector"><div class="torbox-item__title">' + 
-                        Utils.escapeHtml(item_data.title) + '</div></div>');
-                    item.attr('data-hash', item_data.hash);
-                }
+                let item = Lampa.Template.get('torbox_item', item_data);
 
                 if (lastHash && item_data.hash === lastHash) {
                     item.addClass('torbox-item--last-played');
@@ -796,27 +711,15 @@
                     Lampa.Controller.collectionSet(filter.render(), scroll.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
-                up: () => {
-                    if (Lampa.Controller.enabled().name !== 'content') return;
-                    let focused = Lampa.Controller.focused();
-                    if (focused && focused.length) {
-                        let prev = focused.prev('.selector');
-                        if (prev.length) Lampa.Controller.focus(prev);
-                    }
-                },
-                down: () => {
-                    if (Lampa.Controller.enabled().name !== 'content') return;
-                    let focused = Lampa.Controller.focused();
-                    if (focused && focused.length) {
-                        let next = focused.next('.selector');
-                        if (next.length) Lampa.Controller.focus(next);
-                    }
-                },
+                up: () => Navigator.move('up'),
+                down: () => Navigator.move('down'),
                 left: () => {
-                    Lampa.Controller.toggle('menu');
+                    if (Navigator.canmove('left')) Navigator.move('left');
+                    else Lampa.Controller.toggle('menu');
                 },
                 right: () => {
-                    filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    if (Navigator.canmove('right')) Navigator.move('right');
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
                 back: this.back
             });
@@ -850,27 +753,8 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
-            LOG('Adding templates...');
-            LOG('Lampa.Template type:', typeof Lampa.Template);
-            LOG('Lampa.Template.add type:', typeof Lampa.Template.add);
-            
-            const itemTemplate = '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>';
-            const emptyTemplate = '<div class="empty"><div class="empty__text">##message##</div></div>';
-            
-            LOG('Registering torbox_item template:', itemTemplate);
-            Lampa.Template.add('torbox_item', itemTemplate);
-            
-            LOG('Registering torbox_empty template:', emptyTemplate);
-            Lampa.Template.add('torbox_empty', emptyTemplate);
-            
-            // Verify registration
-            setTimeout(() => {
-                LOG('Template verification:');
-                LOG('- torbox_item registered:', !!Lampa.Template.get('torbox_item'));
-                LOG('- torbox_empty registered:', !!Lampa.Template.get('torbox_empty'));
-                LOG('- torbox_item type:', typeof Lampa.Template.get('torbox_item'));
-                LOG('- torbox_empty type:', typeof Lampa.Template.get('torbox_empty'));
-            }, 100);
+            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{_if(tech_bar_html)}<div class="torbox-item__tech-bar">{tech_bar_html}</div>{_end}</div>');
+            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
         }
 
         const addSettings = () => {
@@ -903,6 +787,7 @@
                 if (!root?.length || root.find('.view--torbox').length) return;
                 const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
                 btn.on('hover:enter', () => {
+                    addTemplates(); // Добавляем шаблоны прямо перед запуском
                     Lampa.Activity.push({ component: 'torbox_component', title: 'TorBox - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie })
                 });
                 const torrentBtn = root.find('.view--torrent');
@@ -1029,7 +914,6 @@
             css.textContent = styles;
             document.head.appendChild(css);
 
-            addTemplates(); // Add templates during initialization
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
