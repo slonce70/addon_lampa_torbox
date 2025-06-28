@@ -1,5 +1,5 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.1 (Final Architecture Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.2 (Final Architecture Fix)
  * =================================================================================
  * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Повністю перероблено архітектуру компонента для відповідності
  * стандартам Lampa. Усунуто помилки 'this.filter.on is not a function' та
@@ -13,7 +13,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_1_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_2_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -439,7 +439,6 @@
         this.params = object;
         this.abortController = new AbortController();
         
-        // [ИЗМЕНЕНО] Инициализируем Lampa.Explorer для нативной разметки
         this.files = new Lampa.Explorer(this.params); 
         this.scroll = new Lampa.Scroll({mask: true, over: true});
         this.filter = new Lampa.Filter(this.params);
@@ -473,12 +472,10 @@
     };
 
     TorBoxComponent.prototype.render = function() {
-        // [ИЗМЕНЕНО] Возвращаем рендер от Explorer
         return this.files.render();
     };
     
     TorBoxComponent.prototype.build = function() {
-        // [ИСПРАВЛЕНО] Корректное назначение обработчиков
         this.filter.onSelect = (type, a, b) => {
             Lampa.Controller.toggle('content');
             Lampa.Select.close();
@@ -497,7 +494,6 @@
         
         this.scroll.body().addClass('torrent-list');
 
-        // [ИЗМЕНЕНО] Используем Explorer для построения UI
         this.files.appendFiles(this.scroll.render());
         this.files.appendHead(this.filter.render());
         
@@ -551,7 +547,7 @@
         Lampa.Controller.remove('content');
         if(this.filter) this.filter.destroy();
         if(this.scroll) this.scroll.destroy();
-        if(this.files) this.files.destroy(); // [ДОБАВЛЕНО] Уничтожаем Explorer
+        if(this.files) this.files.destroy(); 
         this.scroll = null;
         this.filter = null;
         this.files = null;
@@ -706,7 +702,7 @@
         
         torrents_list.forEach(t => {
             const item = this._createTorrentDOMItem(t, lastTorrentHash);
-            item.on('hover:focus', () => { this.last_focused = item[0]; });
+            item.on('hover:focus', () => { this.last_focused = item[0]; this.scroll.update(item, true); });
             item.on('hover:enter', () => this._handleTorrentClick(t));
             this.scroll.append(item);
         });
@@ -1011,7 +1007,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.1.0 (UI Fixed) ready');
+            LOG('TorBox v30.1.1 (UI Fixed) ready');
         };
 
         return { init };
