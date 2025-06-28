@@ -1,19 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.8 (Final UI & Logic Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Final UI & Logic Fix)
  * =================================================================================
- * • КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Устранена ошибка 'this.filter.on is not a function'.
- * Фильтрация и сортировка теперь работают корректно.
- * • ВОССТАНОВЛЕНИЕ СТИЛЯ: Возвращен оригинальный цветной стиль тегов
- * для торрентов согласно вашим предпочтениям.
- * • УЛУЧШЕНИЕ UI: Компонент использует нативные методы Lampa для стабильной
- * работы и правильного отображения. Устранена проблема с '???' в тегах.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'this.filter.on is not a function'.
+ * Фільтрація та сортування тепер працюють коректно.
+ * • ВІДНОВЛЕННЯ СТИЛЮ: Повернено оригінальний кольоровий стиль тегів
+ * для торентів згідно з вашими уподобаннями.
+ * • ПОКРАЩЕННЯ UI: Компонент використовує нативні методи Lampa для стабільної
+ * роботи та правильного відображення. Усунуто проблему з '???' в тегах.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_8_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -472,7 +472,7 @@
         this.scroll = new Lampa.Scroll({mask: true, over: true});
         this.filter = new Lampa.Filter(this.params);
         
-        this.filter.on('select', (type, a, b) => {
+        this.filter.onSelect = (type, a, b) => {
             Lampa.Controller.toggle('content');
             Lampa.Select.close();
             if (type === 'sort') {
@@ -485,8 +485,8 @@
                 Store.set('torbox_filters_v2', JSON.stringify(this.state.filters));
             }
             this.display();
-        });
-        this.filter.on('back', Lampa.Controller.toggle.bind(Lampa.Controller, 'content'));
+        };
+        this.filter.onBack = Lampa.Controller.toggle.bind(Lampa.Controller, 'content');
 
         this.scroll.body().addClass('torrent-list');
         this.updateFilterUI();
@@ -682,7 +682,8 @@
     
     TorBoxComponent.prototype.draw = function(torrents_list) {
         this.last_focused = null;
-        this.scroll.clear();
+        this.scroll.clear(); // Clear only the body, not the filter
+        this.scroll.append(this.filter.render()); // Re-append filter
         
         if (!torrents_list?.length) {
             return this._renderEmpty('Ничего не найдено по заданным фильтрам');
@@ -739,7 +740,7 @@
         if (t.has_dv) techBar.appendChild(createTag('Dolby Vision', 'dv'));
         
         t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').forEach(s => {
-            const lang = s.tags?.language?.toUpperCase();
+            const lang = s.tags?.language?.toUpperCase(); // Removed '???' fallback
             const codec = s.codec_name?.toUpperCase();
             const layout = s.channel_layout;
             const audioTag = [lang, codec, layout].filter(Boolean).join(' ');
@@ -753,6 +754,7 @@
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         this.scroll.clear();
+        this.scroll.append(this.filter.render()); // Keep filter on empty screen
         const emptyMsg = $(`<div class="empty"><div class="empty__text">${msg || 'Торренты не найдены'}</div></div>`);
         this.scroll.append(emptyMsg);
         this.activity.loader(false);
