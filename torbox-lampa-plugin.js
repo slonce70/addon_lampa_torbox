@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.3.0 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.3.1 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -164,32 +164,52 @@
     const Api = (() => {
         const MAIN = 'https://api.torbox.app/v1/api';
 
+        // [РЕФАКТОРИНГ] Улучшена обработка ошибок для большей информативности.
         const _process = (txt, status) => {
-            if (status === 401) throw { type: 'auth', message: '401 – проверьте API-ключ' };
-            if (status >= 400) throw { type: 'network', message: `HTTP ${status}` };
-            if (!txt) throw { type: 'api', message: 'Пустой ответ' };
+            if (status === 401) throw { type: 'auth', message: '401 – неверный API-ключ' };
+            if (status === 403) throw { type: 'auth', message: '403 – доступ запрещен, проверьте права ключа' };
+            if (status === 429) throw { type: 'network', message: '429 – слишком много запросов, попробуйте позже' };
+            if (status >= 500) throw { type: 'network', message: `Ошибка сервера TorBox (${status})` };
+            if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status})` };
+            if (!txt) throw { type: 'api', message: 'Пустой ответ от сервера' };
             try {
                 if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
                 const j = typeof txt === 'object' ? txt : JSON.parse(txt);
-                if (j?.success === false) throw { type: 'api', message: j.detail || j.message || 'API error' };
+                if (j?.success === false) {
+                     const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
+                     throw { type: 'api', message: errorMsg };
+                }
                 return j;
-            } catch {
-                throw { type: 'api', message: 'Некорректный JSON' };
+            } catch (e) {
+                if (e.type) throw e; // Пробрасываем уже обработанную ошибку API
+                throw { type: 'api', message: 'Некорректный JSON в ответе' };
             }
         };
 
+        // [РЕФАКТОРИНГ] Добавлен автоматический таймаут для всех запросов.
         const request = async (url, opt = {}, signal) => {
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
+
+            const controller = new AbortController();
+            const timeout = 20000; // 20 секунд
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            if (signal) signal.addEventListener('abort', () => controller.abort());
+
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             opt.headers = opt.headers || {};
             if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
             delete opt.headers['Authorization'];
             try {
-                const res = await fetch(proxy, { ...opt, signal });
+                const res = await fetch(proxy, { ...opt, signal: controller.signal });
                 return _process(await res.text(), res.status);
             } catch (e) {
-                if (e.name === 'AbortError' || e.type) throw e;
+                if (e.name === 'AbortError') {
+                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${timeout / 1000} сек)` };
+                    throw e; // Отмена пользователем
+                }
                 throw { type: 'network', message: e.message };
+            } finally {
+                clearTimeout(timeoutId);
             }
         };
 
