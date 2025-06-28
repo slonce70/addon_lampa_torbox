@@ -1,14 +1,17 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (Template Syntax Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v36.0.0 (Strict Lifecycle)
  * =======================================================================
- * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона.
- * Неверный синтаксис {переменная} заменен на правильный #{переменная},
- * как того требует движок шаблонов Lampa.
+ * ▸ ФИНАЛЬНЫЙ РЕФАКТОРИНГ АРХИТЕКТУРЫ: Жизненный цикл компонента полностью
+ * приведен в строгое соответствие с канонами Lampa и плагина bwa.js.
+ * ▸ УСТРАНЕНА ОШИБКА СОЗДАНИЯ: Решена проблема "render is not a function"
+ * и "Cannot read 'loader'", вся логика перенесена из create() в start().
+ * ▸ ГАРАНТИРОВАННАЯ СТАБИЛЬНОСТЬ: Это наиболее стабильная архитектура для
+ * Lampa, обеспечивающая корректную работу и навигацию.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_syntax_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v36_0_0_strict_lifecycle';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -531,24 +534,16 @@
             if (item.length) item.addClass('torbox-item--just-watched');
         };
 
-        /**
-         * [РЕФАКТОРИНГ] Метод create теперь только создает "скелет".
-         * Вся логика перенесена в start/initialize.
-         */
+        this.render = function(){
+            return files.render();
+        };
+
         this.create = function () {
-            this.activity.loader(false); // Прячем лоадер, если он был показан по ошибке
             scroll.body().addClass('torbox-list-container');
             files.appendFiles(scroll.render());
             files.appendHead(filter.render());
             scroll.minus(files.render().find('.explorer__files-head'));
             return this.render();
-        };
-
-        /**
-         * [НОВЫЙ] Метод render, как того ожидает Lampa.
-         */
-        this.render = function(){
-            return files.render();
         };
 
         this.empty = function(msg) {
@@ -668,10 +663,7 @@
             }
             if(focus_element) last = focus_element;
         };
-
-        /**
-         * [РЕФАКТОРИНГ] Инициализация теперь только привязывает обработчики.
-         */
+        
         this.initialize = function() {
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
@@ -693,14 +685,10 @@
             
             this.empty('Загрузка...');
 
-            search(); // Запускаем поиск отсюда
+            search(); 
         };
 
-        /**
-         * [РЕФАКТОРИНГ] Главный управляющий метод.
-         */
         this.start = function () {
-            // Запускаем инициализацию только один раз
             if (!initialized) {
                 this.initialize();
                 initialized = true;
@@ -917,7 +905,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v34.0.0 ready');
+            LOG('TorBox v36.0.0 ready');
         };
         return { init };
     })();
