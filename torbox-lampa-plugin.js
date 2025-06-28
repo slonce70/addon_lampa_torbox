@@ -1,14 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.4 (Audio Tag Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.5 (API Response Fix)
  * =======================================================================
- * ▸ Виправлено відображення аудіо-тегів: замість "???" тепер використовується
- * інформація про тип перекладу, якщо тег мови відсутній.
- * ▸ Збережено виправлення для відображення списку у вигляді сітки.
+ * ▸ Виправлено критичну помилку 'TypeError: is not iterable' під час відстеження
+ * статусу торрента. Проблема виникала через те, що API іноді повертало
+ * об'єкт замість масиву.
+ * ▸ Покращено надійність функції відстеження.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_4_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_5_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -676,7 +677,19 @@
             const poll = async () => {
                 if (!active) return;
                 try {
-                    const { data: [d] } = await Api.myList(id, this.abortController.signal);
+                    const torrentResult = await Api.myList(id, this.abortController.signal);
+                    
+                    // FIX: Handle cases where API returns a single object instead of an array.
+                    const torrentList = Array.isArray(torrentResult.data) ? torrentResult.data : [torrentResult.data];
+                    const d = torrentList[0];
+
+                    if (!d) {
+                        // This can happen if the torrent is not yet in the list. We wait and retry.
+                        LOG(`Торрент ${id} ще не з'явився у списку, повторна спроба...`);
+                        if (active) setTimeout(poll, 5000); // Check 'active' again before setting timeout
+                        return;
+                    }
+                    
                     const st = d.download_state || d.status;
                     const prog = parseFloat(d.progress);
                     const perc = isNaN(prog) ? 0 : (prog > 1 ? prog : prog * 100);
@@ -693,8 +706,14 @@
                         if (st.startsWith('uploading')) try { await Api.stopTorrent(d.id, this.abortController.signal); } catch (e) { LOG('stop err', e.message); }
                         return ok(d);
                     }
-                    setTimeout(poll, 5000);
-                } catch (e) { active = false; fail(e); }
+                    if (active) setTimeout(poll, 5000);
+                } catch (e) { 
+                    if (e.name !== 'AbortError') {
+                        LOG('Polling error:', e);
+                        active = false; 
+                        fail(e);
+                    }
+                }
             };
             const cancel = () => { if (active) { active = false; fail({ type: 'user', message: 'Скасовано користувачем' }); } };
             UI.showStatus('Відстеження статусу…', cancel);
