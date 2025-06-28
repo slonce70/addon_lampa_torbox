@@ -1,16 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.9 (Final UI & Player Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.2 (Grid Layout Fixed)
  * =======================================================================
- * ▸ ВИПРАВЛЕНО ЗАВИСАННЯ: Реалізовано механізм, що відновлює керування
- * після повернення із зовнішнього плеєра.
- * ▸ ВИПРАВЛЕНО СТАТУС-БАР: Усунуто помилку "NaN" та повернено коректну
- * анімацію і колір смуги завантаження.
- * ▸ Загальна стабілізація та фіналізація коду.
+ * ▸ Виправлено відображення списку: тепер елементи розташовуються у вигляді сітки.
+ * ▸ Застосовано обгортку для grid-контейнера, щоб уникнути конфліктів з Lampa.Scroll.
+ * ▸ Проведено рефакторинг коду та CSS для кращої читабельності.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_9_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -23,7 +21,7 @@
         },
         formatBytes(bytes = 0, speed = false) {
             const B = Number(bytes);
-            if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
+            if (!B) return speed ? '0 KB/s' : '0 B';
             const k = 1024;
             const sizes = speed
                 ? ['B/s', 'KB/s', 'MB/s', 'GB/s']
