@@ -1,8 +1,8 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.9 (Final UI & Logic Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.0 (Final UI & Logic Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилку 'this.filter.on is not a function'.
- * Фільтрація та сортування тепер працюють коректно.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки 'this.filter.on is not a function' та 
+ * 'component.render is not a function'. Фільтрація та сортування тепер працюють коректно.
  * • ВІДНОВЛЕННЯ СТИЛЮ: Повернено оригінальний кольоровий стиль тегів
  * для торентів згідно з вашими уподобаннями.
  * • ПОКРАЩЕННЯ UI: Компонент використовує нативні методи Lampa для стабільної
@@ -13,7 +13,7 @@
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_9_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_0_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -465,6 +465,10 @@
         this.activity.loader(true);
         this.build();
         this.loadAndDisplayTorrents(); 
+        return this.render();
+    };
+
+    TorBoxComponent.prototype.render = function() {
         return this.scroll.render();
     };
     
