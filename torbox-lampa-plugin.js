@@ -1,15 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v31.0.0 (Final Stability Release)
+/* TorBox Enhanced – Universal Lampa Plugin  v31.1.0 (Final Focus & Navigation Fix)
  * =======================================================================
- * ▸ ПОЛНОСТЬЮ ПЕРЕРАБОТАНА НАВИГАЦИЯ для соответствия стандартам Lampa.
- * ▸ ИСПРАВЛЕНА критическая ошибка, приводившая к неработоспособности пульта и падению приложения.
- * ▸ Восстановлена корректная и стабильная работа возврата к списку серий.
- * ▸ Сохранена логика, предотвращающая сброс прокрутки списка после просмотра.
+ * ▸ ИСПРАВЛЕНА критическая ошибка с фокусом при первой загрузке списка (список сразу активен).
+ * ▸ ВОССТАНОВЛЕНА полная работоспособность кнопок "Фильтр" и "Сортировка".
+ * ▸ ИСПРАВЛЕНО падение приложения при навигации вверх.
+ * ▸ Сохранены все предыдущие исправления (возврат к списку серий, сохранение прокрутки).
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v31_0_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v31_1_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -354,7 +354,6 @@
                 Lampa.Controller.collectionSet(this.state.scroll.render());
                 Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render());
             },
-            // [ИСПРАВЛЕНО] Используем безопасную проверку Navigator.canmove
             up: () => {
                 if (Navigator.canmove('up')) Navigator.move('up');
                 else Lampa.Controller.toggle('head');
@@ -367,7 +366,8 @@
                 else Lampa.Controller.toggle('menu');
             },
             right: () => {
-                if (Navigator.canmove('right')) Navigator.move('right');
+                // [ИСПРАВЛЕНО] Стандартное поведение - при нажатии вправо открывается фильтр
+                if (this.state.filter) this.state.filter.show('filter');
             },
             back: () => {
                 if ($('body').find('.select').length) return Lampa.Select.close();
@@ -573,7 +573,7 @@
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
         const scroll_body = this.state.scroll.body();
-        const current_scroll_top = scroll_body.scrollTop(); // Сохраняем текущую прокрутку
+        const current_scroll_top = scroll_body.scrollTop(); 
 
         scroll_body.empty();
     
@@ -594,7 +594,6 @@
         
         scroll_body.append(frag);
 
-        // Восстанавливаем прокрутку после отрисовки
         scroll_body.scrollTop(current_scroll_top);
     
         const first_item = scroll_body.find('.selector').first()[0];
@@ -610,8 +609,11 @@
         this._renderEmpty('Загрузка...');
         try {
             const key = `torbox_hybrid_${this.movie.id || this.movie.imdb_id}`;
+            let from_cache = false;
             if (!force && Cache.get(key)) {
                 this.state.all_torrents = Cache.get(key);
+                from_cache = true;
+                LOG('Loaded torrents from cache.');
             } else {
                 this._renderEmpty('Получение списка…');
                 const raw = await Api.searchPublicTrackers(this.movie, this.abortController.signal);
@@ -628,6 +630,11 @@
                 Cache.set(key, this.state.all_torrents);
             }
             this._display();
+            
+            // [ИСПРАВЛЕНО] Передаем фокус только после полной отрисовки
+            Lampa.Controller.toggle('content');
+            LOG(`Display complete. Toggled content. From cache: ${from_cache}`);
+
         } catch (e) {
             this._renderEmpty(e.message || 'Ошибка');
             ErrorHandler.show(e.type || 'unknown', e);
@@ -674,7 +681,6 @@
         if (!this.state.scroll) return;
         const item = this.state.scroll.body().find(`[data-hash="${hash}"]`);
         if (item.length) {
-            // Удаляем старые классы и добавляем новый, чтобы он был единственным
             this.state.scroll.body().find('.torbox-item--just-watched').removeClass('torbox-item--just-watched');
             item.addClass('torbox-item--just-watched');
             LOG('Marked item as played:', hash);
@@ -1005,7 +1011,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v31.0.0 ready');
+            LOG('TorBox v31.1.0 ready');
         };
         return { init };
     })();
