@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v33.0.0 (BWA Architecture)
+/* TorBox Enhanced – Universal Lampa Plugin  v34.0.0 (Final Architecture)
  * =======================================================================
  * ▸ ГЛОБАЛЬНЫЙ РЕФАКТОРИНГ: Пользовательский интерфейс и навигация полностью
  * перестроены по архитектуре плагина bwa.js для максимальной стабильности.
@@ -13,7 +13,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v33_0_0_bwa_arch';
+    const PLUGIN_ID = 'torbox_enhanced_v34_0_0_final_arch';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -309,9 +309,8 @@
         let scroll = new Lampa.Scroll({mask: true, over: true});
         let files = new Lampa.Explorer(object);
         let filter = new Lampa.Filter(object);
-        let list = [];
         let last;
-        let last_filter;
+        let initialized = false;
         let abort = new AbortController();
 
         this.activity = object.activity;
@@ -363,8 +362,7 @@
                 voices: raw.info?.voices,
                 ...tech_info,
                 raw_data: raw,
-                // Поля для шаблона
-                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢 <span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴 <span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
+                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
                 meta_formated: `Трекеры: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
                 tech_bar_html: this.buildTechBar(tech_info, raw)
             };
@@ -402,6 +400,9 @@
 
         // Логика поиска
         const search = (force = false) => {
+            abort.abort(); // Прерываем предыдущие запросы
+            abort = new AbortController();
+
             this.activity.loader(true);
             this.reset();
             
@@ -411,11 +412,10 @@
                 LOG('Loaded torrents from cache.');
                 this.build();
                 this.activity.loader(false);
-                Lampa.Controller.toggle('content');
                 return;
             }
 
-            network.clear(); // Используем network из конструктора
+            network.clear(); 
             this.empty('Получение списка…');
 
             Api.searchPublicTrackers(object.movie, abort.signal)
@@ -437,13 +437,13 @@
                     state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
                     Cache.set(key, state.all_torrents);
                     this.build();
-                    this.activity.loader(false);
-                    Lampa.Controller.toggle('content');
                 })
                 .catch(err => {
                     if (abort.signal.aborted) return;
                     this.empty(err.message || 'Ошибка');
                     ErrorHandler.show(err.type || 'unknown', err);
+                })
+                .finally(() => {
                     this.activity.loader(false);
                 });
         };
@@ -508,6 +508,7 @@
             try {
                 const link = (await Api.requestDl(torrent_data.id, file.id, abort.signal)).url;
                 const mid = object.movie.imdb_id || object.movie.id;
+                state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
@@ -537,27 +538,22 @@
 
         // Основные методы компонента, как в bwa.js
         this.create = function () {
-            this.activity.loader(true);
-            search();
+            scroll.body().addClass('torbox-list-container');
+            files.appendFiles(scroll.render());
+            files.appendHead(filter.render());
+            scroll.minus(files.render().find('.explorer__files-head'));
             return files.render();
         };
 
         this.empty = function(msg) {
-            const empty_msg = Lampa.Template.get('torbox_empty', {
-                message: msg || 'Торренты не найдены'
-            });
             scroll.clear();
-            scroll.append(empty_msg);
-            this.activity.loader(false);
+            scroll.append(Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' }));
         };
         
         this.reset = function() {
             last = false;
-            abort.abort();
-            abort = new AbortController();
             scroll.clear();
             scroll.reset();
-            this.empty('Загрузка...');
         };
 
         this.build = function() {
@@ -668,11 +664,6 @@
         };
 
         this.initialize = function() {
-            scroll.body().addClass('torbox-list-container');
-            files.appendFiles(scroll.render());
-            files.appendHead(filter.render());
-            scroll.minus(files.render().find('.explorer__files-head'));
-
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
                 if (type === 'sort') {
@@ -690,11 +681,17 @@
             filter.onBack = () => Lampa.Controller.toggle('content');
 
             if (filter.addButtonBack) filter.addButtonBack();
-
-            this.create();
+            
+            this.empty('Загрузка...');
         };
 
         this.start = function () {
+            if (!initialized) {
+                this.initialize();
+                search();
+                initialized = true;
+            }
+            
             Lampa.Controller.add('content', {
                 toggle: () => {
                     Lampa.Controller.collectionSet(filter.render(), scroll.render());
@@ -735,8 +732,6 @@
             scroll.destroy();
             filter.destroy();
         };
-
-        this.initialize();
     }
 
 
@@ -753,11 +748,6 @@
                     {_if(tech_bar_html)}
                         <div class="torbox-item__tech-bar">{tech_bar_html}</div>
                     {_end}
-                </div>
-            `);
-            Lampa.Template.add('torbox_loading', `
-                <div class="empty">
-                    <div class="broadcast__scan"><div></div></div>
                 </div>
             `);
             Lampa.Template.add('torbox_empty', `
