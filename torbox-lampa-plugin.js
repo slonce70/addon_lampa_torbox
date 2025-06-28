@@ -1,15 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.5 (API Response Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.6 (Status Modal Fix)
  * =======================================================================
- * ▸ Виправлено критичну помилку 'TypeError: is not iterable' під час відстеження
- * статусу торрента. Проблема виникала через те, що API іноді повертало
- * об'єкт замість масиву.
+ * ▸ Виправлено вікно статусу завантаження: додано переклад статусів,
+ * вирішено проблему з NaN, повернено анімацію прогрес-бару.
  * ▸ Покращено надійність функції відстеження.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_5_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_6_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -683,27 +682,49 @@
                     const torrentList = Array.isArray(torrentResult.data) ? torrentResult.data : [torrentResult.data];
                     const d = torrentList[0];
 
-                    if (!d) {
+                    if (!d || typeof d !== 'object') {
                         // This can happen if the torrent is not yet in the list. We wait and retry.
-                        LOG(`Торрент ${id} ще не з'явився у списку, повторна спроба...`);
-                        if (active) setTimeout(poll, 5000); // Check 'active' again before setting timeout
+                        LOG(`Торрент ${id} ще не з'явився у списку або має невірний формат, повторна спроба...`);
+                        if (active) setTimeout(poll, 5000);
                         return;
                     }
                     
-                    const st = d.download_state || d.status;
+                    const statusMap = {
+                        'queued': 'В черзі',
+                        'downloading': 'Завантаження',
+                        'uploading': 'Роздача',
+                        'completed': 'Завершено',
+                        'stalled': 'Зупинено',
+                        'error': 'Помилка',
+                        'metadl': 'Отримання метаданих',
+                        'paused': 'На паузі',
+                        'failed': 'Помилка завантаження',
+                        'checking': 'Перевірка'
+                    };
+                    const apiStatus = (d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0];
+                    const statusText = statusMap[apiStatus] || (d.download_state || d.status);
+    
                     const prog = parseFloat(d.progress);
                     const perc = isNaN(prog) ? 0 : (prog > 1 ? prog : prog * 100);
+                    
                     UI.updateStatusModal({
-                        status: st,
+                        status: statusText,
                         progress: perc,
                         progressText: `${perc.toFixed(2)}% з ${Utils.formatBytes(d.size)}`,
                         speed: `Швидкість: ${Utils.formatBytes(d.download_speed, true)}`,
                         eta: `Залишилось: ${Utils.formatTime(d.eta)}`,
                         peers: `Сіди: ${d.seeds || 0} / Піри: ${d.peers || 0}`
                     });
-                    if ((st === 'completed' || d.download_finished || perc >= 100) && d.files?.length) {
+
+                    const isDownloadFinished = apiStatus === 'completed' || d.download_finished || perc >= 100;
+                    const filesAreReady = d.files && d.files.length > 0;
+
+                    if (isDownloadFinished && filesAreReady) {
                         active = false;
-                        if (st.startsWith('uploading')) try { await Api.stopTorrent(d.id, this.abortController.signal); } catch (e) { LOG('stop err', e.message); }
+                        if (apiStatus === 'uploading') {
+                            UI.updateStatusModal({ status: 'Завантаження завершено. Зупинка роздачі...', progress: 100 });
+                            try { await Api.stopTorrent(d.id, this.abortController.signal); } catch (e) { LOG('Не вдалося зупинити роздачу:', e.message); }
+                        }
                         return ok(d);
                     }
                     if (active) setTimeout(poll, 5000);
@@ -881,7 +902,25 @@
                 .torbox-status__title { font-size: 1.4em; margin-bottom: 1em; font-weight: 600; }
                 .torbox-status__info { font-size: 1.1em; margin-bottom: .8em; }
                 .torbox-status__progress-container { margin: 1.5em 0; background: rgba(255, 255, 255, .1); border-radius: 8px; overflow: hidden; height: 12px; position: relative; }
-                .torbox-status__progress-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #4CAF50)); transition: width .5s; border-radius: 8px; }
+                .torbox-status__progress-bar { 
+                    height: 100%; 
+                    width: 0; 
+                    background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #4CAF50)); 
+                    transition: width .5s; 
+                    border-radius: 8px; 
+                    position: relative;
+                }
+                .torbox-status__progress-bar::after {
+                    content: '';
+                    position: absolute;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%);
+                    animation: torbox_shimmer 2s infinite;
+                }
+                @keyframes torbox_shimmer {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
             `;
             css.textContent = styles;
             document.head.appendChild(css);
