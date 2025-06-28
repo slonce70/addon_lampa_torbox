@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.3 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.5 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -558,6 +558,13 @@
             if (typeof html !== 'string') {
                 html = html.toString ? html.toString() : String(html);
             }
+            
+            // Validate template
+            if (!html || html === '[object Object]' || html.includes('[object Object]')) {
+                LOG('Invalid template received for torbox_empty:', html);
+                html = '<div class="empty"><div class="empty__text">##message##</div></div>';
+            }
+            
             html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
             // Create jQuery element safely
             let element;
@@ -650,6 +657,12 @@
                 // Ensure html is a string, not a jQuery object
                 if (typeof html !== 'string') {
                     html = html.toString ? html.toString() : String(html);
+                }
+                
+                // Validate template
+                if (!html || html === '[object Object]' || html.includes('[object Object]')) {
+                    LOG('Invalid template received for torbox_item:', html);
+                    html = '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>';
                 }
                 html = html.replace('##hash##', Utils.escapeHtml(item_data.hash));
                 html = html.replace('##cached_icon##', item_data.cached ? '⚡' : '☁️');
