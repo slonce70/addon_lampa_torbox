@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.2 (Grid Layout Fixed)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.3 (Grid & Focus Fix)
  * =======================================================================
- * ▸ Виправлено відображення списку: тепер елементи розташовуються у вигляді сітки.
- * ▸ Застосовано обгортку для grid-контейнера, щоб уникнути конфліктів з Lampa.Scroll.
- * ▸ Проведено рефакторинг коду та CSS для кращої читабельності.
+ * ▸ Виправлено відображення списку: тепер елементи гарантовано розташовуються у вигляді сітки.
+ * ▸ Вирішено проблему з "затуханням" першого елемента шляхом коректної початкової фокусації.
+ * ▸ Оптимізовано CSS та логіку ініціалізації компонента.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_3_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -384,8 +384,9 @@
         this._initFilterHandlers();
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
         
-        // Додаємо клас до тіла скролу, щоб мати контейнер для загальних стилів (напр. padding)
-        this.state.scroll.body().addClass('torbox-list-container');
+        // Робимо сам елемент .scroll__body грідом
+        this.state.scroll.body().addClass('torbox-grid-container'); 
+        
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
         this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
@@ -393,6 +394,7 @@
         this._loadAndDisplay();
         this.state.initialized = true;
     };
+
 
     // ──── filter handlers ────
     TorBoxComponent.prototype._initFilterHandlers = function () {
@@ -476,7 +478,7 @@
 
     // ──── rendering helpers ────
     TorBoxComponent.prototype._renderEmpty = function (msg) {
-        const scroll_body = this.state.scroll.render();
+        const scroll_body = this.state.scroll.body();
         scroll_body.empty();
         const empty_msg_element = $('<div class="empty"><div class="empty__text"></div></div>');
         empty_msg_element.find('.empty__text').text(msg || 'Торренти не знайдені');
@@ -528,27 +530,31 @@
     // ──── draw list ────
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
-        const scroll_body = this.state.scroll.render(); // Це .scroll__body
+        const scroll_body = this.state.scroll.body(); // Отримуємо .scroll__body
         scroll_body.empty();
-
+    
         if (!list.length) {
             return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
         }
         
-        // Створюємо спеціальний контейнер для сітки
-        const grid_container = $('<div class="torbox-grid-container"></div>');
-
         const lastKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
         const lastHash = Store.get(lastKey, null);
         
+        const frag = document.createDocumentFragment();
         list.forEach(t => {
             const item_element = this._createItem(t, lastHash);
             $(item_element).on('hover:focus', () => { this.state.last = item_element; this.state.scroll.update($(item_element), true); });
             $(item_element).on('hover:enter', () => this._onTorrentClick(t));
-            grid_container.append(item_element); // Додаємо елементи до нашого контейнера сітки
+            frag.appendChild(item_element);
         });
         
-        scroll_body.append(grid_container); // Додаємо контейнер сітки до тіла скролу
+        scroll_body.append(frag); // Додаємо елементи напряму до .scroll__body (який є grid-контейнером)
+    
+        // Встановлюємо перший елемент як елемент для фокусу
+        const first_item = scroll_body.find('.selector').first()[0];
+        if (first_item) {
+            this.state.last = first_item;
+        }
     };
 
 
@@ -740,28 +746,25 @@
             css.id = 'torbox-enhanced-styles';
             // CSS винесено у змінну для кращої читабельності
             const styles = `
-                /* --- Контейнер для списку з відступами --- */
-                .torbox-list-container {
-                    padding: 1em;
-                }
-                
                 /* --- Контейнер-сітка для елементів --- */
                 .torbox-grid-container {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
                     gap: 1em; /* Відстань між елементами сітки */
+                    padding: 1em;
                 }
 
                 /* --- Елемент списку торрентів --- */
                 .torbox-item {
                     padding: 1em 1.2em;
-                    margin: 0; /* 'margin' тепер не потрібен, використовуємо 'gap' */
+                    margin: 0; 
                     border-radius: .8em;
                     background: var(--color-background-light);
                     cursor: pointer;
                     transition: all .3s;
                     border: 2px solid transparent;
                     overflow: hidden;
+                    opacity: 1;
                 }
                 .torbox-item--last-played {
                     border-left: 4px solid var(--color-second);
@@ -774,6 +777,7 @@
                     transform: translateX(.5em) scale(1.02);
                     border-color: rgba(255, 255, 255, .3);
                     box-shadow: 0 4px 20px rgba(0, 0, 0, .2);
+                    opacity: 1;
                 }
                 .torbox-item:hover .torbox-item__tech-bar,
                 .torbox-item.focus .torbox-item__tech-bar {
@@ -857,3 +861,8 @@
         }
     })();
 })();
+" with my selected code, then respond to my query below:
+The problem is that the list is displayed incorrectly and the first file is out of focus, as if fading. It seems that the problem is not only in the styles, but also in the logic of the plugin. Also, the list is displayed in one column, but I would like it to be in several columns. Also the elements are not centered on the screen and are too close to each other. The elements should be centered and have a margin between them. Please fix the plugin code so that the list is displayed correctly, the elements are centered and have a margin between them. also fix the problem with the focus of the first element. The elements should be displayed in several columns, not in one.
+The first item is out of focus as if it is fading.
+The elements are not centered and are too close to each other.
+Please fix the plugin code so that the list is displayed correct
