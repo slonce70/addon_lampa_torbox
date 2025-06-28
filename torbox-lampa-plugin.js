@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.4.0 (Series UX Improvement)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.5.0 (List View Restoration)
  * =======================================================================
- * ▸ Улучшен пользовательский опыт при просмотре сериалов.
- * ▸ После просмотра серии пользователь возвращается к списку серий того же торрента, а не к общему списку торрентов.
- * ▸ Рефакторинг функций _play и _selectFile для сохранения контекста.
+ * ▸ Восстановлено классическое отображение торрентов в виде списка (один элемент на строку).
+ * ▸ Изменены CSS-стили для контейнера с `display: grid` на `display: block`.
+ * ▸ Скорректированы отступы и анимация для нового вида.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_4_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_5_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -889,18 +889,16 @@
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
-                /* --- Контейнер-сетка для элементов --- */
+                /* --- [ИЗМЕНЕНО] Контейнер для списка --- */
                 .torbox-list-container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-                    gap: 1em; /* Расстояние между элементами сетки */
+                    display: block; /* Отображение в виде списка, а не сетки */
                     padding: 1em;
                 }
 
                 /* --- Элемент списка торрентов --- */
                 .torbox-item {
                     padding: 1em 1.2em;
-                    margin: 0; 
+                    margin: 0 0 1em 0; /* Отступ снизу для разделения */
                     border-radius: .8em;
                     background: var(--color-background-light);
                     cursor: pointer;
@@ -908,6 +906,9 @@
                     border: 2px solid transparent;
                     overflow: hidden;
                     opacity: 1;
+                }
+                .torbox-item:last-child {
+                    margin-bottom: 0;
                 }
                 .torbox-item--last-played {
                     border-left: 4px solid var(--color-second);
@@ -917,7 +918,7 @@
                 .torbox-item.focus {
                     background: var(--color-primary);
                     color: var(--color-background);
-                    transform: translateX(.5em) scale(1.02);
+                    transform: scale(1.01); /* Изменена анимация для вида списка */
                     border-color: rgba(255, 255, 255, .3);
                     box-shadow: 0 4px 20px rgba(0, 0, 0, .2);
                     opacity: 1;
@@ -1004,7 +1005,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.4.0 ready');
+            LOG('TorBox v30.5.0 ready');
         };
         return { init };
     })();
