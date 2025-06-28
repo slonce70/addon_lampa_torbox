@@ -1,5 +1,6 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.0 (Layout Fixed & Refactored)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.1 (Boot Error Fixed)
  * =======================================================================
+ * ▸ Виправлено помилку ініціалізації, пов'язану з доступом до конфігурації
  * ▸ Застосовано виправлення для відображення списку у вигляді сітки (Grid)
  * ▸ Покращено читабельність CSS та коду загалом
  * ▸ Збережено всю попередню логіку плагіна
@@ -8,7 +9,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_1_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -156,7 +157,7 @@
             { name: 'Jacred', url: 'jacred.xyz', key: '' }
         ];
         const ICON = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
-        return { CFG, LOG, PUBLIC_PARSERS, ICON };
+        return { CFG, LOG, PUBLIC_PARSERS, ICON, DEF };
     })();
     const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
 
@@ -825,7 +826,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v30.2.0 ready');
+            LOG('TorBox v30.2.1 ready');
         };
         return { init };
     })();
