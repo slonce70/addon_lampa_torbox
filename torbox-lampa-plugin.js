@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.2 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.3 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -357,7 +357,7 @@
                 voices: raw.info?.voices,
                 ...tech_info,
                 raw_data: raw,
-                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
+                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style='color:var(--color-good);'>${raw.Seeders || 0}</span> / 🔴<span style='color:var(--color-bad);'>${raw.Peers || 0}</span>`,
                 meta_formated: `Трекеры: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
                 tech_bar_html: this.buildTechBar(tech_info, raw)
             };
@@ -559,7 +559,15 @@
                 html = html.toString ? html.toString() : String(html);
             }
             html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
-            scroll.append($(html));
+            // Create jQuery element safely
+            let element;
+            try {
+                element = $(html);
+            } catch (e) {
+                LOG('Error creating jQuery element from template:', e, 'HTML:', html);
+                element = $('<div class="empty"><div class="empty__text">' + Utils.escapeHtml(msg || 'Торренты не найдены') + '</div></div>');
+            }
+            scroll.append(element);
         };
         
         this.reset = function() {
@@ -649,7 +657,18 @@
                 html = html.replace('##info_formated##', item_data.info_formated);
                 html = html.replace('##meta_formated##', item_data.meta_formated);
                 html = html.replace('##tech_bar_html##', item_data.tech_bar_html || '');
-                let item = $(html);
+                
+                // Create jQuery element safely
+                let item;
+                try {
+                    item = $(html);
+                } catch (e) {
+                    LOG('Error creating jQuery element from item template:', e, 'HTML:', html);
+                    // Fallback to basic structure
+                    item = $('<div class="torbox-item selector"><div class="torbox-item__title">' + 
+                        Utils.escapeHtml(item_data.title) + '</div></div>');
+                    item.attr('data-hash', item_data.hash);
+                }
 
                 if (lastHash && item_data.hash === lastHash) {
                     item.addClass('torbox-item--last-played');
