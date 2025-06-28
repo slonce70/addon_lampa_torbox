@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.7 (Progress Bar Style Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.8 (UI & Logic Finalization)
  * =======================================================================
- * ▸ Повернено коректні стилі для прогрес-бару у вікні статусу.
- * ▸ Тепер смуга завантаження знову заповнюється зеленим кольором та має
- * коректну анімацію.
+ * ▸ Повністю локалізовано вікно статусу завантаження.
+ * ▸ Виправлено відображення прогрес-бару: повернено коректний колір та анімацію.
+ * ▸ Видалено непотрібний API-запит на зупинку торрента після завантаження.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_7_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_8_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -697,7 +697,8 @@
                         'metadl': 'Отримання метаданих',
                         'paused': 'На паузі',
                         'failed': 'Помилка завантаження',
-                        'checking': 'Перевірка'
+                        'checking': 'Перевірка',
+                        'processing': 'Обробка'
                     };
                     const apiStatus = (d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0];
                     const statusText = statusMap[apiStatus] || (d.download_state || d.status);
@@ -719,10 +720,7 @@
 
                     if (isDownloadFinished && filesAreReady) {
                         active = false;
-                        if (apiStatus === 'uploading') {
-                            UI.updateStatusModal({ status: 'Завантаження завершено. Зупинка роздачі...', progress: 100 });
-                            try { await Api.stopTorrent(d.id, this.abortController.signal); } catch (e) { LOG('Не вдалося зупинити роздачу:', e.message); }
-                        }
+                        // Запит на зупинку видалено згідно з побажанням
                         return ok(d);
                     }
                     if (active) setTimeout(poll, 5000);
@@ -951,4 +949,3 @@
         }
     })();
 })();
-
