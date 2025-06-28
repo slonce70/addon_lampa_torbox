@@ -543,16 +543,26 @@
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
-                Lampa.Player.listener.follow('complite', () => {
-                    Lampa.Player.listener.remove('complite');
-                    // Если видеофайлов было больше одного, снова открываем выбор
+
+                const onComplete = () => {
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
                     if (all_video_files.length > 1) {
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
                         Lampa.Controller.toggle('content');
                     }
-                });
+                };
+
+                const onBack = () => {
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
+                    Lampa.Controller.toggle('content');
+                };
+
+                Lampa.Player.listener.follow('complite', onComplete);
+                Lampa.Player.listener.follow('back', onBack);
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
