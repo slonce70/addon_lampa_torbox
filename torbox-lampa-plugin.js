@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.6.0 (Proper Navigation & State Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.6.1 (Proper Navigation & State Fix)
  * =======================================================================
  * ▸ Полностью переработана логика навигации для корректного возврата к списку серий.
  * ▸ Внедрено внутреннее управление состоянием (просмотр списка/просмотр файлов).
