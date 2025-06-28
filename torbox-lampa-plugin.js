@@ -1,17 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.0.0 (BWA Architecture Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
- * ▸ ФИНАЛЬНЫЙ РЕФАКТОРИНГ АРХИТЕКТУРЫ: Жизненный цикл компонента полностью
- * приведен в соответствие с канонами Lampa и плагина bwa.js.
- * ▸ УСТРАНЕНА ОШИБКА СОЗДАНИЯ: Решена проблема "Cannot read properties of
- * undefined (reading 'loader')" путем переноса всей логики из create() в start().
- * ▸ СТАБИЛЬНАЯ РАБОТА: Гарантированная стабильность при запуске, выходе
- * из плеера и навигации.
+ * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
+ * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
+ * обработки движком Lampa.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_0_0_final_arch';
+    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -756,23 +753,8 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
-            Lampa.Template.add('torbox_item', `
-                <div class="torbox-item selector" data-hash="{hash}">
-                    <div class="torbox-item__title">
-                        {_if(cached)}⚡{_else}☁️{_end} {title}
-                    </div>
-                    <div class="torbox-item__main-info">{info_formated}</div>
-                    <div class="torbox-item__meta">{meta_formated}</div>
-                    {_if(tech_bar_html)}
-                        <div class="torbox-item__tech-bar">{tech_bar_html}</div>
-                    {_end}
-                </div>
-            `);
-            Lampa.Template.add('torbox_empty', `
-                <div class="empty">
-                    <div class="empty__text">{message}</div>
-                </div>
-            `);
+            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{_if(tech_bar_html)}<div class="torbox-item__tech-bar">{tech_bar_html}</div>{_end}</div>');
+            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
         }
 
         const addSettings = () => {
