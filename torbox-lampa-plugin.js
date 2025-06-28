@@ -1,15 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v31.1.0 (Final Focus & Navigation Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v32.0.0 (Navigation Refactor)
  * =======================================================================
- * ▸ ИСПРАВЛЕНА критическая ошибка с фокусом при первой загрузке списка (список сразу активен).
- * ▸ ВОССТАНОВЛЕНА полная работоспособность кнопок "Фильтр" и "Сортировка".
- * ▸ ИСПРАВЛЕНО падение приложения при навигации вверх.
- * ▸ Сохранены все предыдущие исправления (возврат к списку серий, сохранение прокрутки).
+ * ▸ ГЛОБАЛЬНАЯ ПЕРЕРАБОТКА НАВИГАЦИИ: Устранен корень всех проблем с "зависанием" и неработающими кнопками.
+ * Теперь используется единый, стабильный контроллер для всего экрана.
+ * ▸ ПРЕДСКАЗУЕМОЕ УПРАВЛЕНИЕ: Плавное перемещение фокуса между фильтрами, сортировкой и списком торрентов.
+ * ▸ ПОВЫШЕННАЯ СТАБИЛЬНОСТЬ: Исключены "падения" приложения при быстрой навигации.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v31_1_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v32_0_0_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -337,54 +337,64 @@
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
     
+    /**
+     * [РЕФАКТОРИНГ] Полностью переработанный метод управления.
+     * Теперь используется ЕДИНЫЙ контроллер для всего экрана.
+     */
     TorBoxComponent.prototype.start = function () {
         this.activity.loader(false);
-        Lampa.Controller.add('head', {
-            toggle: () => {
-                Lampa.Controller.collectionSet(this.state.filter.render());
-                Lampa.Controller.collectionFocus(false, this.state.filter.render());
-            },
-            right: () => window.Navigator.move('right'),
-            left: () => window.Navigator.move('left'),
-            down: () => Lampa.Controller.toggle('content'),
-            back: () => Lampa.Controller.toggle('content')
-        });
+    
         Lampa.Controller.add('content', {
             toggle: () => {
-                Lampa.Controller.collectionSet(this.state.scroll.render());
+                // Все интерактивные элементы (фильтры + список) помещаются в одну навигационную коллекцию
+                Lampa.Controller.collectionSet(this.state.filter.render(), this.state.scroll.render());
                 Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render());
             },
             up: () => {
-                if (Navigator.canmove('up')) Navigator.move('up');
-                else Lampa.Controller.toggle('head');
+                Navigator.move('up');
             },
             down: () => {
-                if (Navigator.canmove('down')) Navigator.move('down');
+                Navigator.move('down');
             },
             left: () => {
-                if (Navigator.canmove('left')) Navigator.move('left');
-                else Lampa.Controller.toggle('menu');
+                if (Navigator.canmove('left')) {
+                    Navigator.move('left');
+                } else {
+                    Lampa.Controller.toggle('menu');
+                }
             },
             right: () => {
-                // [ИСПРАВЛЕНО] Стандартное поведение - при нажатии вправо открывается фильтр
-                if (this.state.filter) this.state.filter.show('filter');
+                // Если мы на самом правом элементе, открываем меню фильтрации
+                if (Navigator.canmove('right')) {
+                    Navigator.move('right');
+                } else {
+                    this.state.filter.show('filter');
+                }
             },
             back: () => {
+                // Упрощенная и надежная логика кнопки "назад"
                 if ($('body').find('.select').length) return Lampa.Select.close();
-                if ($('body').find('.filter').length) { Lampa.Filter.hide(); return Lampa.Controller.toggle('content'); }
+                if ($('body').find('.filter').length) {
+                    Lampa.Filter.hide();
+                    return Lampa.Controller.toggle('content');
+                }
                 Lampa.Activity.backward();
             }
         });
-        Lampa.Controller.toggle('content');
+    
+        // Активируем наш единый контроллер.
+        // Он будет фактически запущен из _loadAndDisplay после отрисовки.
     };
 
     TorBoxComponent.prototype.pause = function () { /* Lampa сама управляет этим */ };
     TorBoxComponent.prototype.stop = function () { /* Lampa сама управляет этим */ };
     
+    /**
+     * [РЕФАКТОРИНГ] Убран лишний контроллер 'head'.
+     */
     TorBoxComponent.prototype.destroy = function () {
         this.abortController.abort();
-        Lampa.Controller.add('content', null);
-        Lampa.Controller.add('head', null);
+        Lampa.Controller.remove('content'); // Используем remove вместо add(null)
         this.state.scroll?.destroy();
         this.state.files?.destroy();
         this.state.filter?.destroy();
@@ -498,7 +508,6 @@
         scroll_body.empty();
         const empty_msg_element = $('<div class="empty"><div class="empty__text"></div></div>');
         empty_msg_element.find('.empty__text').text(msg || 'Торренты не найдены');
-        scroll_body.append(empty_msg_element);
         this.activity.loader(false);
     };
 
@@ -1011,7 +1020,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v31.1.0 ready');
+            LOG('TorBox v32.0.0 ready');
         };
         return { init };
     })();
