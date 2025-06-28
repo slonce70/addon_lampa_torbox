@@ -861,8 +861,3 @@
         }
     })();
 })();
-" with my selected code, then respond to my query below:
-The problem is that the list is displayed incorrectly and the first file is out of focus, as if fading. It seems that the problem is not only in the styles, but also in the logic of the plugin. Also, the list is displayed in one column, but I would like it to be in several columns. Also the elements are not centered on the screen and are too close to each other. The elements should be centered and have a margin between them. Please fix the plugin code so that the list is displayed correctly, the elements are centered and have a margin between them. also fix the problem with the focus of the first element. The elements should be displayed in several columns, not in one.
-The first item is out of focus as if it is fading.
-The elements are not centered and are too close to each other.
-Please fix the plugin code so that the list is displayed correct
