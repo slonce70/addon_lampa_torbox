@@ -1,19 +1,19 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.1.0 (Final UI & Logic Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.1.1 (Final Architecture Fix)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки 'this.filter.on is not a function' та 
- * 'component.render is not a function'. Фільтрація та сортування тепер працюють коректно.
- * • ВІДНОВЛЕННЯ СТИЛЮ: Повернено оригінальний кольоровий стиль тегів
- * для торентів згідно з вашими уподобаннями.
- * • ПОКРАЩЕННЯ UI: Компонент використовує нативні методи Lampa для стабільної
- * роботи та правильного відображення. Усунуто проблему з '???' в тегах.
+ * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Повністю перероблено архітектуру компонента для відповідності
+ * стандартам Lampa. Усунуто помилки 'this.filter.on is not a function' та
+ * 'component.render is not a function'.
+ * • ВИПРАВЛЕННЯ UI: Компонент тепер використовує Lampa.Explorer, що забезпечує
+ * коректне двоколонкове відображення (фільм зліва, список справа) та скролінг.
+ * • ВІДНОВЛЕННЯ СТИЛЮ: Повернено оригінальний кольоровий стиль тегів для торентів.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_1_0_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_1_1_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -438,8 +438,12 @@
         this.movie = object.movie;
         this.params = object;
         this.abortController = new AbortController();
-        this.scroll = null;
-        this.filter = null;
+        
+        // [ИЗМЕНЕНО] Инициализируем Lampa.Explorer для нативной разметки
+        this.files = new Lampa.Explorer(this.params); 
+        this.scroll = new Lampa.Scroll({mask: true, over: true});
+        this.filter = new Lampa.Filter(this.params);
+
         this.last_focused = null; 
 
         this.sort_types = [
@@ -469,13 +473,12 @@
     };
 
     TorBoxComponent.prototype.render = function() {
-        return this.scroll.render();
+        // [ИЗМЕНЕНО] Возвращаем рендер от Explorer
+        return this.files.render();
     };
     
     TorBoxComponent.prototype.build = function() {
-        this.scroll = new Lampa.Scroll({mask: true, over: true});
-        this.filter = new Lampa.Filter(this.params);
-        
+        // [ИСПРАВЛЕНО] Корректное назначение обработчиков
         this.filter.onSelect = (type, a, b) => {
             Lampa.Controller.toggle('content');
             Lampa.Select.close();
@@ -491,10 +494,14 @@
             this.display();
         };
         this.filter.onBack = Lampa.Controller.toggle.bind(Lampa.Controller, 'content');
-
+        
         this.scroll.body().addClass('torrent-list');
+
+        // [ИЗМЕНЕНО] Используем Explorer для построения UI
+        this.files.appendFiles(this.scroll.render());
+        this.files.appendHead(this.filter.render());
+        
         this.updateFilterUI();
-        this.scroll.append(this.filter.render());
     };
     
     TorBoxComponent.prototype.start = function () {
@@ -544,8 +551,10 @@
         Lampa.Controller.remove('content');
         if(this.filter) this.filter.destroy();
         if(this.scroll) this.scroll.destroy();
+        if(this.files) this.files.destroy(); // [ДОБАВЛЕНО] Уничтожаем Explorer
         this.scroll = null;
         this.filter = null;
+        this.files = null;
         for (let key in this.state) this.state[key] = null;
     };
     
@@ -686,8 +695,7 @@
     
     TorBoxComponent.prototype.draw = function(torrents_list) {
         this.last_focused = null;
-        this.scroll.clear(); // Clear only the body, not the filter
-        this.scroll.append(this.filter.render()); // Re-append filter
+        this.scroll.clear(); 
         
         if (!torrents_list?.length) {
             return this._renderEmpty('Ничего не найдено по заданным фильтрам');
@@ -758,7 +766,6 @@
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         this.scroll.clear();
-        this.scroll.append(this.filter.render()); // Keep filter on empty screen
         const emptyMsg = $(`<div class="empty"><div class="empty__text">${msg || 'Торренты не найдены'}</div></div>`);
         this.scroll.append(emptyMsg);
         this.activity.loader(false);
@@ -1004,7 +1011,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.8 (UI Fixed) ready');
+            LOG('TorBox v30.1.0 (UI Fixed) ready');
         };
 
         return { init };
