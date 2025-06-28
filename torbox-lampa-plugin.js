@@ -1,14 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.8.0 (Final UX & Scroll Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v31.0.0 (Final Stability Release)
  * =======================================================================
- * ▸ Исправлено закрытие окна выбора серий при запуске плеера (замена Modal на Noty).
- * ▸ Реализовано сохранение и восстановление позиции прокрутки списка торрентов.
- * ▸ Код очищен и стабилизирован в соответствии со стандартами Lampa.
+ * ▸ ПОЛНОСТЬЮ ПЕРЕРАБОТАНА НАВИГАЦИЯ для соответствия стандартам Lampa.
+ * ▸ ИСПРАВЛЕНА критическая ошибка, приводившая к неработоспособности пульта и падению приложения.
+ * ▸ Восстановлена корректная и стабильная работа возврата к списку серий.
+ * ▸ Сохранена логика, предотвращающая сброс прокрутки списка после просмотра.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_8_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v31_0_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -328,12 +329,11 @@
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
-            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters))),
-            saved_scroll_top: 0 // [ИЗМЕНЕНО] Для сохранения позиции прокрутки
+            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters)))
         };
     }
 
-    // — Стандартная реализация жизненного цикла —
+    // — [ИСПРАВЛЕНО] Возврат к стандартной, надежной реализации жизненного цикла —
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
     
@@ -354,9 +354,21 @@
                 Lampa.Controller.collectionSet(this.state.scroll.render());
                 Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render());
             },
-            up: () => (this.state.scroll.is_first() ? Lampa.Controller.toggle('head') : window.Navigator.move('up')),
-            down: () => window.Navigator.move('down'),
-            left: () => Lampa.Controller.toggle('menu'),
+            // [ИСПРАВЛЕНО] Используем безопасную проверку Navigator.canmove
+            up: () => {
+                if (Navigator.canmove('up')) Navigator.move('up');
+                else Lampa.Controller.toggle('head');
+            },
+            down: () => {
+                if (Navigator.canmove('down')) Navigator.move('down');
+            },
+            left: () => {
+                if (Navigator.canmove('left')) Navigator.move('left');
+                else Lampa.Controller.toggle('menu');
+            },
+            right: () => {
+                if (Navigator.canmove('right')) Navigator.move('right');
+            },
             back: () => {
                 if ($('body').find('.select').length) return Lampa.Select.close();
                 if ($('body').find('.filter').length) { Lampa.Filter.hide(); return Lampa.Controller.toggle('content'); }
@@ -493,6 +505,7 @@
     TorBoxComponent.prototype._createItem = function (t, lastHash) {
         const it = document.createElement('div');
         it.className = 'torbox-item selector';
+        it.dataset.hash = t.hash; 
         if (lastHash && t.hash === lastHash) it.classList.add('torbox-item--last-played');
 
         const title = document.createElement('div');
@@ -560,6 +573,8 @@
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
         const scroll_body = this.state.scroll.body();
+        const current_scroll_top = scroll_body.scrollTop(); // Сохраняем текущую прокрутку
+
         scroll_body.empty();
     
         if (!list.length) {
@@ -578,6 +593,9 @@
         });
         
         scroll_body.append(frag);
+
+        // Восстанавливаем прокрутку после отрисовки
+        scroll_body.scrollTop(current_scroll_top);
     
         const first_item = scroll_body.find('.selector').first()[0];
         if (first_item) {
@@ -649,6 +667,18 @@
     TorBoxComponent.prototype._display = function () {
         this._updateFilterUI();
         this._draw(this._applyFiltersSort());
+    };
+
+    // [НОВАЯ ФУНКЦИЯ] для отметки просмотренного элемента без перерисовки
+    TorBoxComponent.prototype._markAsPlayed = function(hash) {
+        if (!this.state.scroll) return;
+        const item = this.state.scroll.body().find(`[data-hash="${hash}"]`);
+        if (item.length) {
+            // Удаляем старые классы и добавляем новый, чтобы он был единственным
+            this.state.scroll.body().find('.torbox-item--just-watched').removeClass('torbox-item--just-watched');
+            item.addClass('torbox-item--just-watched');
+            LOG('Marked item as played:', hash);
+        }
     };
 
     // ──── torrent click handler ────
@@ -776,13 +806,12 @@
     };
 
     /**
-     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий и сохранения прокрутки.
+     * [ИЗМЕНЕНО] Финальная версия функции воспроизведения.
      * @param {object} torrent_data - Полные данные о торренте.
      * @param {object} file - Выбранный файл для воспроизведения.
      */
     TorBoxComponent.prototype._play = async function (torrent_data, file) {
-        // [ИСПРАВЛЕНО] Используем Lampa.Noty, чтобы не закрывать предыдущие окна
-        Lampa.Noty.show('Получение ссылки...', {time: 2000});
+        Lampa.Loading.start(); 
 
         try {
             const { data, url } = await Api.requestDl(torrent_data.id, file.id, this.abortController.signal);
@@ -792,13 +821,6 @@
             Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
             Store.set(`torbox_last_played_${mid}`, String(file.id));
             
-            // [ИСПРАВЛЕНО] Сохраняем позицию прокрутки перед запуском плеера
-            const scroll_element = this.state.scroll.render()[0];
-            if (scroll_element) {
-                this.state.saved_scroll_top = scroll_element.scrollTop;
-                LOG(`Saved scroll position: ${this.state.saved_scroll_top}`);
-            }
-
             const onComplete = () => {
                 Lampa.Player.listener.remove('complite', onComplete);
 
@@ -806,28 +828,22 @@
                 
                 if (video_files_count > 1) {
                     LOG('Series episode finished, returning to file list.');
-                    this._selectFile(torrent_data);
+                    setTimeout(() => {
+                        this._selectFile(torrent_data);
+                    }, 50);
                 } else {
-                    LOG('Movie finished, updating torrent list.');
-                    this._display();
-                    
-                    // [ИСПРАВЛЕНО] Восстанавливаем позицию прокрутки
-                    const scroll_element_restore = this.state.scroll.render()[0];
-                    if (scroll_element_restore && this.state.saved_scroll_top > 0) {
-                        LOG(`Attempting to restore scroll position to: ${this.state.saved_scroll_top}`);
-                        setTimeout(() => {
-                            scroll_element_restore.scrollTop = this.state.saved_scroll_top;
-                            LOG('Scroll position restored.');
-                        }, 100); 
-                    }
+                    LOG('Movie finished, marking as played.');
+                    this._markAsPlayed(torrent_data.hash);
                     Lampa.Controller.toggle('content');
                 }
             };
-
+            
+            Lampa.Loading.stop(); 
             Lampa.Player.play({ url: link, title: file.name || this.movie.title, poster: this.movie.img });
             Lampa.Player.listener.follow('complite', onComplete);
 
         } catch (e) { 
+            Lampa.Loading.stop();
             ErrorHandler.show(e.type || 'unknown', e); 
         }
     };
@@ -895,7 +911,7 @@
                 .torbox-item:last-child {
                     margin-bottom: 0;
                 }
-                .torbox-item--last-played {
+                .torbox-item--last-played, .torbox-item--just-watched {
                     border-left: 4px solid var(--color-second);
                     background: rgba(var(--color-second-rgb), .1);
                 }
@@ -989,7 +1005,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v30.8.0 ready');
+            LOG('TorBox v31.0.0 ready');
         };
         return { init };
     })();
