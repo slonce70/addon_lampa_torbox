@@ -720,6 +720,9 @@
                     else if (a.stype) state.filters[a.stype] = b.value;
                     Store.set('torbox_filters_v2', JSON.stringify(state.filters));
                 }
+                // [ИСПРАВЛЕНИЕ] Сбрасываем сохраненный хэш, чтобы после сортировки/фильтрации
+                // фокус всегда устанавливался на первый элемент в новом списке.
+                state.last_hash = null;
                 this.build();
                 Lampa.Controller.toggle('content');
             };
