@@ -1,14 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.2 (Grid Layout Fixed)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.1 (Boot Error Fixed)
  * =======================================================================
- * ▸ Виправлено відображення списку: тепер елементи розташовуються у вигляді сітки.
- * ▸ Застосовано обгортку для grid-контейнера, щоб уникнути конфліктів з Lampa.Scroll.
- * ▸ Проведено рефакторинг коду та CSS для кращої читабельності.
+ * ▸ Виправлено помилку ініціалізації, пов'язану з доступом до конфігурації
+ * ▸ Застосовано виправлення для відображення списку у вигляді сітки (Grid)
+ * ▸ Покращено читабельність CSS та коду загалом
+ * ▸ Збережено всю попередню логіку плагіна
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_2_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_1_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -383,9 +384,8 @@
 
         this._initFilterHandlers();
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
-        
-        // Додаємо клас до тіла скролу, щоб мати контейнер для загальних стилів (напр. padding)
-        this.state.scroll.body().addClass('torbox-list-container');
+
+        this.state.scroll.body().addClass('torrent-list');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
         this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
@@ -476,11 +476,10 @@
 
     // ──── rendering helpers ────
     TorBoxComponent.prototype._renderEmpty = function (msg) {
-        const scroll_body = this.state.scroll.render();
-        scroll_body.empty();
-        const empty_msg_element = $('<div class="empty"><div class="empty__text"></div></div>');
-        empty_msg_element.find('.empty__text').text(msg || 'Торренти не знайдені');
-        scroll_body.append(empty_msg_element);
+        this.state.scroll.clear();
+        const e = $('<div class="empty"><div class="empty__text"></div></div>');
+        e.find('.empty__text').text(msg || 'Торренти не знайдені');
+        this.state.scroll.append(e);
         this.activity.loader(false);
     };
 
@@ -528,29 +527,20 @@
     // ──── draw list ────
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
-        const scroll_body = this.state.scroll.render(); // Це .scroll__body
-        scroll_body.empty();
-
-        if (!list.length) {
-            return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
-        }
-        
-        // Створюємо спеціальний контейнер для сітки
-        const grid_container = $('<div class="torbox-grid-container"></div>');
-
+        const r = this.state.scroll.render();
+        r.empty();
+        if (!list.length) return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
         const lastKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
         const lastHash = Store.get(lastKey, null);
-        
+        const frag = document.createDocumentFragment();
         list.forEach(t => {
-            const item_element = this._createItem(t, lastHash);
-            $(item_element).on('hover:focus', () => { this.state.last = item_element; this.state.scroll.update($(item_element), true); });
-            $(item_element).on('hover:enter', () => this._onTorrentClick(t));
-            grid_container.append(item_element); // Додаємо елементи до нашого контейнера сітки
+            const item = this._createItem(t, lastHash);
+            $(item).on('hover:focus', () => { this.state.last = item; this.state.scroll.update($(item), true); });
+            $(item).on('hover:enter', () => this._onTorrentClick(t));
+            frag.appendChild(item);
         });
-        
-        scroll_body.append(grid_container); // Додаємо контейнер сітки до тіла скролу
+        r.append(frag);
     };
-
 
     // ──── load & display ────
     TorBoxComponent.prototype._loadAndDisplay = async function (force = false) {
@@ -740,16 +730,13 @@
             css.id = 'torbox-enhanced-styles';
             // CSS винесено у змінну для кращої читабельності
             const styles = `
-                /* --- Контейнер для списку з відступами --- */
-                .torbox-list-container {
-                    padding: 1em;
-                }
-                
-                /* --- Контейнер-сітка для елементів --- */
-                .torbox-grid-container {
+                /* --- Головний контейнер списку --- */
+                .torrent-list {
                     display: grid;
+                    /* Створює адаптивні колонки: мінімальна ширина 480px, максимальна - займає весь вільний простір */
                     grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
                     gap: 1em; /* Відстань між елементами сітки */
+                    padding: 1em;
                 }
 
                 /* --- Елемент списку торрентів --- */
@@ -838,7 +825,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v30.2.2 ready');
+            LOG('TorBox v30.2.1 ready');
         };
         return { init };
     })();
