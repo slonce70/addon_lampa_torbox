@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.3.0 (Robust Player Exit)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
- * ▸ УЛУЧШЕН ВЫХОД ИЗ ПЛЕЕРА: Добавлен обработчик ошибок плеера и
- * явное управление состоянием для надежного выхода из видео, даже если
- * оно не может быть загружено. Это решает проблему "зависания" плеера.
+ * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
+ * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
+ * обработки движком Lampa.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_3_0_robust_player_exit';
+    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -538,21 +538,15 @@
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 const mid = object.movie.imdb_id || object.movie.id;
+                state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                const player_data = { url: link, title: file.name || object.movie.title, poster: object.movie.img };
-
-                // [ИСПРАВЛЕНИЕ] Добавлены явные обработчики всех состояний плеера (завершение, назад, ошибка)
-                // для гарантированного возврата управления плагину, даже если плеер "зависнет" из-за ошибки загрузки.
-                const cleanup = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Player.listener.remove('error', onError);
-                };
+                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
                 const onComplete = () => {
-                    cleanup();
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
                     if (all_video_files.length > 1) {
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
@@ -562,21 +556,13 @@
                 };
 
                 const onBack = () => {
-                    cleanup();
-                    Lampa.Controller.toggle('content');
-                };
-
-                const onError = () => {
-                    cleanup();
-                    Lampa.Player.close();
-                    Lampa.Controller.toggle('content');
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
+                    Lampa.Activity.backward(); // [ИСПРАВЛЕНИЕ] Корректное закрытие плеера
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
                 Lampa.Player.listener.follow('back', onBack);
-                Lampa.Player.listener.follow('error', onError);
-
-                Lampa.Player.play(player_data);
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
