@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (History)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
- * ▸ ИСТОРИЯ ПРОСМОТРА: Добавлен блок над списком торрентов, который
- * отображает последний просмотренный торрент для данного фильма/сериала,
- * аналогично плагину bwa.js.
+ * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
+ * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
+ * обработки движком Lampa.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_history';
+    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -354,48 +354,6 @@
             last_hash: null,
         };
 
-        this.watched = function(set) {
-            const file_id = `torbox_${object.movie.imdb_id || object.movie.id}`;
-            let watched = Lampa.Storage.cache('torbox_watched_last', 5000, {});
-            if (set) {
-                watched[file_id] = set;
-                Lampa.Storage.set('torbox_watched_last', watched);
-                this.updateWatched();
-            } else {
-                return watched[file_id];
-            }
-        };
-
-        this.updateWatched = function() {
-            const watched = this.watched();
-            const container = scroll.body().find('.torbox-watched-item');
-            if (!container.length) return;
-
-            const body = container.find('.torbox-watched-item__body').empty();
-
-            if (watched && watched.torrent_title) {
-                const line = [];
-                line.push(watched.torrent_title);
-                if (watched.file_name && watched.file_name !== watched.torrent_title) {
-                    line.push(watched.file_name);
-                }
-                body.append(line.map(n => `<span>${Utils.escapeHtml(n)}</span>`).join(''));
-                
-                container.on('hover:enter', () => {
-                    if (watched.torrent_hash) {
-                        const last_played_torrent = scroll.render().find(`[data-hash="${watched.torrent_hash}"]`);
-                        if (last_played_torrent.length) {
-                            last = last_played_torrent[0];
-                            Lampa.Controller.collectionFocus(last, scroll.render());
-                            scroll.update(last_played_torrent, true);
-                        }
-                    }
-                }).on('hover:focus', (e) => {
-                    last = e.target;
-                    scroll.update($(e.target), true);
-                });
-            } else { body.append('<span>Нет истории просмотра</span>'); }
-        };
         // Логика обработки торрентов, перенесенная из старого кода
         const procRaw = (raw, hash, cachedSet) => {
             const v = raw.ffprobe?.find(s => s.codec_type === 'video');
@@ -523,7 +481,6 @@
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
                 const data = await track(tid);
                 data.hash = torrent.hash;
-                data.title = torrent.title;
                 Lampa.Modal.close();
                 selectFile(data);
             } catch (e) {
@@ -580,13 +537,6 @@
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-
-                this.watched({
-                    torrent_title: torrent_data.title,
-                    file_name: file.name,
-                    torrent_hash: torrent_data.hash
-                });
-
                 const mid = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
@@ -719,9 +669,6 @@
         this.draw = function (items) {
             last = false;
             scroll.clear();
-
-            scroll.append(Lampa.Template.get('torbox_watched_item', {}));
-            this.updateWatched();
 
             if (!items.length) {
                 return this.empty('Ничего не найдено по заданным фильтрам');
@@ -865,7 +812,6 @@
             */
             Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{icon} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{tech_bar_html}</div>');
             Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
-            Lampa.Template.add('torbox_watched_item', '<div class="torbox-watched-item selector"><div class="torbox-watched-item__icon"><svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="10.5" cy="10.5" r="9" stroke="currentColor" stroke-width="3"/><path d="M14.8477 10.5628L8.20312 14.399L8.20313 6.72656L14.8477 10.5628Z" fill="currentColor"/></svg></div><div class="torbox-watched-item__body"></div></div>');
         }
 
         const addSettings = () => {
@@ -915,38 +861,6 @@
                     display: block;
                     padding: 1em;
                 }
-
-                /* --- Элемент истории просмотра --- */
-                .torbox-watched-item {
-                    padding: 1em 1.2em;
-                    margin: 0 0 1em 0;
-                    border-radius: .8em;
-                    background: rgba(var(--color-second-rgb), .1);
-                    border: 2px solid transparent;
-                    display: flex;
-                    align-items: center;
-                    transition: all .3s;
-                }
-                .torbox-watched-item.focus {
-                    background: var(--color-second);
-                    color: var(--color-background);
-                    border-color: rgba(255, 255, 255, .3);
-                }
-                .torbox-watched-item__icon {
-                    margin-right: 1em;
-                    flex-shrink: 0;
-                }
-                .torbox-watched-item__icon svg {
-                    width: 1.5em;
-                    height: 1.5em;
-                }
-                .torbox-watched-item__body {
-                    display: flex;
-                    flex-wrap: wrap;
-                    font-weight: 500;
-                    line-height: 1.4;
-                }
-                .torbox-watched-item__body > span + span::before { content: ' ● '; vertical-align: top; display: inline-block; margin: 0 .5em; opacity: .7; }
 
                 /* --- Элемент списка торрентов --- */
                 .torbox-item {
@@ -1060,7 +974,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v35.2.0 ready');
+            LOG('TorBox v34.0.0 ready');
         };
         return { init };
     })();
