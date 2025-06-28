@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.3 (Grid & Focus Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.4 (Audio Tag Fix)
  * =======================================================================
- * ▸ Виправлено відображення списку: тепер елементи гарантовано розташовуються у вигляді сітки.
- * ▸ Вирішено проблему з "затуханням" першого елемента шляхом коректної початкової фокусації.
- * ▸ Оптимізовано CSS та логіку ініціалізації компонента.
+ * ▸ Виправлено відображення аудіо-тегів: замість "???" тепер використовується
+ * інформація про тип перекладу, якщо тег мови відсутній.
+ * ▸ Збережено виправлення для відображення списку у вигляді сітки.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_3_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_4_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -507,7 +507,8 @@
         if (t.video_resolution) it.appendChild(this._createTechBar(t));
         return it;
     };
-
+    
+    // AUDIO TAG FIX: Improved logic for displaying audio stream info
     TorBoxComponent.prototype._createTechBar = function (t) {
         const bar = document.createElement('div');
         bar.className = 'torbox-item__tech-bar';
@@ -517,15 +518,42 @@
             d.textContent = txt;
             return d;
         };
+    
         bar.appendChild(tag(t.video_resolution, 'res'));
         if (t.video_codec) bar.appendChild(tag(t.video_codec.toUpperCase(), 'codec'));
         if (t.has_hdr) bar.appendChild(tag('HDR', 'hdr'));
         if (t.has_dv) bar.appendChild(tag('Dolby Vision', 'dv'));
-        (t.raw_data.ffprobe || []).filter(s => s.codec_type === 'audio').forEach(s => {
-            bar.appendChild(tag(`${s.tags?.language?.toUpperCase() || '???'} ${s.codec_name?.toUpperCase() || ''} ${s.channel_layout || ''}`, 'audio'));
+    
+        const audioStreams = t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+        let voiceIndex = 0;
+    
+        audioStreams.forEach(s => {
+            let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
+    
+            if (!lang_or_voice || lang_or_voice === 'UND') {
+                // Fallback to translation type if language tag is missing
+                if (t.voices && t.voices[voiceIndex]) {
+                    lang_or_voice = t.voices[voiceIndex];
+                    voiceIndex++;
+                } else {
+                    lang_or_voice = null; // No info available
+                }
+            }
+    
+            const codec = s.codec_name?.toUpperCase() || '';
+            const layout = s.channel_layout || '';
+    
+            // Build the text, omitting the lang part if it's null
+            const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
+    
+            if (displayText) {
+                bar.appendChild(tag(displayText, 'audio'));
+            }
         });
+    
         return bar;
     };
+
 
     // ──── draw list ────
     TorBoxComponent.prototype._draw = function (list) {
