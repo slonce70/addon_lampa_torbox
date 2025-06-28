@@ -1,15 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v32.0.0 (Navigation Refactor)
+/* TorBox Enhanced – Universal Lampa Plugin  v32.1.0 (Full Stability Fix)
  * =======================================================================
- * ▸ ГЛОБАЛЬНАЯ ПЕРЕРАБОТКА НАВИГАЦИИ: Устранен корень всех проблем с "зависанием" и неработающими кнопками.
- * Теперь используется единый, стабильный контроллер для всего экрана.
- * ▸ ПРЕДСКАЗУЕМОЕ УПРАВЛЕНИЕ: Плавное перемещение фокуса между фильтрами, сортировкой и списком торрентов.
- * ▸ ПОВЫШЕННАЯ СТАБИЛЬНОСТЬ: Исключены "падения" приложения при быстрой навигации.
+ * ▸ ИСПРАВЛЕНА ПОТЕРЯ ФОКУСА: Полностью решена проблема с "зависанием" управления после возврата из плеера.
+ * ▸ ИСПРАВЛЕН КРАШ НАВИГАЦИИ: Нажатие "вправо" из списка теперь корректно открывает фильтр без сбоев.
+ * ▸ УСТРАНЕНА ОШИБКА ВЫХОДА: Исправлен сбой 'Lampa.Controller.remove' при закрытии плагина.
+ * ▸ ДОБАВЛЕНО КОНТЕКСТНОЕ МЕНЮ: Длительное нажатие "ОК" на торренте теперь вызывает меню для копирования ссылки.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v32_0_0_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v32_1_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -326,6 +326,7 @@
             files: null,
             filter: null,
             last: null,
+            last_hash: null, // [ИСПРАВЛЕНО] Храним hash для надежного восстановления фокуса
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
@@ -333,22 +334,30 @@
         };
     }
 
-    // — [ИСПРАВЛЕНО] Возврат к стандартной, надежной реализации жизненного цикла —
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
     
     /**
      * [РЕФАКТОРИНГ] Полностью переработанный метод управления.
-     * Теперь используется ЕДИНЫЙ контроллер для всего экрана.
      */
     TorBoxComponent.prototype.start = function () {
         this.activity.loader(false);
     
         Lampa.Controller.add('content', {
             toggle: () => {
-                // Все интерактивные элементы (фильтры + список) помещаются в одну навигационную коллекцию
                 Lampa.Controller.collectionSet(this.state.filter.render(), this.state.scroll.render());
-                Lampa.Controller.collectionFocus(this.state.last || false, this.state.scroll.render());
+                
+                // [ИСПРАВЛЕНО] Надежное восстановление фокуса после возврата
+                let focus_element = false;
+                if (this.state.last_hash) {
+                    focus_element = this.state.scroll.render().find(`[data-hash="${this.state.last_hash}"]`)[0];
+                }
+                // Если элемент не найден (например, после фильтрации), фокусируемся на первом
+                if (!focus_element) {
+                     focus_element = this.state.scroll.render().find('.selector').first()[0];
+                }
+
+                Lampa.Controller.collectionFocus(focus_element || false, this.state.scroll.render());
             },
             up: () => {
                 Navigator.move('up');
@@ -364,15 +373,15 @@
                 }
             },
             right: () => {
-                // Если мы на самом правом элементе, открываем меню фильтрации
-                if (Navigator.canmove('right')) {
-                    Navigator.move('right');
+                // [ИСПРАВЛЕНО] Явная и надежная логика для кнопки "вправо"
+                const current_element = Lampa.Controller.focused();
+                if (current_element && current_element.closest('.torbox-list-container')) {
+                     this.state.filter.show('filter');
                 } else {
-                    this.state.filter.show('filter');
+                     Navigator.move('right');
                 }
             },
             back: () => {
-                // Упрощенная и надежная логика кнопки "назад"
                 if ($('body').find('.select').length) return Lampa.Select.close();
                 if ($('body').find('.filter').length) {
                     Lampa.Filter.hide();
@@ -386,15 +395,15 @@
         // Он будет фактически запущен из _loadAndDisplay после отрисовки.
     };
 
-    TorBoxComponent.prototype.pause = function () { /* Lampa сама управляет этим */ };
-    TorBoxComponent.prototype.stop = function () { /* Lampa сама управляет этим */ };
+    TorBoxComponent.prototype.pause = function () {};
+    TorBoxComponent.prototype.stop = function () {};
     
     /**
-     * [РЕФАКТОРИНГ] Убран лишний контроллер 'head'.
+     * [ИСПРАВЛЕНО] Убран лишний контроллер 'head' и исправлен вызов destroy
      */
     TorBoxComponent.prototype.destroy = function () {
         this.abortController.abort();
-        Lampa.Controller.remove('content'); // Используем remove вместо add(null)
+        Lampa.Controller.add('content', null); // Правильный способ удаления контроллера
         this.state.scroll?.destroy();
         this.state.files?.destroy();
         this.state.filter?.destroy();
@@ -531,6 +540,26 @@
 
         it.append(title, info, meta);
         if (t.video_resolution) it.appendChild(this._createTechBar(t));
+        
+        // [ДОБАВЛЕНО] Контекстное меню
+        $(it).on('hover:long', () => {
+            Lampa.Select.show({
+                title: 'Действия',
+                items: [
+                    { title: 'Скопировать Magnet' }
+                ],
+                onSelect: (a) => {
+                    Lampa.Utils.copyTextToClipboard(t.magnet, () => {
+                        Lampa.Noty.show('Magnet-ссылка скопирована');
+                    });
+                    Lampa.Controller.toggle('content');
+                },
+                onBack: () => {
+                    Lampa.Controller.toggle('content');
+                }
+            });
+        });
+        
         return it;
     };
     
@@ -596,7 +625,11 @@
         const frag = document.createDocumentFragment();
         list.forEach(t => {
             const item_element = this._createItem(t, lastHash);
-            $(item_element).on('hover:focus', () => { this.state.last = item_element; this.state.scroll.update($(item_element), true); });
+            $(item_element).on('hover:focus', () => { 
+                this.state.last = item_element; 
+                this.state.last_hash = t.hash; // [ИСПРАВЛЕНО] Сохраняем hash при фокусе
+                this.state.scroll.update($(item_element), true); 
+            });
             $(item_element).on('hover:enter', () => this._onTorrentClick(t));
             frag.appendChild(item_element);
         });
@@ -640,7 +673,6 @@
             }
             this._display();
             
-            // [ИСПРАВЛЕНО] Передаем фокус только после полной отрисовки
             Lampa.Controller.toggle('content');
             LOG(`Display complete. Toggled content. From cache: ${from_cache}`);
 
@@ -819,12 +851,7 @@
             }
         });
     };
-
-    /**
-     * [ИЗМЕНЕНО] Финальная версия функции воспроизведения.
-     * @param {object} torrent_data - Полные данные о торренте.
-     * @param {object} file - Выбранный файл для воспроизведения.
-     */
+    
     TorBoxComponent.prototype._play = async function (torrent_data, file) {
         Lampa.Loading.start(); 
 
@@ -1020,7 +1047,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v32.0.0 ready');
+            LOG('TorBox v32.1.0 ready');
         };
         return { init };
     })();
