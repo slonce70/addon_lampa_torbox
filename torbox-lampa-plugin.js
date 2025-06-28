@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.6 (Status Modal Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.7 (Progress Bar Style Fix)
  * =======================================================================
- * ▸ Виправлено вікно статусу завантаження: додано переклад статусів,
- * вирішено проблему з NaN, повернено анімацію прогрес-бару.
- * ▸ Покращено надійність функції відстеження.
+ * ▸ Повернено коректні стилі для прогрес-бару у вікні статусу.
+ * ▸ Тепер смуга завантаження знову заповнюється зеленим кольором та має
+ * коректну анімацію.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_6_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_7_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -678,12 +678,10 @@
                 try {
                     const torrentResult = await Api.myList(id, this.abortController.signal);
                     
-                    // FIX: Handle cases where API returns a single object instead of an array.
                     const torrentList = Array.isArray(torrentResult.data) ? torrentResult.data : [torrentResult.data];
                     const d = torrentList[0];
 
                     if (!d || typeof d !== 'object') {
-                        // This can happen if the torrent is not yet in the list. We wait and retry.
                         LOG(`Торрент ${id} ще не з'явився у списку або має невірний формат, повторна спроба...`);
                         if (active) setTimeout(poll, 5000);
                         return;
@@ -921,6 +919,12 @@
                     0% { transform: translateX(-100%); }
                     100% { transform: translateX(100%); }
                 }
+                .modal .torbox-status__progress-container {
+                    background: rgba(255,255,255,0.2) !important;
+                }
+                .modal .torbox-status__progress-bar {
+                    background: linear-gradient(90deg, #4CAF50, #66BB6A) !important;
+                }
             `;
             css.textContent = styles;
             document.head.appendChild(css);
@@ -947,3 +951,4 @@
         }
     })();
 })();
+
