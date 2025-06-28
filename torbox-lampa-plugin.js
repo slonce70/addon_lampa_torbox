@@ -1,14 +1,15 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.4.0 (Series UX Improvement)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.7.0 (Stable Navigation Fix)
  * =======================================================================
- * ▸ Улучшен пользовательский опыт при просмотре сериалов.
- * ▸ После просмотра серии пользователь возвращается к списку серий того же торрента, а не к общему списку торрентов.
- * ▸ Рефакторинг функций _play и _selectFile для сохранения контекста.
+ * ▸ Полностью переработана и исправлена навигация в соответствии со стандартами Lampa.
+ * ▸ Исправлена проблема с неактивным списком и навигацией с пульта.
+ * ▸ Реализован корректный возврат к списку серий после просмотра.
+ * ▸ Код очищен от предыдущих неудачных исправлений.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_4_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_7_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -319,6 +320,7 @@
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
         ];
         this.defaultFilters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
+        
         this.state = {
             scroll: null,
             files: null,
@@ -331,9 +333,10 @@
         };
     }
 
-    // — жизненный цикл —
+    // — [ИЗМЕНЕНО] Возврат к стандартной реализации жизненного цикла —
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
+    
     TorBoxComponent.prototype.start = function () {
         this.activity.loader(false);
         Lampa.Controller.add('head', {
@@ -362,8 +365,10 @@
         });
         Lampa.Controller.toggle('content');
     };
-    TorBoxComponent.prototype.pause = function () { Lampa.Controller.add('content', null); Lampa.Controller.add('head', null); };
-    TorBoxComponent.prototype.stop = function () { Lampa.Controller.add('content', null); Lampa.Controller.add('head', null); };
+
+    TorBoxComponent.prototype.pause = function () { /* Lampa сама управляет этим */ };
+    TorBoxComponent.prototype.stop = function () { /* Lampa сама управляет этим */ };
+    
     TorBoxComponent.prototype.destroy = function () {
         this.abortController.abort();
         Lampa.Controller.add('content', null);
@@ -372,6 +377,7 @@
         this.state.files?.destroy();
         this.state.filter?.destroy();
         Object.keys(this.state).forEach(k => this.state[k] = null);
+        LOG('TorBox component destroyed');
     };
 
     // ────────── initialization ──────────
@@ -734,12 +740,15 @@
 
     // ──── select/play file ────
     /**
-     * [ИЗМЕНЕНО] Эта функция теперь вызывает _play, передавая весь объект данных торрента.
+     * [ИЗМЕНЕНО] Упрощено, возвращено к стандартному поведению.
      * @param {object} torrent_data - Полные данные о торренте, включая список файлов.
      */
     TorBoxComponent.prototype._selectFile = function (torrent_data) {
         const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
-        if (!vids.length) { ErrorHandler.show('validation', { message: 'Видеофайлы не найдены в торренте' }); return; }
+        if (!vids.length) { 
+            ErrorHandler.show('validation', { message: 'Видеофайлы не найдены в торренте' }); 
+            return; 
+        }
         
         vids.sort(Utils.naturalSort);
         
@@ -764,12 +773,15 @@
             title: 'Выберите файл для воспроизведения', 
             items, 
             onSelect: i => play(i.file), 
-            onBack: () => Lampa.Controller.toggle('content') 
+            onBack: () => {
+                // Просто возвращаем фокус на основной контент, не меняя состояние
+                Lampa.Controller.toggle('content');
+            }
         });
     };
 
     /**
-     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий после просмотра.
+     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий теперь здесь.
      * @param {object} torrent_data - Полные данные о торренте.
      * @param {object} file - Выбранный файл для воспроизведения.
      */
@@ -793,11 +805,14 @@
                 const video_files_count = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).length;
                 
                 if (video_files_count > 1) {
-                    // Если это сериал, возвращаемся к выбору файла этого же торрента
+                    LOG('Series episode finished, returning to file list.');
+                    // Если это сериал, снова открываем выбор файла этого же торрента
                     this._selectFile(torrent_data);
                 } else {
-                    // Если это фильм (один файл), обновляем список торрентов
+                    LOG('Movie finished, updating torrent list.');
+                    // Если это фильм (один файл), обновляем главный список торрентов
                     this._display();
+                    Lampa.Controller.toggle('content'); // Возвращаем фокус
                 }
             };
 
@@ -847,60 +862,22 @@
                 torrentBtn.length ? torrentBtn.after(btn) : root.find('.full-start__play').after(btn);
             });
         };
-
-        const setupGlobalActivityListener = () => {
-            let lastActivityName = null;
-            let wasInTorbox = false;
         
-            setInterval(() => {
-                const currentActivity = Lampa.Activity.active();
-                if (!currentActivity) return;
-        
-                const currentActivityName = currentActivity.component;
-        
-                if (lastActivityName === 'torbox_component' && currentActivityName !== 'torbox_component') {
-                    wasInTorbox = true;
-                    LOG('Left TorBox component, possibly for an external player.');
-                }
-        
-                if (wasInTorbox && currentActivityName === 'torbox_component') {
-                    LOG('Returned to TorBox component.');
-                    wasInTorbox = false;
-                    
-                    setTimeout(() => {
-                        try {
-                            const torboxActivity = Lampa.Activity.active();
-                            if (torboxActivity && torboxActivity.component === 'torbox_component') {
-                                Lampa.Controller.toggle('content');
-                                torboxActivity.activity.component.display(); 
-                                LOG('Navigation and display restored after returning to TorBox.');
-                            }
-                        } catch (error) {
-                            LOG('Error while restoring navigation after return:', error);
-                        }
-                    }, 250); 
-                }
-                lastActivityName = currentActivityName;
-            }, 1000);
-        };
-        
-
         const init = () => {
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
+            // [ИЗМЕНЕНО] Возвращаем стили для списка
             const styles = `
-                /* --- Контейнер-сетка для элементов --- */
+                /* --- Контейнер для списка --- */
                 .torbox-list-container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-                    gap: 1em; /* Расстояние между элементами сетки */
+                    display: block;
                     padding: 1em;
                 }
 
                 /* --- Элемент списка торрентов --- */
                 .torbox-item {
                     padding: 1em 1.2em;
-                    margin: 0; 
+                    margin: 0 0 1em 0;
                     border-radius: .8em;
                     background: var(--color-background-light);
                     cursor: pointer;
@@ -908,6 +885,9 @@
                     border: 2px solid transparent;
                     overflow: hidden;
                     opacity: 1;
+                }
+                .torbox-item:last-child {
+                    margin-bottom: 0;
                 }
                 .torbox-item--last-played {
                     border-left: 4px solid var(--color-second);
@@ -917,7 +897,7 @@
                 .torbox-item.focus {
                     background: var(--color-primary);
                     color: var(--color-background);
-                    transform: translateX(.5em) scale(1.02);
+                    transform: scale(1.01);
                     border-color: rgba(255, 255, 255, .3);
                     box-shadow: 0 4px 20px rgba(0, 0, 0, .2);
                     opacity: 1;
@@ -1003,8 +983,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            setupGlobalActivityListener();
-            LOG('TorBox v30.4.0 ready');
+            LOG('TorBox v30.7.0 ready');
         };
         return { init };
     })();
