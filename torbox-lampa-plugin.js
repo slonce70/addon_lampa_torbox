@@ -13,143 +13,69 @@
     window[PLUGIN_ID] = true;
 
     // ───────────────────── core ▸ UTILS ───────────────────────────────
-    const Utils = (() => {
-        // Кэш для мемоизации
-        const memoCache = new Map();
-        const htmlEscapeMap = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        };
-        
-        // Оптимизированное экранирование HTML
-        const escapeHtml = (str = '') => {
-            if (typeof str !== 'string') return '';
-            return str.replace(/[&<>"']/g, char => htmlEscapeMap[char]);
-        };
-        
-        // Мемоизированное форматирование байтов
-        const formatBytes = (bytes = 0, speed = false) => {
-            const key = `${bytes}_${speed}`;
-            if (memoCache.has(key)) return memoCache.get(key);
-            
+    const Utils = {
+        escapeHtml(str = '') {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        },
+        formatBytes(bytes = 0, speed = false) {
             const B = Number(bytes);
-            if (isNaN(B) || B === 0) {
-                const result = speed ? '0 KB/s' : '0 B';
-                memoCache.set(key, result);
-                return result;
-            }
-            
+            if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
             const k = 1024;
             const sizes = speed
                 ? ['B/s', 'KB/s', 'MB/s', 'GB/s']
                 : ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(B) / Math.log(k));
-            const result = (B / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
-            
-            memoCache.set(key, result);
-            return result;
-        };
-        
-        // Оптимизированное форматирование времени
-        const formatTime = (sec = 0) => {
+            return (B / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+        },
+        formatTime(sec = 0) {
             const s = parseInt(sec, 10);
             if (isNaN(s) || s < 0) return 'н/д';
             if (s === Infinity || s > 2592000) return '∞';
-            
             const h = Math.floor(s / 3600);
             const m = Math.floor((s % 3600) / 60);
             const r = Math.floor(s % 60);
-            
-            const parts = [];
-            if (h) parts.push(h + 'ч');
-            if (m) parts.push(m + 'м');
-            parts.push(r + 'с');
-            
-            return parts.join(' ');
-        };
-        
-        // Кэшированное форматирование возраста
-        const formatAge = (iso) => {
+            return [h ? h + 'ч' : null, m ? m + 'м' : null, r + 'с']
+                .filter(Boolean)
+                .join(' ');
+        },
+        formatAge(iso) {
             if (!iso) return 'н/д';
-            if (memoCache.has(iso)) return memoCache.get(iso);
-            
             const d = new Date(iso);
             if (isNaN(d)) return 'н/д';
-            
-            const diff = Math.floor((Date.now() - d) / 1000);
+            const diff = Math.floor((Date.now() - d) / 1000); // sec
             const m = Math.floor(diff / 60);
             const h = Math.floor(m / 60);
             const days = Math.floor(h / 24);
-            
-            let result;
-            if (diff < 60) result = diff + ' сек. назад';
-            else if (m < 60) result = m + ' хв. назад';
-            else if (h < 24) result = h + ' год. назад';
-            else result = days + ' д. назад';
-            
-            memoCache.set(iso, result);
-            return result;
-        };
-        
-        // Оптимизированное определение качества
-        const qualityRegex = {
-            '4K': /2160p|4K|UHD/i,
-            'FHD': /1080p|FHD/i,
-            'HD': /720p|HD/i
-        };
-        
-        const getQualityLabel = (title = '', raw) => {
+            if (diff < 60) return diff + ' сек. назад';
+            if (m < 60) return m + ' хв. назад';
+            if (h < 24) return h + ' год. назад';
+            return days + ' д. назад';
+        },
+        getQualityLabel(title = '', raw) {
             if (raw?.info?.quality) return raw.info.quality + 'p';
-            
-            for (const [quality, regex] of Object.entries(qualityRegex)) {
-                if (regex.test(title)) return quality;
-            }
+            if (/2160p|4K|UHD/i.test(title)) return '4K';
+            if (/1080p|FHD/i.test(title)) return 'FHD';
+            if (/720p|HD/i.test(title)) return 'HD';
             return 'SD';
-        };
-        
-        // Оптимизированная естественная сортировка
-        const naturalSort = (a, b) => {
+        },
+        naturalSort(a, b) {
             const re = /(\d+)/g;
             const aParts = a.name.split(re);
             const bParts = b.name.split(re);
-            const minLength = Math.min(aParts.length, bParts.length);
-            
-            for (let i = 0; i < minLength; i++) {
+            for (let i = 0; i < Math.min(aParts.length, bParts.length); i++) {
                 if (i % 2) {
-                    const diff = parseInt(aParts[i], 10) - parseInt(bParts[i], 10);
+                    const diff =
+                        parseInt(aParts[i], 10) - parseInt(bParts[i], 10);
                     if (diff) return diff;
                 } else if (aParts[i] !== bParts[i]) {
                     return aParts[i].localeCompare(bParts[i]);
                 }
             }
             return a.name.length - b.name.length;
-        };
-        
-        // Очистка кэша при превышении лимита
-        const clearCache = () => {
-            if (memoCache.size > 1000) {
-                memoCache.clear();
-                // Используем LOG для обратной совместимости
-                LOG('Utils cache cleared due to size limit');
-            }
-        };
-        
-        // Периодическая очистка кэша
-        setInterval(clearCache, 300000); // 5 минут
-        
-        return {
-            escapeHtml,
-            formatBytes,
-            formatTime,
-            formatAge,
-            getQualityLabel,
-            naturalSort,
-            clearCache
-        };
-    })();
+        }
+    };
 
     // ──────────────── core ▸ STORAGE (safeStorage + Store) ─────────────
     const safeStorage = (() => {
@@ -178,78 +104,29 @@
         }
     };
 
-    // ───────────────────── core ▸ CACHE MANAGER ───────────────────────
-    const CacheManager = (() => {
-        const caches = new Map();
-        
-        const policies = {
-            search_results: { ttl: 10 * 60 * 1000, maxSize: 50 }, // 10 минут, 50 записей
-            cached_status: { ttl: 5 * 60 * 1000, maxSize: 100 }, // 5 минут, 100 записей
-            api_responses: { ttl: 2 * 60 * 1000, maxSize: 30 }, // 2 минуты, 30 записей
-            user_settings: { ttl: 60 * 60 * 1000, maxSize: 10 }, // 1 час, 10 записей
-            default: { ttl: 10 * 60 * 1000, maxSize: 50 }
-        };
-        
-        const getCache = (type) => {
-            if (!caches.has(type)) {
-                caches.set(type, new Map());
-            }
-            return caches.get(type);
-        };
-        
-        const set = (key, value, type = 'default') => {
-            const cache = getCache(type);
-            const policy = policies[type] || policies.default;
-            
-            // Проверяем размер кэша
-            if (cache.size >= policy.maxSize) {
-                const firstKey = cache.keys().next().value;
-                cache.delete(firstKey);
-            }
-            
-            cache.set(key, {
-                value,
-                timestamp: Date.now(),
-                ttl: policy.ttl
-            });
-        };
-        
-        const get = (key, type = 'default') => {
-            const cache = getCache(type);
-            const item = cache.get(key);
-            
-            if (!item) return null;
-            
-            if (Date.now() - item.timestamp > item.ttl) {
-                cache.delete(key);
-                return null;
-            }
-            
-            // LRU: переместить в конец
-            cache.delete(key);
-            cache.set(key, item);
-            
-            return item.value;
-        };
-        
-        const clear = (type) => {
-            if (type) {
-                const cache = getCache(type);
-                cache.clear();
-            } else {
-                caches.clear();
+    // ───────────────────── core ▸ CACHE (simple LRU) ───────────────────
+    const Cache = (() => {
+        const map = new Map();
+        const LIM = 128;
+        return {
+            get(k) {
+                if (!map.has(k)) return null;
+                const o = map.get(k);
+                if (Date.now() - o.ts > 600000) { // 10-минутный кэш
+                    map.delete(k);
+                    return null;
+                }
+                map.delete(k);
+                map.set(k, o); // переместить наверх (наиболее используемый)
+                return o.val;
+            },
+            set(k, v) {
+                if (map.has(k)) map.delete(k);
+                map.set(k, { ts: Date.now(), val: v });
+                if (map.size > LIM) map.delete(map.keys().next().value); // удалить самый старый
             }
         };
-        
-        return { set, get, clear };
     })();
-    
-    // Обратная совместимость со старым Cache
-    const Cache = {
-        set: (key, value) => CacheManager.set(key, value, 'search_results'),
-        get: (key) => CacheManager.get(key, 'search_results'),
-        clear: () => CacheManager.clear('search_results')
-    };
 
     // ───────────────────── core ▸ CONFIG ───────────────────────────────
     const Config = (() => {
@@ -273,95 +150,48 @@
                 Store.set('torbox_api_key_b64', btoa(v));
             }
         };
-        // Улучшенная система логирования
-        const Logger = (() => {
-            const levels = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 };
-            
-            const log = (level, context, ...args) => {
-                // Проверяем debug режим динамически
-                const debugMode = Store.get('torbox_debug', false);
-                const currentLevel = debugMode ? levels.DEBUG : levels.INFO;
-                
-                if (levels[level] <= currentLevel) {
-                    const timestamp = new Date().toISOString().substr(11, 12);
-                    const prefix = `[TorBox:${timestamp}:${level}:${context}]`;
-                    console[level.toLowerCase()](prefix, ...args);
-                }
-            };
-            
-            return {
-                error: (context, ...args) => log('ERROR', context, ...args),
-                warn: (context, ...args) => log('WARN', context, ...args),
-                info: (context, ...args) => log('INFO', context, ...args),
-                debug: (context, ...args) => log('DEBUG', context, ...args)
-            };
-        })();
-        
-        // Обратная совместимость
-        const LOG = (...a) => {
-            const debugMode = Store.get('torbox_debug', false);
-            return debugMode && Logger.debug('LEGACY', ...a);
-        };
+        const LOG = (...a) => CFG.debug && console.log('[TorBox]', ...a);
         const PUBLIC_PARSERS = [
             { name: 'Viewbox', url: 'jacred.viewbox.dev', key: 'viewbox' },
             { name: 'Jacred', url: 'jacred.xyz', key: '' }
         ];
         const ICON = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
-        return { CFG, LOG, Logger, PUBLIC_PARSERS, ICON, DEF };
+        return { CFG, LOG, PUBLIC_PARSERS, ICON, DEF };
     })();
-    const { CFG, LOG, Logger, PUBLIC_PARSERS, ICON } = Config;
+    const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
 
     // ───────────────────── core ▸ API ────────────────────────────────
     const Api = (() => {
         const MAIN = 'https://api.torbox.app/v1/api';
-        
-        // Пул соединений и retry логика
-        const RequestManager = (() => {
-            const activeRequests = new Map();
-            const retryDelays = [1000, 2000, 5000]; // ms
-            
-            const _process = (txt, status) => {
-                if (status === 401) throw { type: 'auth', message: '401 – проверьте API-ключ' };
-                if (status >= 400) throw { type: 'network', message: `HTTP ${status}` };
-                if (!txt) throw { type: 'api', message: 'Пустой ответ' };
-                try {
-                    if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
-                    const j = typeof txt === 'object' ? txt : JSON.parse(txt);
-                    if (j?.success === false) throw { type: 'api', message: j.detail || j.message || 'API error' };
-                    return j;
-                } catch {
-                    throw { type: 'api', message: 'Некорректный JSON' };
-                }
-            };
-            
-            const makeRequest = async (url, opt, signal, attempt = 0) => {
-                if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
-                const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
-                opt.headers = opt.headers || {};
-                if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
-                delete opt.headers['Authorization'];
-                
-                try {
-                    const res = await fetch(proxy, { ...opt, signal });
-                    return _process(await res.text(), res.status);
-                } catch (e) {
-                    if (e.name === 'AbortError' || e.type) throw e;
-                    
-                    // Retry логика для сетевых ошибок
-                    if (attempt < retryDelays.length && !signal?.aborted) {
-                        LOG('API retry', `Request failed, retrying in ${retryDelays[attempt]}ms`, e.message);
-                        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
-                        return makeRequest(url, opt, signal, attempt + 1);
-                    }
-                    
-                    throw { type: 'network', message: e.message };
-                }
-            };
-            
-            return { makeRequest };
-        })();
-        
-        const request = RequestManager.makeRequest;
+
+        const _process = (txt, status) => {
+            if (status === 401) throw { type: 'auth', message: '401 – проверьте API-ключ' };
+            if (status >= 400) throw { type: 'network', message: `HTTP ${status}` };
+            if (!txt) throw { type: 'api', message: 'Пустой ответ' };
+            try {
+                if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
+                const j = typeof txt === 'object' ? txt : JSON.parse(txt);
+                if (j?.success === false) throw { type: 'api', message: j.detail || j.message || 'API error' };
+                return j;
+            } catch {
+                throw { type: 'api', message: 'Некорректный JSON' };
+            }
+        };
+
+        const request = async (url, opt = {}, signal) => {
+            if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
+            const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
+            opt.headers = opt.headers || {};
+            if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
+            delete opt.headers['Authorization'];
+            try {
+                const res = await fetch(proxy, { ...opt, signal });
+                return _process(await res.text(), res.status);
+            } catch (e) {
+                if (e.name === 'AbortError' || e.type) throw e;
+                throw { type: 'network', message: e.message };
+            }
+        };
 
         const searchPublicTrackers = async (movie, signal) => {
             for (const p of PUBLIC_PARSERS) {
@@ -421,234 +251,6 @@
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
-    // ───────────────────── core ▸ TEMPLATE ENGINE ─────────────────────
-    const TemplateEngine = (() => {
-        const templates = new Map();
-        
-        const register = (name, template) => {
-            templates.set(name, template);
-        };
-        
-        const render = (name, data = {}) => {
-            const template = templates.get(name);
-            if (!template) {
-                LOG('Template not found:', name);
-                return '';
-            }
-            
-            return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-                const value = data[key];
-                if (value === undefined || value === null) return '';
-                return typeof value === 'string' ? Utils.escapeHtml(value) : String(value);
-            });
-        };
-        
-        // Регистрируем базовые шаблоны
-        register('torbox_empty', `
-            <div class="torbox-empty">
-                <div class="torbox-empty__icon">${ICON}</div>
-                <div class="torbox-empty__message">{{message}}</div>
-            </div>
-        `);
-        
-        register('torbox_item', `
-            <div class="torbox-item selector" data-hash="{{hash}}">
-                <div class="torbox-item__cached">{{cached_icon}}</div>
-                <div class="torbox-item__content">
-                    <div class="torbox-item__title">{{title}}</div>
-                    <div class="torbox-item__info">{{info_formated}}</div>
-                    <div class="torbox-item__meta">{{meta_formated}}</div>
-                    <div class="torbox-item__tech-bar">{{tech_bar_html}}</div>
-                </div>
-            </div>
-        `);
-        
-        register('torbox_status', `
-            <div class="torbox-status">
-                <div class="torbox-status__title">{{title}}</div>
-                <div class="torbox-status__info" data-name="status">…</div>
-                <div class="torbox-status__info" data-name="progress-text"></div>
-                <div class="torbox-status__progress-container">
-                    <div class="torbox-status__progress-bar" style="width:0%"></div>
-                </div>
-                <div class="torbox-status__info" data-name="speed"></div>
-                <div class="torbox-status__info" data-name="eta"></div>
-                <div class="torbox-status__info" data-name="peers"></div>
-            </div>
-        `);
-        
-        return { register, render };
-    })();
-
-    // ───────────────────── core ▸ ERROR HANDLER ───────────────────────
-    class TorBoxError extends Error {
-        constructor(type, message, details = {}) {
-            super(message);
-            this.type = type;
-            this.details = details;
-            this.name = 'TorBoxError';
-        }
-    }
-    
-    const ErrorHandler = (() => {
-        const handle = (error, context = '') => {
-            let errorType, errorMessage;
-            
-            if (error instanceof TorBoxError) {
-                errorType = error.type;
-                errorMessage = error.message;
-                LOG(`[${context}] ${error.type}:`, error.message, error.details);
-            } else if (error && typeof error === 'object' && error.type) {
-                errorType = error.type;
-                errorMessage = error.message || 'Неизвестная ошибка';
-                LOG(`[${context}] ${error.type}:`, errorMessage);
-            } else {
-                errorType = 'unknown';
-                errorMessage = error?.message || String(error) || 'Неизвестная ошибка';
-                LOG(`[${context}] Unexpected error:`, error);
-            }
-            
-            const displayMessage = {
-                'auth': 'Ошибка авторизации',
-                'network': 'Сетевая ошибка', 
-                'api': 'Ошибка API',
-                'validation': 'Ошибка валидации',
-                'unknown': 'Неизвестная ошибка'
-            }[errorType] || 'Ошибка';
-            
-            Lampa.Noty.show(`${displayMessage}: ${errorMessage}`, { type: 'error' });
-        };
-        
-        const throwError = (type, message, details) => {
-            throw new TorBoxError(type, message, details);
-        };
-        
-        return { handle, throwError, TorBoxError };
-    })();
-
-    // ───────────────────── core ▸ TORRENT PROCESSOR ──────────────────
-    const TorrentProcessor = (() => {
-        const processRaw = (raw, hash, cachedSet) => {
-            const v = raw.ffprobe?.find(s => s.codec_type === 'video');
-            const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
-            const tech_info = {
-                video_codec: v?.codec_name,
-                video_resolution: v ? `${v.width}x${v.height}` : null,
-                audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
-                audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
-                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
-                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
-            };
-            
-            return {
-                title: `${raw.Title}`,
-                raw_title: raw.Title,
-                size: raw.Size,
-                magnet: raw.MagnetUri,
-                hash,
-                last_known_seeders: raw.Seeders,
-                last_known_peers: raw.Peers || raw.Leechers,
-                trackers: (raw.Tracker || '').split(/, ?/).filter(Boolean),
-                cached: cachedSet.has(hash.toLowerCase()),
-                publish_date: raw.PublishDate,
-                age: Utils.formatAge(raw.PublishDate),
-                quality: Utils.getQualityLabel(raw.Title, raw),
-                video_type: raw.info?.videotype?.toLowerCase(),
-                voices: raw.info?.voices,
-                ...tech_info,
-                raw_data: raw,
-                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
-                meta_formated: `Трекеры: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
-                tech_bar_html: buildTechBar(tech_info, raw)
-            };
-        };
-        
-        const buildTechBar = (t, raw) => {
-            const tag = (txt, cls) => `<div class="torbox-item__tech-item torbox-item__tech-item--${cls}">${txt}</div>`;
-            const tags = [];
-
-            if (t.video_resolution) tags.push(tag(t.video_resolution, 'res'));
-            if (t.video_codec) tags.push(tag(t.video_codec.toUpperCase(), 'codec'));
-            if (t.has_hdr) tags.push(tag('HDR', 'hdr'));
-            if (t.has_dv) tags.push(tag('Dolby Vision', 'dv'));
-        
-            const audioStreams = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
-            let voiceIndex = 0;
-        
-            for (const s of audioStreams) {
-                let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
-                if (!lang_or_voice || lang_or_voice === 'UND') {
-                    if (raw.info?.voices && raw.info.voices[voiceIndex]) {
-                        lang_or_voice = raw.info.voices[voiceIndex];
-                        voiceIndex++;
-                    } else {
-                        lang_or_voice = null; 
-                    }
-                }
-                const codec = s.codec_name?.toUpperCase() || '';
-                const layout = s.channel_layout || '';
-                const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
-                if (displayText) tags.push(tag(displayText, 'audio'));
-            }
-            return tags.join('');
-        };
-        
-        const processBatch = async (torrents, cachedSet, batchSize = 50) => {
-            const results = [];
-            for (let i = 0; i < torrents.length; i += batchSize) {
-                const batch = torrents.slice(i, i + batchSize);
-                const batchResults = batch.map(({ raw, hash }) => processRaw(raw, hash, cachedSet));
-                results.push(...batchResults);
-                
-                // Даем браузеру время на обработку других задач
-                if (i + batchSize < torrents.length) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-            }
-            return results;
-        };
-        
-        return { processRaw, processBatch };
-    })();
-
-    // ───────────────────── core ▸ EVENT MANAGER ───────────────────────
-    const EventManager = (() => {
-        const delegates = new Map();
-        
-        const addDelegate = (container, selector, event, handler) => {
-            const key = `${event}_${selector}`;
-            if (delegates.has(key)) return;
-            
-            const delegateHandler = (e) => {
-                const target = e.target.closest(selector);
-                if (target && container.contains(target)) {
-                    handler.call(target, e);
-                }
-            };
-            
-            container.addEventListener(event, delegateHandler);
-            delegates.set(key, { container, event, handler: delegateHandler });
-        };
-        
-        const removeDelegate = (selector, event) => {
-            const key = `${event}_${selector}`;
-            const delegate = delegates.get(key);
-            if (delegate) {
-                delegate.container.removeEventListener(delegate.event, delegate.handler);
-                delegates.delete(key);
-            }
-        };
-        
-        const cleanup = () => {
-            for (const [key, delegate] of delegates) {
-                delegate.container.removeEventListener(delegate.event, delegate.handler);
-            }
-            delegates.clear();
-        };
-        
-        return { addDelegate, removeDelegate, cleanup };
-    })();
-
     // ───────────────────────── UI helpers ─────────────────────────────
     const UI = (() => {
         let cache = {};
@@ -656,7 +258,17 @@
             if ($('.modal').length) Lampa.Modal.close();
             cache = {};
             const wrap = document.createElement('div');
-            wrap.innerHTML = TemplateEngine.render('torbox_status', { title });
+            wrap.className = 'torbox-status';
+            wrap.innerHTML = `
+                <div class="torbox-status__title">${Utils.escapeHtml(title)}</div>
+                <div class="torbox-status__info" data-name="status">…</div>
+                <div class="torbox-status__info" data-name="progress-text"></div>
+                <div class="torbox-status__progress-container">
+                    <div class="torbox-status__progress-bar" style="width:0%"></div>
+                </div>
+                <div class="torbox-status__info" data-name="speed"></div>
+                <div class="torbox-status__info" data-name="eta"></div>
+                <div class="torbox-status__info" data-name="peers"></div>`;
             Lampa.Modal.open({ title: 'TorBox', html: $(wrap), size: 'medium', onBack: back || (() => Lampa.Modal.close()) });
         };
         const upd = d => {
@@ -674,8 +286,16 @@
             if (!cache.bar) cache.bar = cache.body.find('.torbox-status__progress-bar');
             cache.bar.css('width', Math.min(100, d.progress || 0) + '%');
         };
-        return { showStatus, updateStatusModal: upd };
+        const ErrorHandler = {
+            show(t, e) {
+                const msg = e.message || 'Ошибка';
+                Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
+                LOG('ERR', t, e);
+            }
+        };
+        return { showStatus, updateStatusModal: upd, ErrorHandler };
     })();
+    const { ErrorHandler } = UI;
 
     // ───────────────────── component ▸ TorBoxComponent ───────────────
     function TorBoxComponent(object) {
@@ -708,10 +328,70 @@
         };
 
         // Логика обработки торрентов, перенесенная из старого кода
-        // Используем новый TorrentProcessor
-        const procRaw = TorrentProcessor.processRaw;
+        const procRaw = (raw, hash, cachedSet) => {
+            const v = raw.ffprobe?.find(s => s.codec_type === 'video');
+            const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+            const tech_info = {
+                video_codec: v?.codec_name,
+                video_resolution: v ? `${v.width}x${v.height}` : null,
+                audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
+                audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
+                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
+                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
+            };
+            
+            return {
+                title: `${raw.Title}`,
+                raw_title: raw.Title,
+                size: raw.Size,
+                magnet: raw.MagnetUri,
+                hash,
+                last_known_seeders: raw.Seeders,
+                last_known_peers: raw.Peers || raw.Leechers,
+                trackers: (raw.Tracker || '').split(/, ?/).filter(Boolean),
+                cached: cachedSet.has(hash.toLowerCase()),
+                publish_date: raw.PublishDate,
+                age: Utils.formatAge(raw.PublishDate),
+                quality: Utils.getQualityLabel(raw.Title, raw),
+                video_type: raw.info?.videotype?.toLowerCase(),
+                voices: raw.info?.voices,
+                ...tech_info,
+                raw_data: raw,
+                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
+                meta_formated: `Трекеры: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
+                tech_bar_html: this.buildTechBar(tech_info, raw)
+            };
+        };
 
-        // buildTechBar теперь находится в TorrentProcessor
+        this.buildTechBar = function(t, raw) {
+            const tag = (txt, cls) => `<div class="torbox-item__tech-item torbox-item__tech-item--${cls}">${txt}</div>`;
+            let bar_html = '';
+
+            if (t.video_resolution) bar_html += tag(t.video_resolution, 'res');
+            if (t.video_codec) bar_html += tag(t.video_codec.toUpperCase(), 'codec');
+            if (t.has_hdr) bar_html += tag('HDR', 'hdr');
+            if (t.has_dv) bar_html += tag('Dolby Vision', 'dv');
+        
+            const audioStreams = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+            let voiceIndex = 0;
+        
+            audioStreams.forEach(s => {
+                let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
+                if (!lang_or_voice || lang_or_voice === 'UND') {
+                    if (raw.info?.voices && raw.info.voices[voiceIndex]) {
+                        lang_or_voice = raw.info.voices[voiceIndex];
+                        voiceIndex++;
+                    } else {
+                        lang_or_voice = null; 
+                    }
+                }
+                const codec = s.codec_name?.toUpperCase() || '';
+                const layout = s.channel_layout || '';
+                const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
+                if (displayText) bar_html += tag(displayText, 'audio');
+            });
+            return bar_html;
+        }
 
         // Логика поиска
         const search = (force = false) => {
@@ -749,30 +429,14 @@
                 .then(({withHash, cached}) => {
                     if (abort.signal.aborted) return;
                     const cachedSet = new Set(Object.keys(cached).map(h => h.toLowerCase()));
-                        // Используем асинхронную обработку для больших списков
-                    if (withHash.length > 100) {
-                        return TorrentProcessor.processBatch(withHash, cachedSet).then(results => {
-                            if (abort.signal.aborted) return;
-                            state.all_torrents = results;
-                            Cache.set(key, state.all_torrents);
-                            this.build();
-                        }).catch(err => {
-                            if (abort.signal.aborted) return;
-                            LOG('Error processing batch:', err);
-                            state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
-                            Cache.set(key, state.all_torrents);
-                            this.build();
-                        });
-                    } else {
-                        state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
-                        Cache.set(key, state.all_torrents);
-                        this.build();
-                    }
+                    state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
+                    Cache.set(key, state.all_torrents);
+                    this.build();
                 })
                 .catch(err => {
                     if (abort.signal.aborted) return;
                     this.empty(err.message || 'Ошибка');
-                    ErrorHandler.handle(err, 'TorBoxComponent');
+                    ErrorHandler.show(err.type || 'unknown', err);
                 })
                 .finally(() => {
                     this.activity.loader(false);
@@ -792,7 +456,7 @@
                 Lampa.Modal.close();
                 selectFile(data);
             } catch (e) {
-                if (e.type !== 'user' && e.name !== 'AbortError') ErrorHandler.handle(e, 'onTorrentClick');
+                if (e.type !== 'user' && e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
                 Lampa.Modal.close();
             }
         };
@@ -826,7 +490,7 @@
 
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort(Utils.naturalSort);
-            if (!vids.length) return ErrorHandler.handle(new ErrorHandler.TorBoxError('validation', 'Видеофайлы не найдены'), 'onTorrentClick');
+            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
             if (vids.length === 1) return play(torrent_data, vids[0]);
 
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
@@ -854,7 +518,7 @@
                     }
                 });
             } catch (e) {
-                ErrorHandler.handle(e, 'play');
+                ErrorHandler.show(e.type || 'unknown', e);
             } finally {
                 Lampa.Loading.stop();
             }
@@ -889,9 +553,9 @@
 
         this.empty = function(msg) {
             scroll.clear();
-            const wrap = document.createElement('div');
-            wrap.innerHTML = TemplateEngine.render('torbox_empty', { message: msg || 'Торренты не найдены' });
-            scroll.append($(wrap));
+            let html = Lampa.Template.get('torbox_empty', {});
+            html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
+            scroll.append($(html));
         };
         
         this.reset = function() {
