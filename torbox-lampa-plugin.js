@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.1 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.2 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -554,6 +554,10 @@
         this.empty = function(msg) {
             scroll.clear();
             let html = Lampa.Template.get('torbox_empty', {});
+            // Ensure html is a string, not a jQuery object
+            if (typeof html !== 'string') {
+                html = html.toString ? html.toString() : String(html);
+            }
             html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
             scroll.append($(html));
         };
@@ -635,6 +639,10 @@
 
             items.forEach(item_data => {
                 let html = Lampa.Template.get('torbox_item', {});
+                // Ensure html is a string, not a jQuery object
+                if (typeof html !== 'string') {
+                    html = html.toString ? html.toString() : String(html);
+                }
                 html = html.replace('##hash##', Utils.escapeHtml(item_data.hash));
                 html = html.replace('##cached_icon##', item_data.cached ? '⚡' : '☁️');
                 html = html.replace('##title##', Utils.escapeHtml(item_data.title));
