@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (Player Exit Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.3.0 (Robust Player Exit)
  * =======================================================================
- * ▸ ИСПРАВЛЕН ВЫХОД ИЗ ПЛЕЕРА: Убрано прямое управление контроллером из
- * обработчиков событий плеера. Lampa теперь самостоятельно восстанавливает
- * предыдущий экран, что решает проблему с неработающей кнопкой "Назад" (Escape) в веб-версии.
+ * ▸ УЛУЧШЕН ВЫХОД ИЗ ПЛЕЕРА: Добавлен обработчик ошибок плеера и
+ * явное управление состоянием для надежного выхода из видео, даже если
+ * оно не может быть загружено. Это решает проблему "зависания" плеера.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_player_exit_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v35_3_0_robust_player_exit';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -538,33 +538,45 @@
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 const mid = object.movie.imdb_id || object.movie.id;
-                state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
+                const player_data = { url: link, title: file.name || object.movie.title, poster: object.movie.img };
 
-                // [ИСПРАВЛЕНИЕ] Убрано прямое управление контроллером из обработчиков плеера.
-                // Lampa должна самостоятельно восстанавливать активность после закрытия плеера.
-                // Это исправляет проблему с выходом по кнопке "Назад" (Escape) в веб-версии.
-                const onComplete = () => {
+                // [ИСПРАВЛЕНИЕ] Добавлены явные обработчики всех состояний плеера (завершение, назад, ошибка)
+                // для гарантированного возврата управления плагину, даже если плеер "зависнет" из-за ошибки загрузки.
+                const cleanup = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
+                    Lampa.Player.listener.remove('error', onError);
+                };
+
+                const onComplete = () => {
+                    cleanup();
                     if (all_video_files.length > 1) {
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
+                        Lampa.Controller.toggle('content');
                     }
                 };
 
                 const onBack = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    // Просто выходим, Lampa восстановит предыдущий экран.
+                    cleanup();
+                    Lampa.Controller.toggle('content');
+                };
+
+                const onError = () => {
+                    cleanup();
+                    Lampa.Player.close();
+                    Lampa.Controller.toggle('content');
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
                 Lampa.Player.listener.follow('back', onBack);
+                Lampa.Player.listener.follow('error', onError);
+
+                Lampa.Player.play(player_data);
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
