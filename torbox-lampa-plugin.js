@@ -553,7 +553,9 @@
 
         this.empty = function(msg) {
             scroll.clear();
-            scroll.append(Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' }));
+            let html = Lampa.Template.get('torbox_empty', {});
+            html = html.replace('##message##', Utils.escapeHtml(msg || 'Торренты не найдены'));
+            scroll.append($(html));
         };
         
         this.reset = function() {
@@ -632,7 +634,14 @@
             const lastHash = Store.get(lastKey, null);
 
             items.forEach(item_data => {
-                let item = Lampa.Template.get('torbox_item', item_data);
+                let html = Lampa.Template.get('torbox_item', {});
+                html = html.replace('##hash##', Utils.escapeHtml(item_data.hash));
+                html = html.replace('##cached_icon##', item_data.cached ? '⚡' : '☁️');
+                html = html.replace('##title##', Utils.escapeHtml(item_data.title));
+                html = html.replace('##info_formated##', item_data.info_formated);
+                html = html.replace('##meta_formated##', item_data.meta_formated);
+                html = html.replace('##tech_bar_html##', item_data.tech_bar_html || '');
+                let item = $(html);
 
                 if (lastHash && item_data.hash === lastHash) {
                     item.addClass('torbox-item--last-played');
@@ -711,15 +720,27 @@
                     Lampa.Controller.collectionSet(filter.render(), scroll.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
-                up: () => Navigator.move('up'),
-                down: () => Navigator.move('down'),
+                up: () => {
+                    if (Lampa.Controller.enabled().name !== 'content') return;
+                    let focused = Lampa.Controller.focused();
+                    if (focused && focused.length) {
+                        let prev = focused.prev('.selector');
+                        if (prev.length) Lampa.Controller.focus(prev);
+                    }
+                },
+                down: () => {
+                    if (Lampa.Controller.enabled().name !== 'content') return;
+                    let focused = Lampa.Controller.focused();
+                    if (focused && focused.length) {
+                        let next = focused.next('.selector');
+                        if (next.length) Lampa.Controller.focus(next);
+                    }
+                },
                 left: () => {
-                    if (Navigator.canmove('left')) Navigator.move('left');
-                    else Lampa.Controller.toggle('menu');
+                    Lampa.Controller.toggle('menu');
                 },
                 right: () => {
-                    if (Navigator.canmove('right')) Navigator.move('right');
-                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
                 back: this.back
             });
@@ -753,8 +774,8 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
-            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{_if(tech_bar_html)}<div class="torbox-item__tech-bar">{tech_bar_html}</div>{_end}</div>');
-            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
+            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>');
+            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">##message##</div></div>');
         }
 
         const addSettings = () => {
