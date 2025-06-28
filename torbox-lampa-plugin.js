@@ -1,15 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.7.0 (Stable Navigation Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.8.0 (Final UX & Scroll Fix)
  * =======================================================================
- * ▸ Полностью переработана и исправлена навигация в соответствии со стандартами Lampa.
- * ▸ Исправлена проблема с неактивным списком и навигацией с пульта.
- * ▸ Реализован корректный возврат к списку серий после просмотра.
- * ▸ Код очищен от предыдущих неудачных исправлений.
+ * ▸ Исправлено закрытие окна выбора серий при запуске плеера (замена Modal на Noty).
+ * ▸ Реализовано сохранение и восстановление позиции прокрутки списка торрентов.
+ * ▸ Код очищен и стабилизирован в соответствии со стандартами Lampa.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_7_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_8_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -329,11 +328,12 @@
             initialized: false,
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
-            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters)))
+            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters))),
+            saved_scroll_top: 0 // [ИЗМЕНЕНО] Для сохранения позиции прокрутки
         };
     }
 
-    // — [ИЗМЕНЕНО] Возврат к стандартной реализации жизненного цикла —
+    // — Стандартная реализация жизненного цикла —
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
     
@@ -739,10 +739,6 @@
     };
 
     // ──── select/play file ────
-    /**
-     * [ИЗМЕНЕНО] Упрощено, возвращено к стандартному поведению.
-     * @param {object} torrent_data - Полные данные о торренте, включая список файлов.
-     */
     TorBoxComponent.prototype._selectFile = function (torrent_data) {
         const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
         if (!vids.length) { 
@@ -774,19 +770,20 @@
             items, 
             onSelect: i => play(i.file), 
             onBack: () => {
-                // Просто возвращаем фокус на основной контент, не меняя состояние
                 Lampa.Controller.toggle('content');
             }
         });
     };
 
     /**
-     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий теперь здесь.
+     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий и сохранения прокрутки.
      * @param {object} torrent_data - Полные данные о торренте.
      * @param {object} file - Выбранный файл для воспроизведения.
      */
     TorBoxComponent.prototype._play = async function (torrent_data, file) {
-        UI.showStatus('Получение ссылки…');
+        // [ИСПРАВЛЕНО] Используем Lampa.Noty, чтобы не закрывать предыдущие окна
+        Lampa.Noty.show('Получение ссылки...', {time: 2000});
+
         try {
             const { data, url } = await Api.requestDl(torrent_data.id, file.id, this.abortController.signal);
             const link = data || url;
@@ -795,24 +792,35 @@
             Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
             Store.set(`torbox_last_played_${mid}`, String(file.id));
             
-            Lampa.Modal.close();
+            // [ИСПРАВЛЕНО] Сохраняем позицию прокрутки перед запуском плеера
+            const scroll_element = this.state.scroll.render()[0];
+            if (scroll_element) {
+                this.state.saved_scroll_top = scroll_element.scrollTop;
+                LOG(`Saved scroll position: ${this.state.saved_scroll_top}`);
+            }
 
             const onComplete = () => {
-                // Отписываемся от события, чтобы избежать утечек памяти и многократных вызовов
                 Lampa.Player.listener.remove('complite', onComplete);
 
-                // Проверяем, является ли это сериалом (более одного видеофайла)
                 const video_files_count = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).length;
                 
                 if (video_files_count > 1) {
                     LOG('Series episode finished, returning to file list.');
-                    // Если это сериал, снова открываем выбор файла этого же торрента
                     this._selectFile(torrent_data);
                 } else {
                     LOG('Movie finished, updating torrent list.');
-                    // Если это фильм (один файл), обновляем главный список торрентов
                     this._display();
-                    Lampa.Controller.toggle('content'); // Возвращаем фокус
+                    
+                    // [ИСПРАВЛЕНО] Восстанавливаем позицию прокрутки
+                    const scroll_element_restore = this.state.scroll.render()[0];
+                    if (scroll_element_restore && this.state.saved_scroll_top > 0) {
+                        LOG(`Attempting to restore scroll position to: ${this.state.saved_scroll_top}`);
+                        setTimeout(() => {
+                            scroll_element_restore.scrollTop = this.state.saved_scroll_top;
+                            LOG('Scroll position restored.');
+                        }, 100); 
+                    }
+                    Lampa.Controller.toggle('content');
                 }
             };
 
@@ -821,7 +829,6 @@
 
         } catch (e) { 
             ErrorHandler.show(e.type || 'unknown', e); 
-            Lampa.Modal.close(); 
         }
     };
 
@@ -866,7 +873,6 @@
         const init = () => {
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
-            // [ИЗМЕНЕНО] Возвращаем стили для списка
             const styles = `
                 /* --- Контейнер для списка --- */
                 .torbox-list-container {
@@ -983,7 +989,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v30.7.0 ready');
+            LOG('TorBox v30.8.0 ready');
         };
         return { init };
     })();
