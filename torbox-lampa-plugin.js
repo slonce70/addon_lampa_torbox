@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.3.0 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -300,7 +300,6 @@
     // ───────────────────── component ▸ TorBoxComponent ───────────────
     function TorBoxComponent(object) {
         // Стандартный конструктор, как в bwa.js
-        let network = new Lampa.Reguest();
         let scroll = new Lampa.Scroll({mask: true, over: true});
         let files = new Lampa.Explorer(object);
         let filter = new Lampa.Filter(object);
@@ -410,7 +409,6 @@
                 return;
             }
 
-            network.clear(); 
             this.empty('Получение списка…');
 
             Api.searchPublicTrackers(object.movie, abort.signal)
@@ -491,14 +489,14 @@
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort(Utils.naturalSort);
             if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
-            if (vids.length === 1) return play(torrent_data, vids[0]);
+            if (vids.length === 1) return play(torrent_data, vids[0], vids);
 
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
             const items = vids.map(f => ({ title: (lastId == f.id ? `▶️ ` : '') + f.name, subtitle: Utils.formatBytes(f.size), file: f, cls: lastId == f.id ? 'select__item--last-played' : '' }));
-            Lampa.Select.show({ title: 'Выберите файл', items, onSelect: i => play(torrent_data, i.file), onBack: () => { Lampa.Controller.toggle('content'); } });
+            Lampa.Select.show({ title: 'Выберите файл', items, onSelect: i => play(torrent_data, i.file, vids), onBack: () => { Lampa.Controller.toggle('content'); } });
         };
 
-        const play = async (torrent_data, file) => {
+        const play = async (torrent_data, file, all_video_files = []) => {
             Lampa.Loading.start();
             try {
                 const link = (await Api.requestDl(torrent_data.id, file.id, abort.signal)).url;
@@ -510,7 +508,8 @@
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
                 Lampa.Player.listener.follow('complite', () => {
                     Lampa.Player.listener.remove('complite');
-                    if (torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).length > 1) {
+                    // Если видеофайлов было больше одного, снова открываем выбор
+                    if (all_video_files.length > 1) {
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
@@ -741,7 +740,6 @@
         
         this.destroy = function () {
             abort.abort();
-            network.clear();
             files.destroy();
             scroll.destroy();
             filter.destroy();
@@ -753,6 +751,17 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
+            /*
+                Читаемая версия шаблона 'torbox_item'. Сжата в одну строку ниже из-за особенностей движка Lampa.
+                <div class="torbox-item selector" data-hash="{hash}">
+                    <div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div>
+                    <div class="torbox-item__main-info">{info_formated}</div>
+                    <div class="torbox-item__meta">{meta_formated}</div>
+                    {_if(tech_bar_html)}
+                        <div class="torbox-item__tech-bar">{tech_bar_html}</div>
+                    {_end}
+                </div>
+            */
             Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{_if(cached)}⚡{_else}☁️{_end} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{_if(tech_bar_html)}<div class="torbox-item__tech-bar">{tech_bar_html}</div>{_end}</div>');
             Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
         }
