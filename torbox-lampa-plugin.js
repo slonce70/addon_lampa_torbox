@@ -503,7 +503,10 @@
                         const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
                         const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
                         UI.updateStatusModal({ status: statusText, progress: perc, progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`, speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`, eta: `Осталось: ${Utils.formatTime(d.eta)}`, peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}` });
-                        if ((d.download_state === 'completed' || d.download_finished || perc >= 100) && d.files?.length) {
+                        // [ИСПРАВЛЕНИЕ] Добавлено состояние 'uploading' в условие завершения.
+                        // Торрент, который начал раздачу, считается готовым к воспроизведению.
+                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
+                        if (is_finished && d.files?.length) {
                            active = false; return ok(d);
                         }
                         if (active) setTimeout(poll, 5000);
