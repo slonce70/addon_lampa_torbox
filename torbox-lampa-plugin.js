@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.3.0 (Final Layout Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v31.0.0 (Context-Aware Navigation)
  * =======================================================================
- * ▸ Повністю перероблено CSS для гарантованого відображення у вигляді сітки.
- * ▸ Використано класичний підхід з float для уникнення конфліктів.
- * ▸ Виправлено проблему з фокусом та "затуханням" першого елемента.
+ * ▸ Повністю перероблено логіку повернення з плеєра.
+ * ▸ Після перегляду серії користувач повертається до списку файлів того ж торрента.
+ * ▸ Плагін "запам'ятовує" активний торрент для зручної навігації по серіалах.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_3_0_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v31_0_0_context';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -142,7 +142,7 @@
             get apiKey() {
                 const b64 = Store.get('torbox_api_key_b64', '');
                 if (!b64) return DEF.apiKey;
-                try { return atob(b64); } 
+                try { return atob(b64); }
                 catch { Store.set('torbox_api_key_b64', ''); return DEF.apiKey; }
             },
             set apiKey(v) {
@@ -326,6 +326,7 @@
             last: null,
             initialized: false,
             all_torrents: [],
+            active_torrent_data: null, // *** NEW: Зберігає дані активного торрента для повернення до списку файлів
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters)))
         };
@@ -371,6 +372,7 @@
         this.state.scroll?.destroy();
         this.state.files?.destroy();
         this.state.filter?.destroy();
+        this.state.active_torrent_data = null; // *** NEW: Очищення при виході
         Object.keys(this.state).forEach(k => this.state[k] = null);
     };
 
@@ -384,8 +386,7 @@
         this._initFilterHandlers();
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
         
-        // Додаємо клас до тіла скролу, щоб мати контейнер для загальних стилів (напр. padding)
-        this.state.scroll.body().addClass('torbox-list-container');
+        this.state.scroll.body().addClass('torbox-grid-container');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
         this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
@@ -557,7 +558,8 @@
     // ──── draw list ────
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
-        const scroll_body = this.state.scroll.body(); // Отримуємо .scroll__body
+        this.state.active_torrent_data = null; // Скидаємо активний торрент при перемальовці головного списку
+        const scroll_body = this.state.scroll.body();
         scroll_body.empty();
     
         if (!list.length) {
@@ -575,9 +577,8 @@
             frag.appendChild(item_element);
         });
         
-        scroll_body.append(frag); // Додаємо елементи напряму до .scroll__body (який є grid-контейнером)
+        scroll_body.append(frag);
     
-        // Встановлюємо перший елемент як елемент для фокусу
         const first_item = scroll_body.find('.selector').first()[0];
         if (first_item) {
             this.state.last = first_item;
@@ -737,20 +738,50 @@
             poll();
         });
     };
+    
+    // *** NEW: Обробник закриття плеєра
+    TorBoxComponent.prototype._onPlayerClose = function () {
+        if (this.state.active_torrent_data) {
+            LOG('Player closed, returning to file list for torrent:', this.state.active_torrent_data.hash);
+            // Повертаємось до списку файлів того ж торрента
+            this._selectFile(this.state.active_torrent_data);
+        } else {
+            LOG('Player closed, no active torrent context, refreshing main list.');
+            // Якщо контекст втрачено, просто оновлюємо головний список
+            this._display();
+        }
+    };
 
     // ──── select/play file ────
     TorBoxComponent.prototype._selectFile = function (d) {
+        // *** NEW: Зберігаємо дані поточного торрента, щоб повернутися сюди
+        this.state.active_torrent_data = d;
+
         const vids = d.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
         if (!vids.length) { ErrorHandler.show('validation', { message: 'Відеофайли не знайдені в торренті' }); return; }
+        
         vids.sort(Utils.naturalSort);
+        
         const play = f => this._play(d.id, d.hash, f);
+        
         if (vids.length === 1) return play(vids[0]);
+        
         const lastId = Store.get(`torbox_last_played_${this.movie.imdb_id || this.movie.id}`, null);
         const items = vids.map(f => {
             const last = lastId && String(f.id) === String(lastId);
             return { title: last ? `▶️ ${f.name}` : f.name, subtitle: Utils.formatBytes(f.size), file: f, cls: last ? 'select__item--last-played' : undefined };
         });
-        Lampa.Select.show({ title: 'Оберіть файл для відтворення', items, onSelect: i => play(i.file), onBack: () => Lampa.Controller.toggle('content') });
+
+        Lampa.Select.show({
+            title: 'Оберіть файл для відтворення',
+            items,
+            onSelect: i => play(i.file),
+            // *** NEW: Якщо користувач натискає "Назад" зі списку файлів, очищаємо контекст
+            onBack: () => {
+                this.state.active_torrent_data = null;
+                Lampa.Controller.toggle('content');
+            }
+        });
     };
 
     TorBoxComponent.prototype._play = async function (tid, hash, file) {
@@ -763,7 +794,10 @@
             Store.set(`torbox_last_played_${mid}`, String(file.id));
             Lampa.Modal.close();
             Lampa.Player.play({ url: link, title: file.name || this.movie.title, poster: this.movie.img });
-            Lampa.Player.listener.follow('complite', () => this._display());
+            
+            // *** CHANGED: Замість _display викликаємо новий обробник
+            Lampa.Player.listener.follow('complite', this._onPlayerClose);
+
         } catch (e) { ErrorHandler.show(e.type || 'unknown', e); Lampa.Modal.close(); }
     };
 
@@ -803,7 +837,8 @@
                 torrentBtn.length ? torrentBtn.after(btn) : root.find('.full-start__play').after(btn);
             });
         };
-
+        
+        // This logic seems overly complex and potentially buggy, keeping it as is but noting it.
         const setupGlobalActivityListener = () => {
             let lastActivityName = null;
             let wasInTorbox = false;
@@ -823,15 +858,14 @@
                     LOG('Returned to TorBox component.');
                     wasInTorbox = false;
                     
-                    // A small delay to ensure the activity is fully rendered and ready
                     setTimeout(() => {
                         try {
                             const torboxActivity = Lampa.Activity.active();
-                            if (torboxActivity && torboxActivity.component === 'torbox_component') {
-                                // Re-assert control and refresh the view
+                            if (torboxActivity && torboxActivity.component === 'torbox_component' && torboxActivity.activity?.component?._onPlayerClose) {
+                                // Instead of a generic display, call the specific handler to restore context.
+                                torboxActivity.activity.component._onPlayerClose();
                                 Lampa.Controller.toggle('content');
-                                torboxActivity.activity.component.display(); 
-                                LOG('Navigation and display restored after returning to TorBox.');
+                                LOG('Navigation and context restored after returning to TorBox.');
                             }
                         } catch (error) {
                             LOG('Error while restoring navigation after return:', error);
@@ -842,17 +876,15 @@
             }, 1000);
         };
         
-
         const init = () => {
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
-            // CSS винесено у змінну для кращої читабельності
             const styles = `
                 /* --- Контейнер-сітка для елементів --- */
                 .torbox-grid-container {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-                    gap: 1em; /* Відстань між елементами сітки */
+                    gap: 1em;
                     padding: 1em;
                 }
 
@@ -963,7 +995,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.2.8 ready');
+            LOG('TorBox v31.0.0 (Context-Aware) ready');
         };
         return { init };
     })();
