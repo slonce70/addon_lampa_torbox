@@ -1,14 +1,16 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v30.2.8 (UI & Logic Finalization)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.2.9 (Final UI & Player Fix)
  * =======================================================================
- * ▸ Повністю локалізовано вікно статусу завантаження.
- * ▸ Виправлено відображення прогрес-бару: повернено коректний колір та анімацію.
- * ▸ Видалено непотрібний API-запит на зупинку торрента після завантаження.
+ * ▸ ВИПРАВЛЕНО ЗАВИСАННЯ: Реалізовано механізм, що відновлює керування
+ * після повернення із зовнішнього плеєра.
+ * ▸ ВИПРАВЛЕНО СТАТУС-БАР: Усунуто помилку "NaN" та повернено коректну
+ * анімацію і колір смуги завантаження.
+ * ▸ Загальна стабілізація та фіналізація коду.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_8_fixed';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_9_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -709,7 +711,7 @@
                     UI.updateStatusModal({
                         status: statusText,
                         progress: perc,
-                        progressText: `${perc.toFixed(2)}% з ${Utils.formatBytes(d.size)}`,
+                        progressText: d.size ? `${perc.toFixed(2)}% з ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`,
                         speed: `Швидкість: ${Utils.formatBytes(d.download_speed, true)}`,
                         eta: `Залишилось: ${Utils.formatTime(d.eta)}`,
                         peers: `Сіди: ${d.seeds || 0} / Піри: ${d.peers || 0}`
@@ -804,6 +806,45 @@
                 torrentBtn.length ? torrentBtn.after(btn) : root.find('.full-start__play').after(btn);
             });
         };
+
+        const setupGlobalActivityListener = () => {
+            let lastActivityName = null;
+            let wasInTorbox = false;
+        
+            setInterval(() => {
+                const currentActivity = Lampa.Activity.active();
+                if (!currentActivity) return;
+        
+                const currentActivityName = currentActivity.component;
+        
+                if (lastActivityName === 'torbox_component' && currentActivityName !== 'torbox_component') {
+                    wasInTorbox = true;
+                    LOG('Left TorBox component, possibly for an external player.');
+                }
+        
+                if (wasInTorbox && currentActivityName === 'torbox_component') {
+                    LOG('Returned to TorBox component.');
+                    wasInTorbox = false;
+                    
+                    // A small delay to ensure the activity is fully rendered and ready
+                    setTimeout(() => {
+                        try {
+                            const torboxActivity = Lampa.Activity.active();
+                            if (torboxActivity && torboxActivity.component === 'torbox_component') {
+                                // Re-assert control and refresh the view
+                                Lampa.Controller.toggle('content');
+                                torboxActivity.activity.component.display(); 
+                                LOG('Navigation and display restored after returning to TorBox.');
+                            }
+                        } catch (error) {
+                            LOG('Error while restoring navigation after return:', error);
+                        }
+                    }, 250); 
+                }
+                lastActivityName = currentActivityName;
+            }, 1000);
+        };
+        
 
         const init = () => {
             const css = document.createElement('style');
@@ -924,7 +965,8 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v30.2.2 ready');
+            setupGlobalActivityListener();
+            LOG('TorBox v30.2.8 ready');
         };
         return { init };
     })();
@@ -943,4 +985,3 @@
         }
     })();
 })();
-
