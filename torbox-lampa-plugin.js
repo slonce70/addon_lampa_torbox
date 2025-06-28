@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.3.1 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -360,7 +360,7 @@
             };
             
             return {
-                title: `${raw.Title}`,
+                title: Utils.escapeHtml(raw.Title),
                 raw_title: raw.Title,
                 size: raw.Size,
                 magnet: raw.MagnetUri,
