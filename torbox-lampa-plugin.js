@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.5 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.6 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -553,10 +553,31 @@
 
         this.empty = function(msg) {
             scroll.clear();
+            
+            // Debug template system
+            LOG('Template system debug:');
+            LOG('- Lampa.Template type:', typeof Lampa.Template);
+            LOG('- Lampa.Template.get type:', typeof Lampa.Template.get);
+            LOG('- Available templates:', Object.keys(Lampa.Template.templates || {}));
+            
             let html = Lampa.Template.get('torbox_empty', {});
+            
+            LOG('Template get result:');
+            LOG('- Type:', typeof html);
+            LOG('- Value:', html);
+            LOG('- Constructor:', html?.constructor?.name);
+            LOG('- Is jQuery:', !!(html && html.jquery));
+            
             // Ensure html is a string, not a jQuery object
             if (typeof html !== 'string') {
-                html = html.toString ? html.toString() : String(html);
+                if (html && html.jquery) {
+                    // It's a jQuery object, get the HTML
+                    html = html.prop('outerHTML') || html.html() || '';
+                    LOG('Converted jQuery object to HTML:', html);
+                } else {
+                    html = html && html.toString ? html.toString() : String(html);
+                    LOG('Converted to string:', html);
+                }
             }
             
             // Validate template
@@ -570,6 +591,7 @@
             let element;
             try {
                 element = $(html);
+                LOG('Successfully created jQuery element');
             } catch (e) {
                 LOG('Error creating jQuery element from template:', e, 'HTML:', html);
                 element = $('<div class="empty"><div class="empty__text">' + Utils.escapeHtml(msg || 'Торренты не найдены') + '</div></div>');
@@ -654,9 +676,23 @@
 
             items.forEach(item_data => {
                 let html = Lampa.Template.get('torbox_item', {});
+                
+                LOG('Item template get result:');
+                LOG('- Type:', typeof html);
+                LOG('- Value:', html);
+                LOG('- Constructor:', html?.constructor?.name);
+                LOG('- Is jQuery:', !!(html && html.jquery));
+                
                 // Ensure html is a string, not a jQuery object
                 if (typeof html !== 'string') {
-                    html = html.toString ? html.toString() : String(html);
+                    if (html && html.jquery) {
+                        // It's a jQuery object, get the HTML
+                        html = html.prop('outerHTML') || html.html() || '';
+                        LOG('Converted jQuery object to HTML:', html);
+                    } else {
+                        html = html && html.toString ? html.toString() : String(html);
+                        LOG('Converted to string:', html);
+                    }
                 }
                 
                 // Validate template
@@ -814,8 +850,27 @@
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
         function addTemplates() {
-            Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>');
-            Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">##message##</div></div>');
+            LOG('Adding templates...');
+            LOG('Lampa.Template type:', typeof Lampa.Template);
+            LOG('Lampa.Template.add type:', typeof Lampa.Template.add);
+            
+            const itemTemplate = '<div class="torbox-item selector" data-hash="##hash##"><div class="torbox-item__title">##cached_icon## ##title##</div><div class="torbox-item__main-info">##info_formated##</div><div class="torbox-item__meta">##meta_formated##</div><div class="torbox-item__tech-bar">##tech_bar_html##</div></div>';
+            const emptyTemplate = '<div class="empty"><div class="empty__text">##message##</div></div>';
+            
+            LOG('Registering torbox_item template:', itemTemplate);
+            Lampa.Template.add('torbox_item', itemTemplate);
+            
+            LOG('Registering torbox_empty template:', emptyTemplate);
+            Lampa.Template.add('torbox_empty', emptyTemplate);
+            
+            // Verify registration
+            setTimeout(() => {
+                LOG('Template verification:');
+                LOG('- torbox_item registered:', !!Lampa.Template.get('torbox_item'));
+                LOG('- torbox_empty registered:', !!Lampa.Template.get('torbox_empty'));
+                LOG('- torbox_item type:', typeof Lampa.Template.get('torbox_item'));
+                LOG('- torbox_empty type:', typeof Lampa.Template.get('torbox_empty'));
+            }, 100);
         }
 
         const addSettings = () => {
@@ -848,7 +903,6 @@
                 if (!root?.length || root.find('.view--torbox').length) return;
                 const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
                 btn.on('hover:enter', () => {
-                    addTemplates(); // Добавляем шаблоны прямо перед запуском
                     Lampa.Activity.push({ component: 'torbox_component', title: 'TorBox - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie })
                 });
                 const torrentBtn = root.find('.view--torrent');
@@ -975,6 +1029,7 @@
             css.textContent = styles;
             document.head.appendChild(css);
 
+            addTemplates(); // Add templates during initialization
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
