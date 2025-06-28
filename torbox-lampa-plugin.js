@@ -1,21 +1,20 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.2.10 (Display Fix)
+ * TorBox Enhanced – Universal Lampa Plugin v30.2.11 (Final Render Fix)
  * =================================================================================
- * • КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Переход на систему шаблонов Lampa для рендеринга.
- * ① Добавлен Lampa.Template 'torbox_item_template' для создания элементов списка.
- * ② Функция draw() переработана для использования Lampa.Template.get(), что гарантирует
- * корректную регистрацию элементов в Lampa.Scroll и их отображение.
- * ③ Удалена устаревшая функция _createTorrentHTML, логика интегрирована в draw().
- * ④ Этот подход решает проблему, когда торренты загружались, но не отображались.
- * • ПРЕДЫДУЩИЕ ИСПРАВЛЕНИЯ: Сохранены все исправления из версий до v30.2.9.
- * • СТАБИЛЬНОСТЬ: Ожидается стабильное отображение списка торрентов.
+ * • КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Добавлено принудительное обновление интерфейса Lampa.
+ * ① В конец функции draw() добавлен вызов Lampa.Controller.toggle('content').
+ * ② Этот вызов заставляет Lampa перерисовать область контента после
+ * асинхронного добавления элементов, решая проблему пустого экрана.
+ * ③ Оптимизирован шаблон Lampa.Template для лучшей практики и чистоты кода.
+ * • ПРЕДЫДУЩИЕ ИСПРАВЛЕНИЯ: Сохранены все исправления из версий до v30.2.10.
+ * • СТАБИЛЬНОСТЬ: Это исправление должно обеспечить стабильное отображение торрентов.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_2_10_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v30_2_11_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -501,11 +500,8 @@
         if (this.state.initialized) return;
         LOG("Component initialize()");
 
-        //
-        // 1. Создаем шаблон для элемента списка
-        //
         Lampa.Template.add('torbox_item_template', `
-            <div class="online selector {is_last_played}">
+            <div class="online selector">
                 <div class="online__body">
                     <div class="online__title">{title_html}</div>
                     <div class="online__quality">{quality_html}</div>
@@ -711,10 +707,6 @@
          }
      };
 
-    //
-    // 2. Функция _createTorrentHTML удалена. Логика перенесена в draw
-    //
-
     TorBoxComponent.prototype.draw = function(torrents_list) {
          LOG('draw() called with torrents_list length:', torrents_list?.length || 0);
          
@@ -743,9 +735,6 @@
              let itemsAdded = 0;
              torrents_list.forEach((t, index) => {
                  try {
-                    //
-                    // 3. Создаем элемент списка через систему шаблонов Lampa
-                    //
                     const isLastPlayedTorrent = lastTorrentHash && t.hash === lastTorrentHash;
 
                     const quality = `[${t.quality}] ${Utils.formatBytes(t.size)}`;
@@ -768,13 +757,16 @@
                     }
             
                     const templateData = {
-                        is_last_played: isLastPlayedTorrent ? 'torbox-item--last-played' : '',
                         title_html: `${t.cached ? '⚡ ' : '☁️ '}${Utils.escapeHtml(t.raw_title || t.title)}`,
                         quality_html: `${quality}${seeds_peers}${techInfo}`,
                         meta_html: Utils.escapeHtml(`Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`)
                     };
             
                     const $item = Lampa.Template.get('torbox_item_template', templateData);
+                    
+                    if (isLastPlayedTorrent) {
+                        $item.addClass('torbox-item--last-played');
+                    }
 
                      if (!$item || !$item.length || !$item[0]) {
                          LOG('Failed to create valid DOM element for torrent:', t?.title);
@@ -797,9 +789,6 @@
              
              LOG('Successfully added', itemsAdded, 'torrent items to scroll');
              
-             this.state.scroll.render();
-             LOG('Scroll rendered, geometry updated');
-             
              const first = this.state.scroll.body().children().first();
              if (first.length) {
                  this.state.scroll.update(first, true);
@@ -807,6 +796,12 @@
              } else {
                  LOG('Warning: No first element found in scroll body for focus');
              }
+
+             //
+             // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: "Активируем" контент после его добавления
+             //
+             Lampa.Controller.toggle('content');
+             LOG('Forced content toggle to refresh view.');
              
          } catch (error) {
              LOG('Error in draw():', error);
@@ -1132,7 +1127,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.2.10 (Refactored) ready');
+            LOG('TorBox v30.2.11 (Refactored) ready');
         };
 
         return { init };
