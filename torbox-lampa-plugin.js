@@ -1,14 +1,14 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v31.0.0 (Context-Aware Navigation)
+/* TorBox Enhanced – Universal Lampa Plugin  v30.4.0 (Series UX Improvement)
  * =======================================================================
- * ▸ Повністю перероблено логіку повернення з плеєра.
- * ▸ Після перегляду серії користувач повертається до списку файлів того ж торрента.
- * ▸ Плагін "запам'ятовує" активний торрент для зручної навігації по серіалах.
+ * ▸ Улучшен пользовательский опыт при просмотре сериалов.
+ * ▸ После просмотра серии пользователь возвращается к списку серий того же торрента, а не к общему списку торрентов.
+ * ▸ Рефакторинг функций _play и _selectFile для сохранения контекста.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v31_0_0_context';
+    const PLUGIN_ID = 'torbox_enhanced_v30_4_0_fixed';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -112,18 +112,18 @@
             get(k) {
                 if (!map.has(k)) return null;
                 const o = map.get(k);
-                if (Date.now() - o.ts > 600000) { // 10-хвилинний кеш
+                if (Date.now() - o.ts > 600000) { // 10-минутный кэш
                     map.delete(k);
                     return null;
                 }
                 map.delete(k);
-                map.set(k, o); // перемістити нагору (найбільш використовуваний)
+                map.set(k, o); // переместить наверх (наиболее используемый)
                 return o.val;
             },
             set(k, v) {
                 if (map.has(k)) map.delete(k);
                 map.set(k, { ts: Date.now(), val: v });
-                if (map.size > LIM) map.delete(map.keys().next().value); // видалити найстаріший
+                if (map.size > LIM) map.delete(map.keys().next().value); // удалить самый старый
             }
         };
     })();
@@ -142,7 +142,7 @@
             get apiKey() {
                 const b64 = Store.get('torbox_api_key_b64', '');
                 if (!b64) return DEF.apiKey;
-                try { return atob(b64); }
+                try { return atob(b64); } 
                 catch { Store.set('torbox_api_key_b64', ''); return DEF.apiKey; }
             },
             set apiKey(v) {
@@ -165,21 +165,21 @@
         const MAIN = 'https://api.torbox.app/v1/api';
 
         const _process = (txt, status) => {
-            if (status === 401) throw { type: 'auth', message: '401 – перевірте API-ключ' };
+            if (status === 401) throw { type: 'auth', message: '401 – проверьте API-ключ' };
             if (status >= 400) throw { type: 'network', message: `HTTP ${status}` };
-            if (!txt) throw { type: 'api', message: 'Порожня відповідь' };
+            if (!txt) throw { type: 'api', message: 'Пустой ответ' };
             try {
                 if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
                 const j = typeof txt === 'object' ? txt : JSON.parse(txt);
                 if (j?.success === false) throw { type: 'api', message: j.detail || j.message || 'API error' };
                 return j;
             } catch {
-                throw { type: 'api', message: 'Некоректний JSON' };
+                throw { type: 'api', message: 'Некорректный JSON' };
             }
         };
 
         const request = async (url, opt = {}, signal) => {
-            if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не заданий у налаштуваннях' };
+            if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             opt.headers = opt.headers || {};
             if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
@@ -216,7 +216,7 @@
                     LOG('Parser fail', p.name, err.message);
                 }
             }
-            throw { type: 'api', message: 'Усі публічні парсери недоступні або без результатів' };
+            throw { type: 'api', message: 'Все публичные парсеры недоступны или без результатов' };
         };
 
         const checkCached = async (hashes, signal) => {
@@ -294,8 +294,8 @@
         };
         const ErrorHandler = {
             show(t, e) {
-                const msg = e.message || 'Помилка';
-                Lampa.Noty.show(`${t === 'network' ? 'Мережева помилка' : 'Помилка'}: ${msg}`, { type: 'error' });
+                const msg = e.message || 'Ошибка';
+                Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
                 LOG('ERR', t, e);
             }
         };
@@ -313,10 +313,10 @@
         this.params = obj;
         this.abortController = new AbortController();
         this.sort_types = [
-            { key: 'seeders', title: 'За сідами (спад.)', field: 'last_known_seeders', reverse: true },
-            { key: 'size_desc', title: 'За розміром (спад.)', field: 'size', reverse: true },
-            { key: 'size_asc', title: 'За розміром (зрост.)', field: 'size', reverse: false },
-            { key: 'age', title: 'За датою додавання', field: 'publish_date', reverse: true }
+            { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
+            { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
+            { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
+            { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
         ];
         this.defaultFilters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
         this.state = {
@@ -326,13 +326,12 @@
             last: null,
             initialized: false,
             all_torrents: [],
-            active_torrent_data: null, // *** NEW: Зберігає дані активного торрента для повернення до списку файлів
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(this.defaultFilters)))
         };
     }
 
-    // — життєвий цикл —
+    // — жизненный цикл —
     TorBoxComponent.prototype.create = function () { this.initialize(); return this.render(); };
     TorBoxComponent.prototype.render = function () { return this.state.files.render(); };
     TorBoxComponent.prototype.start = function () {
@@ -372,7 +371,6 @@
         this.state.scroll?.destroy();
         this.state.files?.destroy();
         this.state.filter?.destroy();
-        this.state.active_torrent_data = null; // *** NEW: Очищення при виході
         Object.keys(this.state).forEach(k => this.state[k] = null);
     };
 
@@ -386,7 +384,7 @@
         this._initFilterHandlers();
         if (this.state.filter.addButtonBack) this.state.filter.addButtonBack();
         
-        this.state.scroll.body().addClass('torbox-grid-container');
+        this.state.scroll.body().addClass('torbox-list-container');
         this.state.files.appendFiles(this.state.scroll.render());
         this.state.files.appendHead(this.state.filter.render());
         this.state.scroll.minus(this.state.files.render().find('.explorer__files-head'));
@@ -420,33 +418,33 @@
         const { filter, sort, filters, all_torrents } = this.state;
         const sort_items = this.sort_types.map(i => ({ ...i, selected: i.key === sort }));
         filter.set('sort', sort_items);
-        filter.render().find('.filter--sort span').text('Сортування');
+        filter.render().find('.filter--sort span').text('Сортировка');
         filter.chosen('sort', [(this.sort_types.find(s => s.key === sort) || { title: '' }).title]);
 
         const build = (key, title, arr) => {
             const uni = [...new Set(arr.flat().filter(Boolean))].sort();
             const items = ['all', ...uni].map(v => ({
-                title: v === 'all' ? 'Всі' : v.toUpperCase(),
+                title: v === 'all' ? 'Все' : v.toUpperCase(),
                 value: v,
                 selected: filters[key] === v
             }));
-            const sub = filters[key] === 'all' ? 'Всі' : filters[key].toUpperCase();
+            const sub = filters[key] === 'all' ? 'Все' : filters[key].toUpperCase();
             return { title, subtitle: sub, items, stype: key };
         };
 
         const f_items = [
-            build('quality', 'Якість', all_torrents.map(t => t.quality)),
-            build('video_type', 'Тип відео', all_torrents.map(t => t.video_type)),
-            build('translation', 'Переклад', all_torrents.map(t => t.voices)),
-            build('lang', 'Мова аудіо', all_torrents.map(t => t.audio_langs)),
-            build('video_codec', 'Відео кодек', all_torrents.map(t => t.video_codec)),
-            build('audio_codec', 'Аудіо кодек', all_torrents.map(t => t.audio_codecs)),
+            build('quality', 'Качество', all_torrents.map(t => t.quality)),
+            build('video_type', 'Тип видео', all_torrents.map(t => t.video_type)),
+            build('translation', 'Перевод', all_torrents.map(t => t.voices)),
+            build('lang', 'Язык аудио', all_torrents.map(t => t.audio_langs)),
+            build('video_codec', 'Видео кодек', all_torrents.map(t => t.video_codec)),
+            build('audio_codec', 'Аудио кодек', all_torrents.map(t => t.audio_codecs)),
             build('tracker', 'Трекер', all_torrents.map(t => t.trackers)),
-            { title: 'Скинути фільтри', reset: true },
-            { title: 'Оновити список', refresh: true }
+            { title: 'Сбросить фильтры', reset: true },
+            { title: 'Обновить список', refresh: true }
         ];
         filter.set('filter', f_items);
-        filter.render().find('.filter--filter span').text('Фільтр');
+        filter.render().find('.filter--filter span').text('Фильтр');
         const subTitles = f_items.filter(f => f.stype && filters[f.stype] !== 'all').map(f => `${f.title}: ${filters[f.stype]}`);
         filter.chosen('filter', subTitles);
     };
@@ -481,7 +479,7 @@
         const scroll_body = this.state.scroll.body();
         scroll_body.empty();
         const empty_msg_element = $('<div class="empty"><div class="empty__text"></div></div>');
-        empty_msg_element.find('.empty__text').text(msg || 'Торренти не знайдені');
+        empty_msg_element.find('.empty__text').text(msg || 'Торренты не найдены');
         scroll_body.append(empty_msg_element);
         this.activity.loader(false);
     };
@@ -501,14 +499,13 @@
 
         const meta = document.createElement('div');
         meta.className = 'torbox-item__meta';
-        meta.textContent = `Трекери: ${t.trackers?.join(', ') || 'н/д'} | Додано: ${t.age || 'н/д'}`;
+        meta.textContent = `Трекеры: ${t.trackers?.join(', ') || 'н/д'} | Добавлено: ${t.age || 'н/д'}`;
 
         it.append(title, info, meta);
         if (t.video_resolution) it.appendChild(this._createTechBar(t));
         return it;
     };
     
-    // AUDIO TAG FIX: Improved logic for displaying audio stream info
     TorBoxComponent.prototype._createTechBar = function (t) {
         const bar = document.createElement('div');
         bar.className = 'torbox-item__tech-bar';
@@ -531,19 +528,17 @@
             let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
     
             if (!lang_or_voice || lang_or_voice === 'UND') {
-                // Fallback to translation type if language tag is missing
                 if (t.voices && t.voices[voiceIndex]) {
                     lang_or_voice = t.voices[voiceIndex];
                     voiceIndex++;
                 } else {
-                    lang_or_voice = null; // No info available
+                    lang_or_voice = null; 
                 }
             }
     
             const codec = s.codec_name?.toUpperCase() || '';
             const layout = s.channel_layout || '';
     
-            // Build the text, omitting the lang part if it's null
             const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
     
             if (displayText) {
@@ -558,12 +553,11 @@
     // ──── draw list ────
     TorBoxComponent.prototype._draw = function (list) {
         this.state.last = null;
-        this.state.active_torrent_data = null; // Скидаємо активний торрент при перемальовці головного списку
         const scroll_body = this.state.scroll.body();
         scroll_body.empty();
     
         if (!list.length) {
-            return this._renderEmpty('Нічого не знайдено за заданими фільтрами');
+            return this._renderEmpty('Ничего не найдено по заданным фильтрам');
         }
         
         const lastKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
@@ -589,21 +583,21 @@
     // ──── load & display ────
     TorBoxComponent.prototype._loadAndDisplay = async function (force = false) {
         this.activity.loader(true);
-        this._renderEmpty('Завантаження...');
+        this._renderEmpty('Загрузка...');
         try {
             const key = `torbox_hybrid_${this.movie.id || this.movie.imdb_id}`;
             if (!force && Cache.get(key)) {
                 this.state.all_torrents = Cache.get(key);
             } else {
-                this._renderEmpty('Отримання списку…');
+                this._renderEmpty('Получение списка…');
                 const raw = await Api.searchPublicTrackers(this.movie, this.abortController.signal);
-                if (!raw.length) return this._renderEmpty('Парсер не повернув результатів.');
+                if (!raw.length) return this._renderEmpty('Парсер не вернул результатов.');
                 const withHash = raw.map(r => {
                     const m = r.MagnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
                     return m ? { raw: r, hash: m[1] } : null;
                 }).filter(Boolean);
-                if (!withHash.length) return this._renderEmpty('Не знайдено валідних торрентів.');
-                this._renderEmpty(`Перевірка кешу (${withHash.length})…`);
+                if (!withHash.length) return this._renderEmpty('Не найдено валидных торрентов.');
+                this._renderEmpty(`Проверка кэша (${withHash.length})…`);
                 const cached = await Api.checkCached(withHash.map(x => x.hash), this.abortController.signal);
                 const cachedSet = new Set(Object.keys(cached).map(h => h.toLowerCase()));
                 this.state.all_torrents = withHash.map(({ raw, hash }) => this._procRaw(raw, hash, cachedSet));
@@ -611,7 +605,7 @@
             }
             this._display();
         } catch (e) {
-            this._renderEmpty(e.message || 'Помилка');
+            this._renderEmpty(e.message || 'Ошибка');
             ErrorHandler.show(e.type || 'unknown', e);
         } finally {
             this.activity.loader(false);
@@ -654,11 +648,11 @@
     // ──── torrent click handler ────
     TorBoxComponent.prototype._onTorrentClick = async function (t) {
         try {
-            if (!t.magnet) throw { type: 'validation', message: 'Magnet-посилання не знайдено' };
-            UI.showStatus('Додавання торрента…');
+            if (!t.magnet) throw { type: 'validation', message: 'Magnet-ссылка не найдена' };
+            UI.showStatus('Добавление торрента…');
             const res = await Api.addMagnet(t.magnet, this.abortController.signal);
             const tid = res.data.torrent_id || res.data.id;
-            if (!tid) throw { type: 'api', message: 'ID торрента не отримано' };
+            if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
             const data = await this._track(tid);
             data.hash = t.hash;
             Lampa.Modal.close();
@@ -682,23 +676,23 @@
                     const d = torrentList[0];
 
                     if (!d || typeof d !== 'object') {
-                        LOG(`Торрент ${id} ще не з'явився у списку або має невірний формат, повторна спроба...`);
+                        LOG(`Торрент ${id} еще не появился в списке или имеет неверный формат, повторная попытка...`);
                         if (active) setTimeout(poll, 5000);
                         return;
                     }
                     
                     const statusMap = {
-                        'queued': 'В черзі',
-                        'downloading': 'Завантаження',
-                        'uploading': 'Роздача',
+                        'queued': 'В очереди',
+                        'downloading': 'Загрузка',
+                        'uploading': 'Раздача',
                         'completed': 'Завершено',
-                        'stalled': 'Зупинено',
-                        'error': 'Помилка',
-                        'metadl': 'Отримання метаданих',
-                        'paused': 'На паузі',
-                        'failed': 'Помилка завантаження',
-                        'checking': 'Перевірка',
-                        'processing': 'Обробка'
+                        'stalled': 'Остановлено',
+                        'error': 'Ошибка',
+                        'metadl': 'Получение метаданных',
+                        'paused': 'На паузе',
+                        'failed': 'Ошибка загрузки',
+                        'checking': 'Проверка',
+                        'processing': 'Обработка'
                     };
                     const apiStatus = (d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0];
                     const statusText = statusMap[apiStatus] || (d.download_state || d.status);
@@ -709,10 +703,10 @@
                     UI.updateStatusModal({
                         status: statusText,
                         progress: perc,
-                        progressText: d.size ? `${perc.toFixed(2)}% з ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`,
-                        speed: `Швидкість: ${Utils.formatBytes(d.download_speed, true)}`,
-                        eta: `Залишилось: ${Utils.formatTime(d.eta)}`,
-                        peers: `Сіди: ${d.seeds || 0} / Піри: ${d.peers || 0}`
+                        progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`,
+                        speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`,
+                        eta: `Осталось: ${Utils.formatTime(d.eta)}`,
+                        peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}`
                     });
 
                     const isDownloadFinished = apiStatus === 'completed' || d.download_finished || perc >= 100;
@@ -720,7 +714,6 @@
 
                     if (isDownloadFinished && filesAreReady) {
                         active = false;
-                        // Запит на зупинку видалено згідно з побажанням
                         return ok(d);
                     }
                     if (active) setTimeout(poll, 5000);
@@ -732,74 +725,91 @@
                     }
                 }
             };
-            const cancel = () => { if (active) { active = false; fail({ type: 'user', message: 'Скасовано користувачем' }); } };
-            UI.showStatus('Відстеження статусу…', cancel);
+            const cancel = () => { if (active) { active = false; fail({ type: 'user', message: 'Отменено пользователем' }); } };
+            UI.showStatus('Отслеживание статуса…', cancel);
             this.abortController.signal.addEventListener('abort', cancel);
             poll();
         });
     };
-    
-    // *** NEW: Обробник закриття плеєра
-    TorBoxComponent.prototype._onPlayerClose = function () {
-        if (this.state.active_torrent_data) {
-            LOG('Player closed, returning to file list for torrent:', this.state.active_torrent_data.hash);
-            // Повертаємось до списку файлів того ж торрента
-            this._selectFile(this.state.active_torrent_data);
-        } else {
-            LOG('Player closed, no active torrent context, refreshing main list.');
-            // Якщо контекст втрачено, просто оновлюємо головний список
-            this._display();
-        }
-    };
 
     // ──── select/play file ────
-    TorBoxComponent.prototype._selectFile = function (d) {
-        // *** NEW: Зберігаємо дані поточного торрента, щоб повернутися сюди
-        this.state.active_torrent_data = d;
-
-        const vids = d.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
-        if (!vids.length) { ErrorHandler.show('validation', { message: 'Відеофайли не знайдені в торренті' }); return; }
+    /**
+     * [ИЗМЕНЕНО] Эта функция теперь вызывает _play, передавая весь объект данных торрента.
+     * @param {object} torrent_data - Полные данные о торренте, включая список файлов.
+     */
+    TorBoxComponent.prototype._selectFile = function (torrent_data) {
+        const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name));
+        if (!vids.length) { ErrorHandler.show('validation', { message: 'Видеофайлы не найдены в торренте' }); return; }
         
         vids.sort(Utils.naturalSort);
         
-        const play = f => this._play(d.id, d.hash, f);
-        
-        if (vids.length === 1) return play(vids[0]);
+        const play = selected_file => this._play(torrent_data, selected_file);
+
+        if (vids.length === 1) {
+            return play(vids[0]);
+        }
         
         const lastId = Store.get(`torbox_last_played_${this.movie.imdb_id || this.movie.id}`, null);
         const items = vids.map(f => {
             const last = lastId && String(f.id) === String(lastId);
-            return { title: last ? `▶️ ${f.name}` : f.name, subtitle: Utils.formatBytes(f.size), file: f, cls: last ? 'select__item--last-played' : undefined };
+            return { 
+                title: last ? `▶️ ${f.name}` : f.name, 
+                subtitle: Utils.formatBytes(f.size), 
+                file: f, 
+                cls: last ? 'select__item--last-played' : undefined 
+            };
         });
-
-        Lampa.Select.show({
-            title: 'Оберіть файл для відтворення',
-            items,
-            onSelect: i => play(i.file),
-            // *** NEW: Якщо користувач натискає "Назад" зі списку файлів, очищаємо контекст
-            onBack: () => {
-                this.state.active_torrent_data = null;
-                Lampa.Controller.toggle('content');
-            }
+        
+        Lampa.Select.show({ 
+            title: 'Выберите файл для воспроизведения', 
+            items, 
+            onSelect: i => play(i.file), 
+            onBack: () => Lampa.Controller.toggle('content') 
         });
     };
 
-    TorBoxComponent.prototype._play = async function (tid, hash, file) {
-        UI.showStatus('Отримання посилання…');
+    /**
+     * [ИЗМЕНЕНО] Основная логика для возврата к списку серий после просмотра.
+     * @param {object} torrent_data - Полные данные о торренте.
+     * @param {object} file - Выбранный файл для воспроизведения.
+     */
+    TorBoxComponent.prototype._play = async function (torrent_data, file) {
+        UI.showStatus('Получение ссылки…');
         try {
-            const { data, url } = await Api.requestDl(tid, file.id, this.abortController.signal);
+            const { data, url } = await Api.requestDl(torrent_data.id, file.id, this.abortController.signal);
             const link = data || url;
             const mid = this.movie.imdb_id || this.movie.id;
-            Store.set(`torbox_last_torrent_${mid}`, hash);
-            Store.set(`torbox_last_played_${mid}`, String(file.id));
-            Lampa.Modal.close();
-            Lampa.Player.play({ url: link, title: file.name || this.movie.title, poster: this.movie.img });
             
-            // *** CHANGED: Замість _display викликаємо новий обробник
-            Lampa.Player.listener.follow('complite', this._onPlayerClose);
+            Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
+            Store.set(`torbox_last_played_${mid}`, String(file.id));
+            
+            Lampa.Modal.close();
 
-        } catch (e) { ErrorHandler.show(e.type || 'unknown', e); Lampa.Modal.close(); }
+            const onComplete = () => {
+                // Отписываемся от события, чтобы избежать утечек памяти и многократных вызовов
+                Lampa.Player.listener.remove('complite', onComplete);
+
+                // Проверяем, является ли это сериалом (более одного видеофайла)
+                const video_files_count = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).length;
+                
+                if (video_files_count > 1) {
+                    // Если это сериал, возвращаемся к выбору файла этого же торрента
+                    this._selectFile(torrent_data);
+                } else {
+                    // Если это фильм (один файл), обновляем список торрентов
+                    this._display();
+                }
+            };
+
+            Lampa.Player.play({ url: link, title: file.name || this.movie.title, poster: this.movie.img });
+            Lampa.Player.listener.follow('complite', onComplete);
+
+        } catch (e) { 
+            ErrorHandler.show(e.type || 'unknown', e); 
+            Lampa.Modal.close(); 
+        }
     };
+
 
     // ───────────────────── plugin ▸ main integration ───────────────
     const Plugin = (() => {
@@ -807,9 +817,9 @@
             if (!Lampa.SettingsApi) return;
             Lampa.SettingsApi.addComponent({ component: 'torbox_enh', name: 'TorBox Enhanced', icon: ICON });
             [
-                { k: 'torbox_proxy_url', n: 'URL CORS-проксі', d: `Default: ${Config.DEF.proxyUrl}`, t: 'input', v: CFG.proxyUrl },
-                { k: 'torbox_api_key', n: 'API-Key', d: 'Якщо є власний ключ', t: 'input', v: CFG.apiKey },
-                { k: 'torbox_debug', n: 'Debug-режим', d: 'Виводити лог у консоль', t: 'trigger', v: CFG.debug }
+                { k: 'torbox_proxy_url', n: 'URL CORS-прокси', d: `Default: ${Config.DEF.proxyUrl}`, t: 'input', v: CFG.proxyUrl },
+                { k: 'torbox_api_key', n: 'API-Key', d: 'Если есть собственный ключ', t: 'input', v: CFG.apiKey },
+                { k: 'torbox_debug', n: 'Debug-режим', d: 'Выводить лог в консоль', t: 'trigger', v: CFG.debug }
             ].forEach(p => {
                 Lampa.SettingsApi.addParam({
                     component: 'torbox_enh',
@@ -837,8 +847,7 @@
                 torrentBtn.length ? torrentBtn.after(btn) : root.find('.full-start__play').after(btn);
             });
         };
-        
-        // This logic seems overly complex and potentially buggy, keeping it as is but noting it.
+
         const setupGlobalActivityListener = () => {
             let lastActivityName = null;
             let wasInTorbox = false;
@@ -861,11 +870,10 @@
                     setTimeout(() => {
                         try {
                             const torboxActivity = Lampa.Activity.active();
-                            if (torboxActivity && torboxActivity.component === 'torbox_component' && torboxActivity.activity?.component?._onPlayerClose) {
-                                // Instead of a generic display, call the specific handler to restore context.
-                                torboxActivity.activity.component._onPlayerClose();
+                            if (torboxActivity && torboxActivity.component === 'torbox_component') {
                                 Lampa.Controller.toggle('content');
-                                LOG('Navigation and context restored after returning to TorBox.');
+                                torboxActivity.activity.component.display(); 
+                                LOG('Navigation and display restored after returning to TorBox.');
                             }
                         } catch (error) {
                             LOG('Error while restoring navigation after return:', error);
@@ -876,19 +884,20 @@
             }, 1000);
         };
         
+
         const init = () => {
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
-                /* --- Контейнер-сітка для елементів --- */
-                .torbox-grid-container {
+                /* --- Контейнер-сетка для элементов --- */
+                .torbox-list-container {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-                    gap: 1em;
+                    gap: 1em; /* Расстояние между элементами сетки */
                     padding: 1em;
                 }
 
-                /* --- Елемент списку торрентів --- */
+                /* --- Элемент списка торрентов --- */
                 .torbox-item {
                     padding: 1em 1.2em;
                     margin: 0; 
@@ -918,7 +927,7 @@
                     background: rgba(0, 0, 0, .2);
                 }
 
-                /* --- Внутрішні елементи картки --- */
+                /* --- Внутренние элементы карточки --- */
                 .torbox-item__title {
                     font-weight: 600;
                     margin-bottom: .3em;
@@ -938,7 +947,7 @@
                     margin-bottom: .8em;
                 }
 
-                /* --- Панель з технічною інформацією --- */
+                /* --- Панель с технической информацией --- */
                 .torbox-item__tech-bar {
                     display: flex;
                     flex-wrap: wrap;
@@ -957,13 +966,13 @@
                 .torbox-item__tech-item--hdr { background: linear-gradient(45deg, #ff8c00, #ffa500); color: #fff; }
                 .torbox-item__tech-item--dv { background: linear-gradient(45deg, #4b0082, #8a2be2); color: #fff; }
 
-                /* --- Додаткові стилі --- */
+                /* --- Дополнительные стили --- */
                 .select__item--last-played > .select__item-title {
                     color: var(--color-second) !important;
                     font-weight: 600;
                 }
                 
-                /* --- Модальне вікно статусу --- */
+                /* --- Модальное окно статуса --- */
                 .torbox-status { padding: 1.5em 2em; text-align: center; min-height: 200px; }
                 .torbox-status__title { font-size: 1.4em; margin-bottom: 1em; font-weight: 600; }
                 .torbox-status__info { font-size: 1.1em; margin-bottom: .8em; }
@@ -995,7 +1004,7 @@
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v31.0.0 (Context-Aware) ready');
+            LOG('TorBox v30.4.0 ready');
         };
         return { init };
     })();
