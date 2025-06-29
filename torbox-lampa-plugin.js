@@ -524,7 +524,7 @@
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
+                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) });
 
                 const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
@@ -900,6 +900,7 @@
                 if (!root?.length || root.find('.view--torbox').length) return;
                 const btn = $(`<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`);
                 btn.on('hover:enter', () => {
+                    addTemplates(); // Ensure templates are added before pushing activity
                     Lampa.Activity.push({ component: 'torbox_component', title: Lampa.Lang.translate('title_torbox') + ' - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie })
                 });
                 const torrentBtn = root.find('.view--torrent');
@@ -908,7 +909,6 @@
         };
         
         const init = () => {
-            addTemplates(); // Moved here to ensure templates are always available
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
