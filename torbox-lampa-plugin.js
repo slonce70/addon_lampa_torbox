@@ -429,12 +429,20 @@
             
             // Загрузка сохраненных настроек
             const savedFilters = Store.get('torbox_filters_v2', null);
-            if (savedFilters) {
+            if (savedFilters && typeof savedFilters === 'string') {
                 try {
-                    state.filters = { ...defaultFilters, ...JSON.parse(savedFilters) };
+                    const parsed = JSON.parse(savedFilters);
+                    if (parsed && typeof parsed === 'object') {
+                        state.filters = { ...defaultFilters, ...parsed };
+                    }
                 } catch (e) {
                     Utils.error('Failed to parse saved filters:', e);
+                    // Очищаем некорректные данные
+                    Store.set('torbox_filters_v2', null);
                 }
+            } else if (savedFilters && typeof savedFilters === 'object') {
+                // Если данные уже объект, используем их напрямую
+                state.filters = { ...defaultFilters, ...savedFilters };
             }
             
             state.sort = Store.get('torbox_sort_method', 'seeds');
@@ -477,17 +485,39 @@
                     clearTimeout(focus_timer);
                 },
                 up: () => {
-                    if (Navigator.canmove('up')) Navigator.move('up');
-                    else Lampa.Controller.toggle('head');
+                    if (Lampa.Controller.enabled().name === 'content') {
+                        const focused = Lampa.Controller.focused();
+                        if (focused && focused.prev().length) {
+                            Lampa.Controller.move('up');
+                        } else {
+                            Lampa.Controller.toggle('head');
+                        }
+                    }
                 },
-                down: () => Navigator.move('down'),
+                down: () => {
+                    if (Lampa.Controller.enabled().name === 'content') {
+                        Lampa.Controller.move('down');
+                    }
+                },
                 left: () => {
-                    if (Navigator.canmove('left')) Navigator.move('left');
-                    else Lampa.Controller.toggle('menu');
+                    if (Lampa.Controller.enabled().name === 'content') {
+                        const focused = Lampa.Controller.focused();
+                        if (focused && focused.prev().length) {
+                            Lampa.Controller.move('left');
+                        } else {
+                            Lampa.Controller.toggle('menu');
+                        }
+                    }
                 },
                 right: () => {
-                    if (Navigator.canmove('right')) Navigator.move('right');
-                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    if (Lampa.Controller.enabled().name === 'content') {
+                        const focused = Lampa.Controller.focused();
+                        if (focused && focused.next().length) {
+                            Lampa.Controller.move('right');
+                        } else {
+                            filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                        }
+                    }
                 },
                 back: this.back.bind(this)
             });
@@ -558,6 +588,14 @@
         };
         
         /**
+         * Создание компонента (требуется для Lampa Activity)
+         */
+        this.create = function() {
+            Utils.log('Creating TorBox component');
+            return this.render();
+        };
+        
+        /**
          * Получение рендера
          */
         this.render = function() {
@@ -568,13 +606,22 @@
          * Управление загрузкой
          */
         this.loading = function(status) {
-            if (status) {
-                if (this.activity) this.activity.loader(true);
-            } else {
-                if (this.activity) {
-                    this.activity.loader(false);
-                    this.activity.toggle();
+            try {
+                const currentActivity = Lampa.Activity.active();
+                if (status) {
+                    if (currentActivity && currentActivity.loader) {
+                        currentActivity.loader(true);
+                    }
+                } else {
+                    if (currentActivity && currentActivity.loader) {
+                        currentActivity.loader(false);
+                    }
+                    if (currentActivity && currentActivity.toggle) {
+                        currentActivity.toggle();
+                    }
                 }
+            } catch (e) {
+                Utils.error('Loading method error:', e);
             }
         };
     }
