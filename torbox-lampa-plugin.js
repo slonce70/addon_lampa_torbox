@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (Player Exit Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.2.1 (Player Exit Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕН ВЫХОД ИЗ ПЛЕЕРА: Убрано прямое управление контроллером из
  * обработчиков событий плеера. Lampa теперь самостоятельно восстанавливает
@@ -8,7 +8,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_player_exit_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v35_2_1_player_exit_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -547,24 +547,7 @@
                 // [ИСПРАВЛЕНИЕ] Убрано прямое управление контроллером из обработчиков плеера.
                 // Lampa должна самостоятельно восстанавливать активность после закрытия плеера.
                 // Это исправляет проблему с выходом по кнопке "Назад" (Escape) в веб-версии.
-                const onComplete = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    if (all_video_files.length > 1) {
-                        setTimeout(() => selectFile(torrent_data), 50);
-                    } else {
-                        markAsPlayed(torrent_data.hash);
-                    }
-                };
-
-                const onBack = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    // Просто выходим, Lampa восстановит предыдущий экран.
-                };
-
-                Lampa.Player.listener.follow('complite', onComplete);
-                Lampa.Player.listener.follow('back', onBack);
+                Lampa.Player.listener.follow('complite', () => markAsPlayed(torrent_data.hash));
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
