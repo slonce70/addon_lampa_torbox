@@ -120,6 +120,9 @@
                 if (map.has(k)) map.delete(k);
                 map.set(k, { ts: Date.now(), val: v });
                 if (map.size > LIMIT) map.delete(map.keys().next().value); // удалить самый старый
+            },
+            clear() {
+                map.clear();
             }
         };
     })();
