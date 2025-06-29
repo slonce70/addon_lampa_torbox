@@ -1,15 +1,19 @@
-/* TorBox Enhanced – Refactored for Stability (v5 - Download & Track Fix)
+/* TorBox Enhanced - Final Stable Version (BWA Architecture)
  * =======================================================================
- * ▸ ИСПРАВЛЕНО: Восстановлена и адаптирована надежная логика отслеживания
- * и запуска торрента из стабильной версии v29. Это решает проблему,
- * когда незакэшированный торрент не запускался после скачивания.
- * ▸ Сохранена архитектура UI и стабильный выход из плеера.
+ * ▸ АРХИТЕКТУРА: Плагин полностью перенесен на стабильный и проверенный
+ * "скелет" компонента bwa.js. Это обеспечивает максимальную
+ * отказоустойчивость, правильную навигацию и управление состоянием.
+ * ▸ ФУНКЦИОНАЛ: Вся уникальная логика TorBox (поиск, проверка кеша,
+ * отслеживание загрузки) была бережно интегрирована в новую архитектуру.
+ * ▸ UI: Сохранен ваш фирменный и удобный вид списка торрентов.
+ * ▸ СТАБИЛЬНОСТЬ: Это финальная версия, нацеленная на решение всех
+ * проблем с навигацией, зависаниями и выходом из плеера.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_refactored_v5';
+    const PLUGIN_ID = 'torbox_enhanced_final_stable';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -97,13 +101,12 @@
     const Cache = (() => {
         const map = new Map();
         const LIMIT = 128;
-        const TTL_MS = 600000; // 10-минутный кэш
+        const TTL_MS = 600000;
         return {
             get(k) {
-                if (!map.has(k)) return null;
                 const o = map.get(k);
-                if (Date.now() - o.ts > TTL_MS) {
-                    map.delete(k);
+                if (!o || Date.now() - o.ts > TTL_MS) {
+                    if (o) map.delete(k);
                     return null;
                 }
                 map.delete(k);
@@ -112,8 +115,8 @@
             },
             set(k, v) {
                 if (map.has(k)) map.delete(k);
+                if (map.size >= LIMIT) map.delete(map.keys().next().value);
                 map.set(k, { ts: Date.now(), val: v });
-                if (map.size > LIMIT) map.delete(map.keys().next().value);
             }
         };
     })();
@@ -253,37 +256,35 @@
     })();
     const { ErrorHandler } = UI;
 
-    // ───────────────────── component ▸ TorBoxComponent (Переработан) ───────────────
+    // ───────────────────── component ▸ TorBoxComponent (BWA Architecture) ───────────
     function TorBoxComponent(object) {
-        // Привязываем контекст ко всем методам компонента
-        for (const key in TorBoxComponent.prototype) {
-            if (typeof this[key] === 'function') {
-                this[key] = this[key].bind(this);
-            }
-        }
-        
-        let scroll, files, filter, last, abort;
-        let initialized = false;
+        let network = new Lampa.Reguest();
+        let scroll = new Lampa.Scroll({ mask: true, over: true });
+        let files = new Lampa.Explorer(object);
+        let filter = new Lampa.Filter(object);
+        let last;
+        let initialized;
+        let abortController;
 
-        this.movie = object.movie;
-        this.componentObject = object;
-
+        // Состояние, специфичное для TorBox
         let state = {
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters_v2', '{}')),
             last_hash: null,
         };
-
         const defaultFilters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
+        const sort_types = [
+            { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
+            { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
+            { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
+            { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
+        ];
 
         this.create = function () {
-            scroll = new Lampa.Scroll({ mask: true, over: true });
-            files = new Lampa.Explorer(this.componentObject);
-            filter = new Lampa.Filter(this.componentObject);
-            abort = new AbortController();
-            this.componentObject.activity.loader(false);
-            scroll.body().addClass('torbox-list-container');
+            this.activity = object.activity;
+            abortController = new AbortController();
+            scroll.body().addClass('torrent-list');
             files.appendFiles(scroll.render());
             files.appendHead(filter.render());
             scroll.minus(files.render().find('.explorer__files-head'));
@@ -291,22 +292,32 @@
         };
 
         this.start = function () {
-            if (!initialized) {
-                this.initialize();
-                initialized = true;
-            }
             Lampa.Controller.add('content', {
                 toggle: () => {
                     Lampa.Controller.collectionSet(filter.render(), scroll.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
-                up: () => Navigator.move('up'),
+                up: () => {
+                    if (Navigator.canmove('up')) Navigator.move('up');
+                    else Lampa.Controller.toggle('head');
+                },
                 down: () => Navigator.move('down'),
-                left: () => Navigator.canmove('left') ? Navigator.move('left') : Lampa.Controller.toggle('menu'),
-                right: () => Navigator.canmove('right') ? Navigator.move('right') : filter.show(Lampa.Lang.translate('title_filter'), 'filter'),
+                left: () => {
+                    if (Navigator.canmove('left')) Navigator.move('left');
+                    else Lampa.Controller.toggle('menu');
+                },
+                right: () => {
+                    if (Navigator.canmove('right')) Navigator.move('right');
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                },
                 back: this.back
             });
             Lampa.Controller.toggle('content');
+            
+            if (!initialized) {
+                initialized = true;
+                this.initialize();
+            }
         };
 
         this.initialize = function () {
@@ -327,123 +338,63 @@
             };
             filter.onBack = () => Lampa.Controller.toggle('content');
             if (filter.addButtonBack) filter.addButtonBack();
-            this.search();
+            
+            this.search(); // Первый запуск поиска
         };
-
+        
         this.search = async function (force = false) {
-            if (abort) abort.abort();
-            abort = new AbortController();
-            this.componentObject.activity.loader(true);
+            abortController.abort();
+            abortController = new AbortController();
+            this.activity.loader(true);
             this.reset();
-            const cacheKey = `torbox_hybrid_${this.movie.id || this.movie.imdb_id}`;
+            const cacheKey = `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
             const cachedTorrents = Cache.get(cacheKey);
             if (!force && cachedTorrents) {
                 state.all_torrents = cachedTorrents;
                 this.build();
-                this.componentObject.activity.loader(false);
+                this.activity.loader(false);
                 return;
             }
             this.empty('Получение списка торрентов…');
             try {
-                const rawResults = await Api.searchPublicTrackers(this.movie, abort.signal);
-                if (abort.signal.aborted) return;
+                const rawResults = await Api.searchPublicTrackers(object.movie, abortController.signal);
+                if (abortController.signal.aborted) return;
                 const withHash = rawResults.map(r => {
                     const m = r.MagnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
                     return m ? { raw: r, hash: m[1] } : null;
                 }).filter(Boolean);
                 if (!withHash.length) return this.empty('Не найдено валидных торрентов.');
                 this.empty(`Проверка кэша TorBox (${withHash.length})...`);
-                const cachedMap = await Api.checkCached(withHash.map(x => x.hash), abort.signal);
-                if (abort.signal.aborted) return;
+                const cachedMap = await Api.checkCached(withHash.map(x => x.hash), abortController.signal);
+                if (abortController.signal.aborted) return;
                 const cachedSet = new Set(Object.keys(cachedMap).map(h => h.toLowerCase()));
                 state.all_torrents = withHash.map(({ raw, hash }) => this.procRaw(raw, hash, cachedSet));
                 Cache.set(cacheKey, state.all_torrents);
                 this.build();
             } catch (err) {
-                if (abort.signal.aborted) return;
+                if (abortController.signal.aborted) return;
                 this.empty(err.message || 'Произошла ошибка');
                 ErrorHandler.show(err.type || 'unknown', err);
             } finally {
-                this.componentObject.activity.loader(false);
+                this.activity.loader(false);
             }
         };
-
-        this.procRaw = (raw, hash, cachedSet) => {
-            const v = raw.ffprobe?.find(s => s.codec_type === 'video');
-            const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
-            const tech_info = {
-                video_codec: v?.codec_name,
-                video_resolution: v ? `${v.width}x${v.height}` : null,
-                audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
-                audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
-                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
-                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
-            };
-            const is_cached = cachedSet.has(hash.toLowerCase());
-            return {
-                title: Utils.escapeHtml(raw.Title),
-                size: raw.Size,
-                magnet: raw.MagnetUri,
-                hash,
-                last_known_seeders: raw.Seeders,
-                publish_date: raw.PublishDate,
-                quality: Utils.getQualityLabel(raw.Title, raw),
-                video_type: raw.info?.videotype?.toLowerCase(),
-                voices: raw.info?.voices,
-                icon: is_cached ? '⚡' : '☁️',
-                cached: is_cached,
-                ...tech_info,
-                raw_data: raw,
-                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
-                meta_formated: `Трекер: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
-                tech_bar_html: this.buildTechBar(tech_info, raw)
-            };
-        };
-        
-        this.buildTechBar = function(t, raw) {
-            const tag = (txt, cls) => `<div class="torbox-item__tech-item torbox-item__tech-item--${cls}">${txt}</div>`;
-            let inner_html = '';
-            if (t.video_resolution) inner_html += tag(t.video_resolution, 'res');
-            if (t.video_codec) inner_html += tag(t.video_codec.toUpperCase(), 'codec');
-            if (t.has_hdr) inner_html += tag('HDR', 'hdr');
-            if (t.has_dv) inner_html += tag('DV', 'dv');
-            const audioStreams = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
-            let voiceIndex = 0;
-            audioStreams.forEach(s => {
-                let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
-                if (!lang_or_voice || lang_or_voice === 'UND') {
-                    lang_or_voice = raw.info?.voices?.[voiceIndex++] || null;
-                }
-                const codec = s.codec_name?.toUpperCase() || '';
-                const layout = s.channel_layout || '';
-                const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
-                if (displayText) inner_html += tag(displayText, 'audio');
-            });
-            return inner_html ? `<div class="torbox-item__tech-bar">${inner_html}</div>` : '';
-        }
         
         this.onTorrentClick = async function(torrent) {
-            if (abort) abort.abort();
-            abort = new AbortController();
-            
+            abortController.abort();
+            abortController = new AbortController();
             try {
                 if (!torrent?.magnet) throw {type: 'validation', message: 'Не найдена magnet-ссылка.'};
-                
                 UI.showStatus('Добавление торрента...');
-                const result = await Api.addMagnet(torrent.magnet, abort.signal);
+                const result = await Api.addMagnet(torrent.magnet, abortController.signal);
                 const torrentId = result.data.torrent_id || result.data.id;
                 if (!torrentId) throw {type: 'api', message: 'Не удалось получить ID торрента.'};
-                
-                const finalTorrentData = await this.track(torrentId, abort.signal);
-                finalTorrentData.hash = torrent.hash; // Передаем оригинальный хеш
-                
+                const finalTorrentData = await this.track(torrentId, abortController.signal);
+                finalTorrentData.hash = torrent.hash;
                 Lampa.Modal.close();
                 this.selectFile(finalTorrentData);
-
             } catch (e) {
-                if (e.type !== "user" && e.name !== "AbortError") {
-                    ErrorHandler.show(e.type || 'unknown', e);
-                }
+                if (e.type !== "user" && e.name !== "AbortError") ErrorHandler.show(e.type || 'unknown', e);
                 Lampa.Modal.close();
             }
         };
@@ -455,7 +406,6 @@
                 let retries = 0;
                 const MAX_RETRIES = 8;
                 const RETRY_DELAY = 3500;
-    
                 const onCancel = () => { 
                     if (isTrackingActive) { 
                         isTrackingActive = false; 
@@ -463,45 +413,34 @@
                         reject({type: 'user', message: 'Отменено пользователем'}); 
                     } 
                 };
-    
                 UI.showStatus('Отслеживание статуса...', onCancel);
-                
                 if (signal) signal.addEventListener('abort', () => { 
                     isTrackingActive = false; 
                     clearTimeout(pollTimeout); 
                     reject(new DOMException('Aborted', 'AbortError')); 
                 }, { once: true });
-    
                 const poll = async () => {
                     if (!isTrackingActive) { clearTimeout(pollTimeout); return; }
-                    
                     try {
                         const torrentResult = await Api.myList(torrentId, signal);
                         const torrentData = torrentResult?.data?.[0];
-    
                         if (!isTrackingActive) return;
-    
                         if (!torrentData) {
                             retries++;
                             if (retries > MAX_RETRIES) {
                                 isTrackingActive = false;
                                 return reject({type: 'api', message: "Торрент не появился в списке после добавления."});
-                            } else {
-                                UI.updateStatusModal({ status: `Ожидание в списке... (попытка ${retries})` });
-                                if (isTrackingActive) pollTimeout = setTimeout(poll, RETRY_DELAY);
-                                return;
                             }
+                            UI.updateStatusModal({ status: `Ожидание в списке... (попытка ${retries})` });
+                            if (isTrackingActive) pollTimeout = setTimeout(poll, RETRY_DELAY);
+                            return;
                         }
-    
                         retries = 0; 
                         const currentStatus = torrentData.download_state || torrentData.status;
                         const statusMap = {'queued':'В очереди','downloading':'Загрузка','uploading':'Раздача','completed':'Завершен','stalled':'Остановлен','error':'Ошибка','metadl':'Получение метаданных','paused':'На паузе','failed':'Ошибка загрузки','checking':'Проверка'};
                         const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
-                        
-                        // ПРАВИЛЬНЫЙ РАСЧЕТ ПРОГРЕССА
                         let progressValue = parseFloat(torrentData.progress);
                         let progressPercent = isNaN(progressValue) ? 0 : (progressValue > 1 ? progressValue : progressValue * 100);
-                        
                         UI.updateStatusModal({ 
                             status: Utils.escapeHtml(statusText), 
                             progress: progressPercent, 
@@ -510,10 +449,8 @@
                             eta: `Осталось: ${Utils.formatTime(torrentData.eta)}`, 
                             peers: `Сиды: ${torrentData.seeds||0} / Пиры: ${torrentData.peers||0}` 
                         });
-    
                         const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
                         const filesAreReady = torrentData.files && torrentData.files.length > 0;
-    
                         if (isDownloadFinished && filesAreReady) {
                             isTrackingActive = false;
                             if (currentStatus.startsWith('uploading')) {
@@ -525,10 +462,7 @@
                             if (isTrackingActive) pollTimeout = setTimeout(poll, 5000);
                         }
                     } catch (error) { 
-                        if (isTrackingActive) {
-                            isTrackingActive = false; 
-                            reject(error); 
-                        }
+                        if (isTrackingActive) { isTrackingActive = false; reject(error); }
                     }
                 };
                 poll();
@@ -539,17 +473,11 @@
             const videoFiles = torrent_data.files
                 .filter(f => /\.(mkv|mp4|avi|ts|mov)$/i.test(f.name))
                 .sort(Utils.naturalSort);
-
             if (!videoFiles.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены в торренте.' });
-            
             const isLikelyMovie = videoFiles.length === 1 || !/s\d{2}e\d{2}/i.test(videoFiles.map(f => f.name).join(''));
-            if (isLikelyMovie) {
-                return this.play(torrent_data, videoFiles[0]);
-            }
-
-            const movieId = this.movie.imdb_id || this.movie.id;
+            if (isLikelyMovie) return this.play(torrent_data, videoFiles[0]);
+            const movieId = object.movie.imdb_id || object.movie.id;
             const lastPlayedId = Store.get(`torbox_last_played_${movieId}`, null);
-
             Lampa.Select.show({
                 title: 'Выберите файл для воспроизведения',
                 items: videoFiles.map(file => ({
@@ -566,19 +494,16 @@
         this.play = async function(torrent_data, file) {
             Lampa.Loading.start();
             try {
-                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
+                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abortController.signal);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-
-                const movieId = this.movie.imdb_id || this.movie.id;
+                const movieId = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${movieId}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${movieId}`, String(file.id));
-
                 const timeline = Lampa.Timeline.view(torrent_data.hash + file.id);
                 const playerTimelineData = { hash: timeline.hash, time: timeline.time, duration: timeline.duration, percent: timeline.percent };
-                const playerObject = { url: link, title: `${this.movie.title} / ${file.name}`, poster: this.movie.img, timeline: playerTimelineData };
-
+                const playerObject = { url: link, title: `${object.movie.title} / ${file.name}`, poster: object.movie.img, timeline: playerTimelineData };
                 const onPlayerDestroy = () => {
                     const finalTimeline = Lampa.Player.timeline();
                     timeline.time = finalTimeline.time;
@@ -588,11 +513,9 @@
                     this.markAsPlayed(torrent_data.hash);
                     Lampa.Player.listener.remove('destroy', onPlayerDestroy);
                 };
-
                 Lampa.Player.listener.follow('destroy', onPlayerDestroy);
                 Lampa.Player.play(playerObject);
                 Lampa.Player.playlist([playerObject]);
-                
             } catch (e) {
                 if (e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
             } finally {
@@ -608,6 +531,54 @@
                 currentItem.addClass('torbox-item--just-watched');
             }
         };
+        
+        this.procRaw = (raw, hash, cachedSet) => {
+            const v = raw.ffprobe?.find(s => s.codec_type === 'video');
+            const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+            return {
+                title: Utils.escapeHtml(raw.Title),
+                size: raw.Size,
+                magnet: raw.MagnetUri,
+                hash,
+                last_known_seeders: raw.Seeders,
+                publish_date: raw.PublishDate,
+                quality: Utils.getQualityLabel(raw.Title, raw),
+                video_type: raw.info?.videotype?.toLowerCase(),
+                voices: raw.info?.voices,
+                icon: cachedSet.has(hash.toLowerCase()) ? '⚡' : '☁️',
+                cached: cachedSet.has(hash.toLowerCase()),
+                video_codec: v?.codec_name,
+                video_resolution: v ? `${v.width}x${v.height}` : null,
+                audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
+                audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
+                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
+                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
+                raw_data: raw,
+                info_formated: `[${Utils.getQualityLabel(raw.Title, raw)}] ${Utils.formatBytes(raw.Size)} | 🟢<span style="color:var(--color-good);">${raw.Seeders || 0}</span> / 🔴<span style="color:var(--color-bad);">${raw.Peers || 0}</span>`,
+                meta_formated: `Трекер: ${(raw.Tracker || '').split(/, ?/)[0] || 'н/д'} | Добавлено: ${Utils.formatAge(raw.PublishDate) || 'н/д'}`,
+                tech_bar_html: this.buildTechBar({ video_codec: v?.codec_name, video_resolution: v ? `${v.width}x${v.height}`: null, has_hdr: /hdr/i.test(raw.Title), has_dv: /dv/i.test(raw.Title) }, raw)
+            };
+        };
+        
+        this.buildTechBar = function(t, raw) {
+            const tag = (txt, cls) => `<div class="torbox-item__tech-item torbox-item__tech-item--${cls}">${txt}</div>`;
+            let inner_html = '';
+            if (t.video_resolution) inner_html += tag(t.video_resolution, 'res');
+            if (t.video_codec) inner_html += tag(t.video_codec.toUpperCase(), 'codec');
+            if (t.has_hdr) inner_html += tag('HDR', 'hdr');
+            if (t.has_dv) inner_html += tag('DV', 'dv');
+            const audioStreams = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
+            let voiceIndex = 0;
+            audioStreams.forEach(s => {
+                let lang_or_voice = s.tags?.language?.toUpperCase() || s.tags?.LANGUAGE?.toUpperCase();
+                if (!lang_or_voice || lang_or_voice === 'UND') lang_or_voice = raw.info?.voices?.[voiceIndex++] || null;
+                const codec = s.codec_name?.toUpperCase() || '';
+                const layout = s.channel_layout || '';
+                const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
+                if (displayText) inner_html += tag(displayText, 'audio');
+            });
+            return inner_html ? `<div class="torbox-item__tech-bar">${inner_html}</div>` : '';
+        }
 
         this.empty = (msg) => {
             scroll.clear();
@@ -644,12 +615,6 @@
             const subTitles = f_items.filter(f => f.stype && state.filters[f.stype] !== 'all').map(f => `${f.title}: ${state.filters[f.stype]}`);
             filter.chosen('filter', subTitles);
             
-            const sort_types = [
-                { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
-                { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
-                { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
-                { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
-            ];
             const sort_items = sort_types.map(i => ({ ...i, selected: i.key === state.sort }));
             filter.set('sort', sort_items);
             filter.render().find('.filter--sort span').text('Сортировка');
@@ -657,23 +622,16 @@
         };
 
         this.applyFiltersSort = () => {
-            let list = state.all_torrents.filter(t => {
+            let list = [...state.all_torrents].filter(t => {
                 for (const key in defaultFilters) {
                     if (state.filters[key] && state.filters[key] !== 'all') {
                         const value = t[key] || t.voices;
-                        if (Array.isArray(value) ? !value.includes(state.filters[key]) : value !== state.filters[key]) {
-                            return false;
-                        }
+                        if (Array.isArray(value) ? !value.includes(state.filters[key]) : value !== state.filters[key]) return false;
                     }
                 }
                 return true;
             });
-            const s = [
-                { key: 'seeders', field: 'last_known_seeders', reverse: true },
-                { key: 'size_desc', field: 'size', reverse: true },
-                { key: 'size_asc', field: 'size', reverse: false },
-                { key: 'age', field: 'publish_date', reverse: true }
-            ].find(s => s.key === state.sort);
+            const s = sort_types.find(s => s.key === state.sort);
             if (s) {
                 list.sort((a, b) => {
                     let va = a[s.field] || 0, vb = b[s.field] || 0;
@@ -689,10 +647,8 @@
             last = false;
             scroll.clear();
             if (!items.length) return this.empty('Ничего не найдено по заданным фильтрам');
-        
-            const lastKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
+            const lastKey = `torbox_last_torrent_${object.movie.imdb_id || object.movie.id}`;
             const lastHash = Store.get(lastKey, null);
-
             items.forEach(item_data => {
                 let item = Lampa.Template.get('torbox_item', item_data);
                 if (lastHash && item_data.hash === lastHash) item.addClass('torbox-item--last-played');
@@ -715,9 +671,8 @@
                 });
                 scroll.append(item);
             });
-            
             let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`)[0] || scroll.render().find('.selector').first()[0];
-            if(focus_element) last = focus_element;
+            if (focus_element) last = focus_element;
         };
 
         this.back = function() {
@@ -726,7 +681,7 @@
                 Lampa.Filter.hide();
                 return Lampa.Controller.toggle('content');
             }
-            abort.abort();
+            abortController.abort();
             Lampa.Activity.backward();
         };
         
@@ -734,10 +689,14 @@
         this.pause = () => {};
         this.stop = () => {};
         this.destroy = () => {
-            abort.abort();
-            files.destroy();
-            scroll.destroy();
-            filter.destroy();
+            abortController.abort();
+            if (files) files.destroy();
+            if (scroll) scroll.destroy();
+            if (filter) filter.destroy();
+            network.clear();
+            files = null;
+            scroll = null;
+            filter = null;
         };
     }
 
