@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin v35.3.0 (UI/UX Stability Fix) */
+/* TorBox Enhanced – Universal Lampa Plugin v35.3.1 (UI/UX Stability Fix) */
 (function() {
     'use strict';
 
