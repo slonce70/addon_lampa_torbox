@@ -1,13 +1,12 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v36.3.0 (Refactoring)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.5.0 (Feature)
  * =======================================================================
- * ▸ ФАЗА 2: Улучшена обработка ошибок.
- * ▸ Ошибки теперь могут отображаться прямо в интерфейсе, а не только как уведомления.
+ * ▸ ФУНКЦИЯ: Добавлен "уточняющий поиск" для изменения запроса.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v36_3_0_refactoring';
+    const PLUGIN_ID = 'torbox_enhanced_v35_5_0_feature';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -153,27 +152,14 @@
             }
         };
         const LOG = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-        
-        // [РЕФАКТОРИНГ] Замена жестко заданных парсеров на гибкую систему источников
-        const SOURCES = {
-            'viewbox': {
-                name: 'Viewbox',
-                type: 'jackett',
-                endpoint: 'jacred.viewbox.dev',
-                api_key: 'viewbox'
-            },
-            'jacred': {
-                name: 'Jacred',
-                type: 'jackett',
-                endpoint: 'jacred.xyz',
-                api_key: ''
-            }
-        };
-
+        const PUBLIC_PARSERS = [
+            { name: 'Viewbox', url: 'jacred.viewbox.dev', key: 'viewbox' },
+            { name: 'Jacred', url: 'jacred.xyz', key: '' }
+        ];
         const ICON = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
-        return { CFG, LOG, SOURCES, ICON, DEF };
+        return { CFG, LOG, PUBLIC_PARSERS, ICON, DEF };
     })();
-    const { CFG, LOG, SOURCES, ICON } = Config;
+    const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
 
     // ───────────────────── core ▸ API ────────────────────────────────
     const Api = (() => {
@@ -206,7 +192,7 @@
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), DEF.API_TIMEOUT);
+            const timeoutId = setTimeout(() => controller.abort(), Config.DEF.API_TIMEOUT);
             if (signal) signal.addEventListener('abort', () => controller.abort());
 
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
@@ -218,7 +204,7 @@
                 return _process(await res.text(), res.status);
             } catch (e) {
                 if (e.name === 'AbortError') {
-                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${DEF.API_TIMEOUT / 1000} сек)` };
+                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${Config.DEF.API_TIMEOUT / 1000} сек)` };
                     throw e; // Отмена пользователем
                 }
                 throw { type: 'network', message: e.message };
@@ -228,36 +214,29 @@
         };
 
         const searchPublicTrackers = async (movie, signal) => {
-            // [РЕФАКТОРИНГ] Использование системы источников
-            for (const key in SOURCES) {
-                const source = SOURCES[key];
-                if (source.type !== 'jackett') continue;
-
+            for (const p of PUBLIC_PARSERS) {
                 const qs = new URLSearchParams({
-                    apikey: source.api_key,
+                    apikey: p.key,
                     Query: `${movie.title} ${movie.year || ''}`.trim(),
                     title: movie.title,
                     title_original: movie.original_title,
-                    Category: '2000,5000' // Фильмы + Сериалы
+                    Category: '2000,5000'
                 });
                 if (movie.year) qs.append('year', movie.year);
-                
-                const url = `https://${source.endpoint}/api/v2.0/indexers/all/results?${qs}`;
-                LOG('Источник:', source.name, url);
-                
+                const u = `https://${p.url}/api/v2.0/indexers/all/results?${qs}`;
+                LOG('Parser', p.name, u);
                 try {
-                    const json = await request(url, { method: 'GET', is_torbox_api: false }, signal);
-                    if (json && Array.isArray(json.Results) && json.Results.length) {
-                        LOG('Источник успешно ответил:', source.name, `${json.Results.length} результатов`);
-                        // Добавляем информацию об источнике в каждый результат
-                        return json.Results.map(r => ({ ...r, _source: source.name }));
+                    const j = await request(u, { method: 'GET', is_torbox_api: false }, signal);
+                    if (j && Array.isArray(j.Results) && j.Results.length) {
+                        LOG('Parser success', p.name, j.Results.length);
+                        return j.Results;
                     }
-                    LOG('Источник пуст:', source.name);
+                    LOG('Parser empty', p.name);
                 } catch (err) {
-                    LOG('Источник не ответил:', source.name, err.message);
+                    LOG('Parser fail', p.name, err.message);
                 }
             }
-            throw { type: 'api', message: 'Все источники недоступны или не дали результатов' };
+            throw { type: 'api', message: 'Все публичные парсеры недоступны или без результатов' };
         };
 
         const checkCached = async (hashes, signal) => {
@@ -338,7 +317,8 @@
         const ErrorHandler = {
             show(t, e, context = {}) {
                 const msg = e.message || 'Ошибка';
-                if (context.component && context.component.empty) {
+                // Если передан компонент, который может отобразить ошибку, используем его
+                if (context.component && typeof context.component.empty === 'function') {
                     context.component.empty(`Ошибка: ${msg}`);
                 } else {
                     Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
@@ -460,6 +440,15 @@
             return inner_html ? `<div class="torbox-item__tech-bar">${inner_html}</div>` : '';
         }
 
+        // [РЕФАКТОРИНГ] Добавлен уточняющий поиск
+        const clarificationSearch = (newQuery) => {
+            // Сохраняем новый запрос для последующего использования
+            Store.set(`torbox_clarification_${object.movie.id}`, newQuery);
+            // Перезапускаем поиск с новым запросом
+            object.movie.title = newQuery;
+            search(true);
+        };
+
         // Логика поиска
         const search = (force = false) => {
             abort.abort(); // Прерываем предыдущие запросы
@@ -467,8 +456,15 @@
             
             this.activity.loader(true);
             this.reset();
+
+            // Проверяем, есть ли уточненный запрос
+            const clarifiedTitle = Store.get(`torbox_clarification_${object.movie.id}`);
+            const movieData = { ...object.movie };
+            if (clarifiedTitle) {
+                movieData.title = clarifiedTitle;
+            }
             
-            const key = `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
+            const key = `torbox_hybrid_${movieData.id || movieData.imdb_id}_${movieData.title}`;
             if (!force && Cache.get(key)) {
                 state.all_torrents = Cache.get(key);
                 LOG('Loaded torrents from cache.');
@@ -479,7 +475,7 @@
 
             this.empty('Получение списка…');
 
-            Api.searchPublicTrackers(object.movie, abort.signal)
+            Api.searchPublicTrackers(movieData, abort.signal)
                 .then(raw => {
                     if (abort.signal.aborted) return;
                     if (!raw.length) return this.empty('Парсер не вернул результатов.');
@@ -501,7 +497,6 @@
                 })
                 .catch(err => {
                     if (abort.signal.aborted) return;
-                    // [РЕФАКТОРИНГ] Используем новый ErrorHandler с контекстом
                     ErrorHandler.show(err.type || 'unknown', err, { component: this });
                 })
                 .finally(() => {
@@ -747,6 +742,12 @@
          * [РЕФАКТОРИНГ] Инициализация теперь только привязывает обработчики.
          */
         this.initialize = function() {
+            // [НОВОЕ] Добавляем обработчик для уточняющего поиска
+            filter.onSearch = (value) => {
+                Lampa.Controller.toggle('content');
+                clarificationSearch(value);
+            };
+
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
                 currentChoice = getChoice(); // Обновляем перед изменением
@@ -767,6 +768,17 @@
             filter.onBack = () => Lampa.Controller.toggle('content');
 
             if (filter.addButtonBack) filter.addButtonBack();
+             // [НОВОЕ] Добавляем поле поиска в фильтр
+            filter.render().find('.filter--search').remove(); // На всякий случай, если уже есть
+            let searchField = $(`<div class="filter--search selector">
+                <div class="filter__search-input">
+                    <input type="text" class="full-search__input" placeholder="Уточнить поиск...">
+                </div>
+            </div>`);
+            searchField.find('input').on('keyup', function(e) {
+                if (e.keyCode === 13) filter.onSearch($(this).val());
+            });
+            filter.render().find('.torrent-filter').prepend(searchField);
             
             this.empty('Загрузка...');
 
@@ -880,7 +892,21 @@
             });
         };
         
+        const addSearchSource = () => {
+            if (!Lampa.Search) return;
+            Lampa.Search.addSource({
+                title: 'TorBox',
+                name: 'torbox_search',
+                component: 'torbox_component', // Используем тот же компонент
+                params: {
+                    search_in: 'torbox' // Уникальный идентификатор
+                }
+            });
+        };
+
         const init = () => {
+            addSearchSource(); // Регистрируем источник поиска
+
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
@@ -1002,7 +1028,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v36.3.0 ready');
+            LOG('TorBox v35.5.0 ready');
         };
         return { init };
     })();
