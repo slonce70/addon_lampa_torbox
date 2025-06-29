@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.2.1 (Player Exit Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.2.0 (Player Exit Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕН ВЫХОД ИЗ ПЛЕЕРА: Убрано прямое управление контроллером из
  * обработчиков событий плеера. Lampa теперь самостоятельно восстанавливает
@@ -8,7 +8,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_2_1_player_exit_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v35_2_0_player_exit_fix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -107,12 +107,13 @@
     // ───────────────────── core ▸ CACHE (simple LRU) ───────────────────
     const Cache = (() => {
         const map = new Map();
-        const LIM = 128;
+        const LIMIT = 128;
+        const TTL_MS = 600000; // 10-минутный кэш
         return {
             get(k) {
                 if (!map.has(k)) return null;
                 const o = map.get(k);
-                if (Date.now() - o.ts > 600000) { // 10-минутный кэш
+                if (Date.now() - o.ts > TTL_MS) {
                     map.delete(k);
                     return null;
                 }
@@ -123,7 +124,7 @@
             set(k, v) {
                 if (map.has(k)) map.delete(k);
                 map.set(k, { ts: Date.now(), val: v });
-                if (map.size > LIM) map.delete(map.keys().next().value); // удалить самый старый
+                if (map.size > LIMIT) map.delete(map.keys().next().value); // удалить самый старый
             }
         };
     })();
@@ -190,9 +191,9 @@
         const request = async (url, opt = {}, signal) => {
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
 
+            const TIMEOUT_MS = 20000; // 20 секунд
             const controller = new AbortController();
-            const timeout = 20000; // 20 секунд
-            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
             if (signal) signal.addEventListener('abort', () => controller.abort());
 
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
@@ -204,7 +205,7 @@
                 return _process(await res.text(), res.status);
             } catch (e) {
                 if (e.name === 'AbortError') {
-                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${timeout / 1000} сек)` };
+                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${TIMEOUT_MS / 1000} сек)` };
                     throw e; // Отмена пользователем
                 }
                 throw { type: 'network', message: e.message };
@@ -547,7 +548,24 @@
                 // [ИСПРАВЛЕНИЕ] Убрано прямое управление контроллером из обработчиков плеера.
                 // Lampa должна самостоятельно восстанавливать активность после закрытия плеера.
                 // Это исправляет проблему с выходом по кнопке "Назад" (Escape) в веб-версии.
-                Lampa.Player.listener.follow('complite', () => markAsPlayed(torrent_data.hash));
+                const onComplete = () => {
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
+                    if (all_video_files.length > 1) {
+                        setTimeout(() => selectFile(torrent_data), 50);
+                    } else {
+                        markAsPlayed(torrent_data.hash);
+                    }
+                };
+
+                const onBack = () => {
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
+                    // Просто выходим, Lampa восстановит предыдущий экран.
+                };
+
+                Lampa.Player.listener.follow('complite', onComplete);
+                Lampa.Player.listener.follow('back', onBack);
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
