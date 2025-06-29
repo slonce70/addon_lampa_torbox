@@ -391,6 +391,10 @@
             abort.abort();
             body = null;
         };
+
+        this.start = function() {};
+        this.pause = function() {};
+        this.stop = function() {};
     }
 
     // ───────────────────── component ▸ File Selector Activity ───────────
@@ -497,6 +501,9 @@
             if (scroll) scroll.destroy();
             items_container = null;
         };
+
+        this.pause = function() {};
+        this.stop = function() {};
     }
 
 
@@ -835,6 +842,9 @@
             if (filter) filter.destroy();
             scroll = files = filter = last = null;
         };
+
+        this.pause = function() {};
+        this.stop = function() {};
     }
 
 
