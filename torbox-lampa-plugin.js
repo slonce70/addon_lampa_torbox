@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.6 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -265,15 +265,7 @@
             return { method: 'POST', body: fd };
         })(), signal);
 
-        const myList = async (id, s) => {
-            const json = await request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
-            // [ИСПРАВЛЕНИЕ] API может вернуть один объект вместо массива, если в списке один торрент.
-            // Эта проверка гарантирует, что мы всегда работаем с массивом.
-            if (json && json.data && !Array.isArray(json.data)) {
-                json.data = [json.data];
-            }
-            return json;
-        };
+        const myList = (id, s) => request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
@@ -503,10 +495,7 @@
                         const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
                         const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
                         UI.updateStatusModal({ status: statusText, progress: perc, progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`, speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`, eta: `Осталось: ${Utils.formatTime(d.eta)}`, peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}` });
-                        // [ИСПРАВЛЕНИЕ] Добавлено состояние 'uploading' в условие завершения.
-                        // Торрент, который начал раздачу, считается готовым к воспроизведению.
-                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
-                        if (is_finished && d.files?.length) {
+                        if ((d.download_state === 'completed' || d.download_finished || perc >= 100) && d.files?.length) {
                            active = false; return ok(d);
                         }
                         if (active) setTimeout(poll, 5000);
@@ -532,20 +521,23 @@
         const play = async (torrent_data, file, all_video_files = []) => {
             Lampa.Loading.start();
             try {
-                // [ИСПРАВЛЕНИЕ] API может вернуть ссылку в свойстве 'url' или 'data'.
-                // Проверяем оба варианта, чтобы избежать ошибки 'undefined'.
-                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
-                const link = dlResponse.url || dlResponse.data;
-                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
+                const link = (await Api.requestDl(torrent_data.id, file.id, abort.signal)).url;
                 const mid = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
-
-                // Lampa.Player.playlist() больше не нужен, так как this.back() будет обрабатывать возврат
-                
+                Lampa.Player.listener.follow('complite', () => {
+                    Lampa.Player.listener.remove('complite');
+                    // Если видеофайлов было больше одного, снова открываем выбор
+                    if (all_video_files.length > 1) {
+                        setTimeout(() => selectFile(torrent_data), 50);
+                    } else {
+                        markAsPlayed(torrent_data.hash);
+                        Lampa.Controller.toggle('content');
+                    }
+                });
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
@@ -713,13 +705,10 @@
                     else if (a.stype) state.filters[a.stype] = b.value;
                     Store.set('torbox_filters_v2', JSON.stringify(state.filters));
                 }
-                // [ИСПРАВЛЕНИЕ] Сбрасываем сохраненный хэш, чтобы после сортировки/фильтрации
-                // фокус всегда устанавливался на первый элемент в новом списке.
-                state.last_hash = null;
                 this.build();
                 Lampa.Controller.toggle('content');
             };
-            filter.onBack = () => this.back();
+            filter.onBack = () => Lampa.Controller.toggle('content');
 
             if (filter.addButtonBack) filter.addButtonBack();
             
@@ -732,9 +721,15 @@
          * [РЕФАКТОРИНГ] Главный управляющий метод.
          */
         this.start = function () {
+            // Запускаем инициализацию только один раз
+            if (!initialized) {
+                this.initialize();
+                initialized = true;
+            }
+            
             Lampa.Controller.add('content', {
                 toggle: () => {
-                    Lampa.Controller.collectionSet(this.render(), scroll.render());
+                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
                 up: () => Navigator.move('up'),
@@ -747,15 +742,8 @@
                     if (Navigator.canmove('right')) Navigator.move('right');
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
-                back: this.back.bind(this)
+                back: this.back
             });
-            
-            // Запускаем инициализацию только один раз
-            if (!initialized) {
-                this.initialize();
-                initialized = true;
-            }
-            
             Lampa.Controller.toggle('content');
         };
         
