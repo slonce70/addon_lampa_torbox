@@ -1031,14 +1031,29 @@
             const style = document.createElement('style');
             style.id = 'torbox-component-styles';
             style.textContent = `
-                .torbox-item{padding:1em 1.2em;margin:.5em 0;border-radius:.8em;background:var(--color-background-light);cursor:pointer;transition:all .3s ease;border:2px solid transparent; overflow: hidden;}
+                .torbox-item{
+                    padding:1em 1.2em;
+                    margin:.5em 0;
+                    border-radius:.8em;
+                    background:var(--color-background-light);
+                    cursor:pointer;
+                    transition:all .3s ease;
+                    border:2px solid transparent;
+                    overflow: hidden;
+                    box-sizing: border-box; /* Убедимся, что padding и border включены в общую ширину/высоту */
+                    width: 100%; /* Занимать всю доступную ширину */
+                    min-height: 5em; /* Минимальная высота, чтобы избежать слишком узких элементов */
+                    display: flex; /* Использовать flexbox для внутреннего расположения */
+                    flex-direction: column; /* Элементы внутри будут располагаться вертикально */
+                    justify-content: center; /* Выравнивание по центру по вертикали */
+                }
                 .torbox-item--last-played { border-left: 4px solid var(--color-second); background-color: rgba(var(--color-second-rgb), 0.1); }
                 .torbox-item:hover,.torbox-item.focus{background:var(--color-primary);color:var(--color-background);transform:translateX(.8em);border-color:rgba(255,255,255,.3);box-shadow:0 4px 20px rgba(0,0,0,.2)}
                 .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0,0,0,0.2); }
-                .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3}
-                .torbox-item__main-info{font-size:.95em;opacity:.9;line-height:1.4; margin-bottom: .3em;}
-                .torbox-item__meta{font-size:.9em;opacity:.7;line-height:1.4; margin-bottom: .8em;}
-                .torbox-item__tech-bar{display:flex;flex-wrap:wrap;gap:.6em;margin:0 -1.2em -1em -1.2em;padding:.6em 1.2em;background:rgba(0,0,0,0.1);font-size:.85em;font-weight:500;}
+                .torbox-item__title{font-weight:600;margin-bottom:.3em;font-size:1.1em;line-height:1.3; word-wrap: break-word; white-space: normal;}
+                .torbox-item__main-info{font-size:.95em;opacity:.9;line-height:1.4; margin-bottom: .3em; word-wrap: break-word; white-space: normal;}
+                .torbox-item__meta{font-size:.9em;opacity:.7;line-height:1.4; margin-bottom: .8em; word-wrap: break-word; white-space: normal;}
+                .torbox-item__tech-bar{display:flex;flex-wrap:wrap;gap:.6em;margin:0 -1.2em -1em -1.2em;padding:.6em 1.2em;background:rgba(0,0,0,0.1);font-size:.85em;font-weight:500; word-wrap: break-word; white-space: normal;}
                 .torbox-item__tech-item { display: inline-block; padding: .2em .5em; border-radius: .4em; }
                 .torbox-item__tech-item--res { background-color: #3b82f6; color: white; }
                 .torbox-item__tech-item--codec { background-color: #16a34a; color: white; }
