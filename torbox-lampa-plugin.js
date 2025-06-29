@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.4 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.5 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -542,23 +542,28 @@
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
+                let play_object = { url: link, title: file.name || object.movie.title, poster: object.movie.img };
 
-                const onComplete = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    if (all_video_files.length > 1) {
-                        setTimeout(() => selectFile(torrent_data), 50);
-                    } else {
-                        markAsPlayed(torrent_data.hash);
-                        Lampa.Controller.toggle('content');
-                    }
-                };
+                Lampa.Player.play(play_object);
+
+                let playlist = [];
+                playlist.push(play_object);
+                Lampa.Player.playlist(playlist);
 
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward(); // [ИСПРАВЛЕНИЕ] Корректное закрытие плеера
+                    Lampa.Activity.backward();
+                };
+
+                const onComplete = () => {
+                    if (all_video_files.length > 1) {
+                        onBack(); 
+                        setTimeout(() => selectFile(torrent_data), 50);
+                    } else {
+                        markAsPlayed(torrent_data.hash);
+                        onBack();
+                    }
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
