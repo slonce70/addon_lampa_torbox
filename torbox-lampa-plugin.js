@@ -1,17 +1,20 @@
-/* TorBox Enhanced – Universal Lampa Plugin v36.1.0 (Final Player Fix)
+/* TorBox Enhanced – Universal Lampa Plugin v37.0.0 (Simple Player)
  * =======================================================================
- * ▸ ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ПЛЕЕРА: Устранен конфликт, который по-прежнему
- * мог вызывать зависание плеера при нажатии кнопки "Назад".
- * ▸ БЕЗОПАСНЫЙ ВЫХОД: Из обработчика кнопки "Назад" убрано принудительное
- * прерывание сетевых запросов (abort.abort()). Эта операция конфликтовала
- * с внутренними механизмами Lampa и приводила к зависанию. Теперь выход
- * из плеера и компонента полностью отдан под управление Lampa.
+ * ▸ УПРОЩЕННЫЙ ПЛЕЕР: Полностью удалена логика плейлистов и "ленивой"
+ * загрузки. Плагин теперь работает по максимально простому и надежному
+ * принципу, как в bwa.js.
+ * ▸ ПРЯМОЕ ВОСПРОИЗВЕДЕНИЕ: При выборе файла плагин получает прямую ссылку
+ * и сразу передает ее в плеер Lampa, не добавляя никаких собственных
+ * обработчиков событий ('onComplete', 'onBack').
+ * ▸ ИСПРАВЛЕН ВЫХОД (ESCAPE): Так как плагин больше не управляет плеером,
+ * стандартная кнопка "Назад" (Escape) теперь корректно обрабатывается
+ * самим плеером Lampa, что решает проблему с зависанием.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v36_1_0_final_player_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v37_0_0_simple_player';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -514,81 +517,58 @@
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort(Utils.naturalSort);
             if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
-            if (vids.length === 1) return play(torrent_data, vids[0], vids);
+            
+            // Если файл один, сразу его запускаем
+            if (vids.length === 1) return play(torrent_data, vids[0]);
 
+            // Если файлов несколько, показываем окно выбора
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
-            const items = vids.map(f => ({ title: (lastId == f.id ? `▶️ ` : '') + f.name, subtitle: Utils.formatBytes(f.size), file: f, cls: lastId == f.id ? 'select__item--last-played' : '' }));
-            Lampa.Select.show({ title: 'Выберите файл', items, onSelect: i => play(torrent_data, i.file, vids), onBack: () => { Lampa.Controller.toggle('content'); } });
+            const items = vids.map(f => ({ 
+                title: (lastId == f.id ? `▶️ ` : '') + f.name, 
+                subtitle: Utils.formatBytes(f.size), 
+                file: f, 
+                cls: lastId == f.id ? 'select__item--last-played' : '' 
+            }));
+            
+            Lampa.Select.show({ 
+                title: 'Выберите файл', 
+                items, 
+                onSelect: i => play(torrent_data, i.file), // Запускаем только выбранный файл
+                onBack: () => { Lampa.Controller.toggle('content'); } 
+            });
         };
         
-        const play = async (torrent_data, selected_file, all_video_files = []) => {
+        /**
+         * [НОВАЯ УПРОЩЕННАЯ ФУНКЦИЯ] play - Запускает один файл без плейлистов.
+         * Это убирает конфликты и решает проблему с выходом из плеера.
+         */
+        const play = async (torrent_data, selected_file) => {
             Lampa.Loading.start();
             try {
-                const playlist = [];
-                let first_item_to_play = null;
+                // 1. Получаем ссылку на выбранный файл
+                const dlResponse = await Api.requestDl(torrent_data.id, selected_file.id, abort.signal);
+                const link = dlResponse.url || dlResponse.data;
 
-                // Создаем элементы плейлиста для каждого видеофайла
-                for (const file of all_video_files) {
-                    const is_selected = file.id === selected_file.id;
-
-                    const playlist_item = {
-                        title: file.name || object.movie.title,
-                        poster: object.movie.img,
-                        // Сохраняем ID для ленивой загрузки
-                        torrent_id: torrent_data.id, 
-                        file_id: file.id
-                    };
-
-                    if (is_selected) {
-                        // Для выбранного файла ссылку получаем сразу
-                        const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
-                        const link = dlResponse.url || dlResponse.data;
-                        if (!link) {
-                            throw { type: 'api', message: `Не удалось получить ссылку для: ${file.name}` };
-                        }
-                        playlist_item.url = link;
-                        first_item_to_play = playlist_item; // Этот элемент запустим первым
-                    } else {
-                        // Для остальных файлов делаем "ленивую" загрузку ссылки.
-                        // Lampa вызовет эту функцию, когда подойдет очередь файла.
-                        playlist_item.url = async (call) => {
-                            try {
-                                LOG(`Lazy loading URL for: ${playlist_item.title}`);
-                                const dlResponse = await Api.requestDl(playlist_item.torrent_id, playlist_item.file_id, abort.signal);
-                                const link = dlResponse.url || dlResponse.data;
-                                if (link) {
-                                    // Передаем готовую ссылку плееру Lampa
-                                    call({ url: link });
-                                } else {
-                                    Lampa.Noty.show(`Не удалось получить ссылку для: ${playlist_item.title}`);
-                                    call({}); // Уведомляем плеер о неудаче
-                                }
-                            } catch (e) {
-                                ErrorHandler.show(e.type || 'unknown', e);
-                                call({});
-                            }
-                        };
-                    }
-                    playlist.push(playlist_item);
+                if (!link) {
+                    throw { type: 'api', message: `Не удалось получить ссылку для: ${selected_file.name}` };
                 }
-
-                if (!first_item_to_play) {
-                     throw { type: 'validation', message: 'Не удалось найти выбранный файл в плейлисте.' };
-                }
-
-                // Сохраняем информацию о последнем просмотренном файле
+                
+                // 2. Сохраняем информацию о последнем просмотре
                 const mid = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(selected_file.id));
 
-                // Запускаем воспроизведение и передаем плейлист
-                Lampa.Player.play(first_item_to_play);
-                Lampa.Player.playlist(playlist);
-                
-                // ПОЛНОСТЬЮ УДАЛЕНЫ СЛУШАТЕЛИ. 
-                // Lampa теперь сама корректно обрабатывает выход ('back') и завершение ('complite').
+                // 3. Создаем простой объект для плеера
+                const player_object = {
+                    title: selected_file.name || object.movie.title,
+                    url: link,
+                    poster: object.movie.img
+                };
 
+                // 4. Запускаем плеер с одним файлом. Без плейлистов и слушателей.
+                Lampa.Player.play(player_object);
+                
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
@@ -778,21 +758,11 @@
         };
         
         this.back = function() {
-            // Handle open modals first, this is for when the component's UI is active.
             if ($('body').find('.select').length) return Lampa.Select.close();
             if ($('body').find('.filter').length) {
                 Lampa.Filter.hide();
                 return Lampa.Controller.toggle('content');
             }
-
-            // [ИСПРАВЛЕНИЕ ЗАВИСАНИЯ] Убрана команда abort.abort().
-            // Прерывание сетевых запросов здесь могло конфликтовать с внутренними
-            // механизмами Lampa при выходе из плеера, который мог в фоне
-            // пытаться что-то подгрузить. Очистка запросов происходит в методе destroy(),
-            // что является более безопасным моментом.
-
-            // Просто вызываем стандартный механизм "назад". Lampa сама разберется,
-            // закрыть ли наш компонент или плеер, который может быть над ним.
             Lampa.Activity.backward();
         };
 
@@ -965,7 +935,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v36.1.0 ready');
+            LOG('TorBox v37.0.0 ready');
         };
         return { init };
     })();
