@@ -274,7 +274,7 @@
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
-    // ───────────────────────── UI helpers ─────────────────────────��───
+    // ───────────────────────── UI helpers ─────────────────────────────
     const UI = (() => {
         let cache = {};
         const showStatus = (title, back) => {
@@ -320,7 +320,7 @@
     })();
     const { ErrorHandler } = UI;
 
-    // ───────���───────────── component ▸ TorBoxComponent ───────────────
+    // ───────────────────── component ▸ TorBoxComponent ───────────────
     function component(object) { // Renamed from TorBoxComponent to component
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -328,7 +328,7 @@
         let last;
         let initialized = false;
         let created = false;
-        let abort = new AbortController();
+        let current_abort = new AbortController();
         
         this.activity = object.activity;
 
@@ -345,6 +345,12 @@
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(defaultFilters))),
             last_hash: null,
+        };
+
+        const newAbortSignal = () => {
+            current_abort.abort();
+            current_abort = new AbortController();
+            return current_abort.signal;
         };
 
         const procRaw = (raw, hash, cachedSet) => {
@@ -415,8 +421,7 @@
         }
 
         const search = (force = false) => {
-            abort.abort();
-            abort = new AbortController();
+            const signal = newAbortSignal();
             
             this.activity.loader(true);
             this.reset();
@@ -432,9 +437,9 @@
 
             this.empty('Получение списка…');
 
-            Api.searchPublicTrackers(object.movie, abort.signal)
+            Api.searchPublicTrackers(object.movie, signal)
                 .then(raw => {
-                    if (abort.signal.aborted) return;
+                    if (signal.aborted) return;
                     if (!raw.length) return this.empty('Парсер не вернул результатов.');
                     const withHash = raw.map(r => {
                         const m = r.MagnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
@@ -442,18 +447,18 @@
                     }).filter(Boolean);
                     if (!withHash.length) return this.empty('Не найдено валидных торрентов.');
                     this.empty(`Проверка кэша (${withHash.length})…`);
-                    return Api.checkCached(withHash.map(x => x.hash), abort.signal)
+                    return Api.checkCached(withHash.map(x => x.hash), signal)
                         .then(cached => ({ withHash, cached }));
                 })
                 .then(({withHash, cached}) => {
-                    if (abort.signal.aborted) return;
+                    if (signal.aborted) return;
                     const cachedSet = new Set(Object.keys(cached).map(h => h.toLowerCase()));
                     state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
                     Cache.set(key, state.all_torrents);
                     this.build();
                 })
                 .catch(err => {
-                    if (abort.signal.aborted) return;
+                    if (signal.aborted) return;
                     this.empty(err.message || 'Ошибка');
                     ErrorHandler.show(err.type || 'unknown', err);
                 })
@@ -463,33 +468,37 @@
         };
 
         const onTorrentClick = async (torrent) => {
+            const signal = newAbortSignal();
             try {
                 if (!torrent.magnet) throw { type: 'validation', message: 'Magnet-ссылка не найдена' };
-                UI.showStatus('Добавление торрента…');
-                const res = await Api.addMagnet(torrent.magnet, abort.signal);
+                UI.showStatus('Добавление торрента…', () => {
+                    current_abort.abort();
+                    Lampa.Modal.close();
+                });
+                const res = await Api.addMagnet(torrent.magnet, signal);
                 const tid = res.data.torrent_id || res.data.id;
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-                const data = await track(tid);
+                const data = await track(tid, signal);
                 data.hash = torrent.hash;
                 Lampa.Modal.close();
                 selectFile(data);
             } catch (e) {
-                if (e.type !== 'user' && e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
+                if (e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
                 Lampa.Modal.close();
             }
         };
 
-        const track = (id) => {
+        const track = (id, signal) => {
             return new Promise((ok, fail) => {
                 let active = true;
                 const poll = async () => {
-                    if (!active || abort.signal.aborted) return;
+                    if (!active || signal.aborted) return;
                     try {
-                        const d = (await Api.myList(id, abort.signal)).data[0];
+                        const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
                            if (active) setTimeout(poll, 5000); return;
                         }
-                        const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
+                        const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'П��лучение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
                         const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
                         const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
                         UI.updateStatusModal({ status: statusText, progress: perc, progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`, speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`, eta: `Осталось: ${Utils.formatTime(d.eta)}`, peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}` });
@@ -500,9 +509,16 @@
                         if (active) setTimeout(poll, 5000);
                     } catch (e) { if (e.name !== 'AbortError') { active = false; fail(e); } }
                 };
-                const cancel = () => { if (active) { active = false; fail({ type: 'user', message: 'Отменено пользователем' }); } };
+                const cancel = () => {
+                    if (active) {
+                        active = false;
+                        current_abort.abort();
+                        Lampa.Modal.close();
+                        fail({ type: 'user', message: 'Отменено пользователем' });
+                    }
+                };
                 UI.showStatus('Отслеживание статуса…', cancel);
-                abort.signal.addEventListener('abort', cancel);
+                signal.addEventListener('abort', cancel);
                 poll();
             });
         };
@@ -524,9 +540,10 @@
         };
 
         const play = async (torrent_data, file, all_video_files = []) => {
+            const signal = newAbortSignal();
             Lampa.Loading.start();
             try {
-                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
+                const dlResponse = await Api.requestDl(torrent_data.id, file.id, signal);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 const mid = object.movie.imdb_id || object.movie.id;
@@ -547,7 +564,6 @@
                 };
 
                 const onBack = () => {
-                    // Просто очищаем слушатели. Lampa сама обработает выход из плеера.
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
                 };
@@ -555,7 +571,7 @@
                 Lampa.Player.listener.follow('complite', onComplete);
                 Lampa.Player.listener.follow('back', onBack);
             } catch (e) {
-                ErrorHandler.show(e.type || 'unknown', e);
+                if (e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
             } finally {
                 Lampa.Loading.stop();
             }
@@ -757,7 +773,14 @@
         };
         
         this.back = function() {
-            if (abort) abort.abort();
+            // **Rewritten Back Handler**
+            // This is a critical change. We first check if any modal window is active.
+            // If a modal is open (like the status pop-up), we do NOTHING.
+            // This allows the modal's own 'onBack' handler to do its job (e.g., close the modal).
+            // We only navigate backward if no modals are intercepting user input.
+            if ($('.modal').length) return;
+
+            current_abort.abort();
             Lampa.Activity.backward();
         };
 
@@ -767,15 +790,9 @@
         this.destroy = function () {
             if (!created) return;
             
-            // Удаляем контроллер
+            current_abort.abort();
             Lampa.Controller.clear('torbox_component');
             
-            // Прерываем запросы
-            if (abort) {
-                abort.abort();
-            }
-            
-            // Очищаем компоненты
             if (scroll) {
                 scroll.destroy();
                 scroll = null;
@@ -789,16 +806,8 @@
                 filter = null;
             }
             
-            // Очищаем таймауты
-            if (state && state.searchTimeout) {
-                clearTimeout(state.searchTimeout);
-                state.searchTimeout = null;
-            }
-            
-            // Очищаем кэш
             Cache.clear();
             
-            // Сбрасываем состояние
             last = null;
             state = null;
             created = false;
@@ -811,7 +820,7 @@
     const Plugin = (() => {
         const manifest = {
             type: 'video',
-            version: '35.2.2', // Incremented version
+            version: '36.0.0', // Incremented version for major rewrite
             name: 'TorBox Enhanced',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_component',
@@ -898,7 +907,7 @@
                 en: 'Search did not return any results'
             },
             torbox_balanser_timeout: {
-                ru: 'Источник будет пер��ключен автоматически через <span class="timeout">10</span> секунд.',
+                ru: 'Источник будет переключен автоматически через <span class="timeout">10</span> секунд.',
                 uk: 'Джерело буде автоматично переключено через <span class="timeout">10</span> секунд.',
                 en: 'The source will be switched automatically after <span class="timeout">10</span> seconds.'
             },
@@ -1075,7 +1084,7 @@
             Lampa.Component.add('torbox_component', component);
             addSettings();
             boot();
-            LOG('TorBox v35.2.2 ready');
+            LOG('TorBox v36.0.0 ready');
         };
         return { init };
     })();
