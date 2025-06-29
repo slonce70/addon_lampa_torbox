@@ -1,12 +1,12 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.5.0 (Feature)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.5.1 (Hotfix)
  * =======================================================================
- * ▸ ФУНКЦИЯ: Добавлен "уточняющий поиск" для изменения запроса.
+ * ▸ ИСПРАВЛЕНИЕ: Устранена ошибка 401 Unauthorized при проверке кэша.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_5_0_feature';
+    const PLUGIN_ID = 'torbox_enhanced_v35_5_1_hotfix';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -241,6 +241,8 @@
 
         const checkCached = async (hashes, signal) => {
             if (!hashes.length) return {};
+            if (!CFG.apiKey) return {}; // Не можем проверить без ключа
+
             const data = {};
             for (let i = 0; i < hashes.length; i += 100) {
                 const chunk = hashes.slice(i, i + 100);
@@ -248,8 +250,12 @@
                 chunk.forEach(h => qs.append('hash', h));
                 qs.append('format', 'object');
                 qs.append('list_files', 'false');
+                // [ИСПРАВЛЕНИЕ] Добавляем токен аутентификации в URL, как в requestDl
+                qs.append('token', CFG.apiKey); 
+                
                 try {
-                    const r = await request(`${MAIN}/torrents/checkcached?${qs}`, { method: 'GET' }, signal);
+                    // Передаем is_torbox_api: false, т.к. токен уже в URL
+                    const r = await request(`${MAIN}/torrents/checkcached?${qs}`, { method: 'GET', is_torbox_api: false }, signal);
                     if (r?.data) Object.assign(data, r.data);
                 } catch (e) {
                     LOG('checkCached chunk error', e.message);
@@ -1028,7 +1034,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v35.5.0 ready');
+            LOG('TorBox v35.5.1 ready');
         };
         return { init };
     })();
