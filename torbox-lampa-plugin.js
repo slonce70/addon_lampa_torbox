@@ -828,14 +828,14 @@
         
         this.back = function() {
             // Централизованный обработчик "назад"
-            if (Lampa.Modal.visible()) {
+            if ($('.modal').length) {
                 Lampa.Modal.close();
-            } else if (Lampa.Select.visible()) {
-                Lampa.Select.close();
-            } else if (Lampa.Filter.visible()) {
-                Lampa.Filter.hide();
+            } else if ($('body').hasClass('selectbox--open') || $('.selectbox').length) {
+                if (Lampa.Select && Lampa.Select.close) Lampa.Select.close();
+            } else if ($('.filter').length || $('.filter--visible').length) {
+                if (Lampa.Filter && Lampa.Filter.hide) Lampa.Filter.hide();
             } else {
-                abort.abort();
+                if (abort) abort.abort();
                 Lampa.Activity.backward();
             }
         };
