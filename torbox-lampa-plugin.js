@@ -423,14 +423,12 @@
                 const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    // After playback, just go back to the file list.
                     Lampa.Activity.backward();
                 };
 
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    // Lampa handles player exit, so we just clean up listeners.
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
@@ -444,27 +442,33 @@
         };
 
         this.create = function() {
+            items_container = $(`<div class="file-selector"></div>`);
+            scroll.body().addClass('file-selector-scroll');
+            items_container.append(scroll.render());
+            return this.render();
+        };
+
+        this.render = function() {
+            return items_container;
+        };
+
+        this.start = function() {
             const torrent_data = object.torrent_data;
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
 
             if (!vids.length) {
                 ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
                 Lampa.Activity.backward();
-                return $('<div></div>');
+                return;
             }
             
             if (vids.length === 1) {
                 play(torrent_data, vids[0], vids);
-                // Since the player is now active, we can go back immediately.
-                // The player activity is on top of the stack.
                 setTimeout(Lampa.Activity.backward, 100);
-                return $('<div></div>');
+                return;
             }
 
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
-            
-            items_container = $(`<div class="file-selector"></div>`);
-            scroll.body().addClass('file-selector-scroll');
             
             vids.forEach(file => {
                 const is_last = lastId == file.id;
@@ -481,15 +485,6 @@
                 scroll.append(item);
             });
             
-            items_container.append(scroll.render());
-            return this.render();
-        };
-
-        this.render = function() {
-            return items_container;
-        };
-
-        this.start = function() {
             Lampa.Controller.add('torbox_files_activity', {
                 toggle: () => {
                     Lampa.Controller.collectionSet(this.render());
