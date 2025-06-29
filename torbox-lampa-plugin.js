@@ -13,7 +13,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_final_stable';
+    const PLUGIN_ID = 'torbox_enhanced_final_bwa_arch';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -258,6 +258,14 @@
 
     // ───────────────────── component ▸ TorBoxComponent (BWA Architecture) ───────────
     function TorBoxComponent(object) {
+        // Привязываем контекст 'this' ко всем методам прототипа
+        for (const key in this) {
+            if (typeof this[key] === 'function') {
+                this[key] = this[key].bind(this);
+            }
+        }
+        
+        // Основные элементы из bwa.js
         let network = new Lampa.Reguest();
         let scroll = new Lampa.Scroll({ mask: true, over: true });
         let files = new Lampa.Explorer(object);
@@ -294,7 +302,7 @@
         this.start = function () {
             Lampa.Controller.add('content', {
                 toggle: () => {
-                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
+                    Lampa.Controller.collectionSet(scroll.render(), files.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
                 up: () => {
@@ -315,12 +323,13 @@
             Lampa.Controller.toggle('content');
             
             if (!initialized) {
-                initialized = true;
                 this.initialize();
             }
         };
 
         this.initialize = function () {
+            initialized = true;
+
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
                 if (type === 'sort') {
