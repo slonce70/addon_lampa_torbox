@@ -544,9 +544,6 @@
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
-                // [ИСПРАВЛЕНИЕ] Улучшена логика для плейлистов.
-                // Когда видео завершается, Lampa автоматически возвращается на экран плагина.
-                // Наша задача - просто убрать слушатели и, если нужно, показать выбор следующего файла.
                 const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
@@ -554,21 +551,14 @@
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
+                        Lampa.Controller.toggle('content');
                     }
                 };
 
-                // [ИСПРАВЛЕНИЕ] Финальное решение проблемы зависания при выходе из плеера.
-                // Анализ bwa.js показал, что он не вмешивается в процесс закрытия плеера.
-                // Проблема возникала из-за попытки управлять закрытием (Lampa.Activity.backward).
-                // Правильный подход: использовать событие 'back' исключительно для очистки
-                // наших собственных ресурсов (слушателя 'onComplete'), а Lampa сама корректно закроет плеер.
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    // Вызов Lampa.Activity.backward() необходим для закрытия плеера.
-                    // Оборачиваем в setTimeout, чтобы избежать зависания, которое, вероятно,
-                    // происходило из-за гонки состояний при одновременном закрытии плеера и активности.
-                    setTimeout(() => { Lampa.Activity.backward(); }, 50);
+                    Lampa.Activity.backward(); // [ИСПРАВЛЕНИЕ] Корректное закрытие плеера
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
