@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.0 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.3.1 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -265,7 +265,15 @@
             return { method: 'POST', body: fd };
         })(), signal);
 
-        const myList = (id, s) => request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
+        const myList = async (id, s) => {
+            const json = await request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
+            // [ИСПРАВЛЕНИЕ] API может вернуть один объект вместо массива, если в списке один торрент.
+            // Эта проверка гарантирует, что мы всегда работаем с массивом.
+            if (json && json.data && !Array.isArray(json.data)) {
+                json.data = [json.data];
+            }
+            return json;
+        };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
@@ -495,7 +503,10 @@
                         const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
                         const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
                         UI.updateStatusModal({ status: statusText, progress: perc, progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`, speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`, eta: `Осталось: ${Utils.formatTime(d.eta)}`, peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}` });
-                        if ((d.download_state === 'completed' || d.download_finished || perc >= 100) && d.files?.length) {
+                        // [ИСПРАВЛЕНИЕ] Добавлено состояние 'uploading' в условие завершения.
+                        // Торрент, который начал раздачу, считается готовым к воспроизведению.
+                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
+                        if (is_finished && d.files?.length) {
                            active = false; return ok(d);
                         }
                         if (active) setTimeout(poll, 5000);
@@ -521,7 +532,11 @@
         const play = async (torrent_data, file, all_video_files = []) => {
             Lampa.Loading.start();
             try {
-                const link = (await Api.requestDl(torrent_data.id, file.id, abort.signal)).url;
+                // [ИСПРАВЛЕНИЕ] API может вернуть ссылку в свойстве 'url' или 'data'.
+                // Проверяем оба варианта, чтобы избежать ошибки 'undefined'.
+                const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
+                const link = dlResponse.url || dlResponse.data;
+                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 const mid = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
