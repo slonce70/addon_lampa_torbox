@@ -1,16 +1,14 @@
-/* TorBox Enhanced – Refactored for Stability (bwa.js architecture)
+/* TorBox Enhanced – Refactored for Stability (v4 - Download Fix)
  * =======================================================================
- * ▸ Полностью переработана архитектура UI-компонента (TorBoxComponent)
- * по образцу плагина bwa.js для максимальной стабильности и отзывчивости.
- * ▸ Упрощена логика работы с плеером для устранения зависаний при выходе.
- * ▸ Стандартизирована навигация с помощью Lampa.Controller.
- * ▸ Вся бизнес-логика (API, утилиты) сохранена без изменений.
+ * ▸ ИСПРАВЛЕНО: Восстановлена логика отслеживания из стабильной версии,
+ * чтобы корректно запускать воспроизведение после скачивания торрента.
+ * ▸ Сохранена архитектура UI и стабильный выход из плеера.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_refactored_v3';
+    const PLUGIN_ID = 'torbox_enhanced_refactored_v4';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -144,7 +142,7 @@
     })();
     const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
 
-    // ───────────────────── core ▸ API (Без изменений) ────────────────
+    // ───────────────────── core ▸ API (С добавлением stopTorrent) ────────────────
     const Api = (() => {
         const MAIN = 'https://api.torbox.app/v1/api';
         const _process = (txt, status) => {
@@ -187,7 +185,6 @@
                 const qs = new URLSearchParams({ apikey: p.key, Query: `${movie.title} ${movie.year || ''}`.trim(), title: movie.title, title_original: movie.original_title, Category: '2000,5000' });
                 if (movie.year) qs.append('year', movie.year);
                 const u = `https://${p.url}/api/v2.0/indexers/all/results?${qs}`;
-                LOG('Parser', p.name, u);
                 try {
                     const j = await request(u, { is_torbox_api: false }, signal);
                     if (j?.Results?.length) return j.Results;
@@ -210,13 +207,18 @@
             return data;
         };
         const addMagnet = (magnet, signal) => request(`${MAIN}/torrents/createtorrent`, { method: 'POST', body: new URLSearchParams({ magnet, seed: '3' }) }, signal);
+        const stopTorrent = async (torrentId, signal) => {
+            const url = `${MAIN}/torrents/controltorrent`;
+            const body = { torrent_id: torrentId, operation: 'pause' };
+            return request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal);
+        };
         const myList = async (id, s) => {
             const json = await request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, {}, s);
             if (json?.data && !Array.isArray(json.data)) json.data = [json.data];
             return json;
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, {}, s);
-        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
+        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl, stopTorrent };
     })();
 
     // ───────────────────────── UI helpers (Без изменений) ────────────────
@@ -255,6 +257,8 @@
         let scroll, files, filter, last, abort;
         let initialized = false;
 
+        this.movie = object.movie;
+
         let state = {
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
@@ -269,7 +273,7 @@
             files = new Lampa.Explorer(object);
             filter = new Lampa.Filter(object);
             abort = new AbortController();
-            this.activity.loader(false);
+            object.activity.loader(false);
             scroll.body().addClass('torbox-list-container');
             files.appendFiles(scroll.render());
             files.appendHead(filter.render());
@@ -320,19 +324,19 @@
         this.search = async function (force = false) {
             if (abort) abort.abort();
             abort = new AbortController();
-            this.activity.loader(true);
+            object.activity.loader(true);
             this.reset();
-            const cacheKey = `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
+            const cacheKey = `torbox_hybrid_${this.movie.id || this.movie.imdb_id}`;
             const cachedTorrents = Cache.get(cacheKey);
             if (!force && cachedTorrents) {
                 state.all_torrents = cachedTorrents;
                 this.build();
-                this.activity.loader(false);
+                object.activity.loader(false);
                 return;
             }
             this.empty('Получение списка торрентов…');
             try {
-                const rawResults = await Api.searchPublicTrackers(object.movie, abort.signal);
+                const rawResults = await Api.searchPublicTrackers(this.movie, abort.signal);
                 if (abort.signal.aborted) return;
                 const withHash = rawResults.map(r => {
                     const m = r.MagnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
@@ -351,7 +355,7 @@
                 this.empty(err.message || 'Произошла ошибка');
                 ErrorHandler.show(err.type || 'unknown', err);
             } finally {
-                this.activity.loader(false);
+                object.activity.loader(false);
             }
         };
 
@@ -408,88 +412,137 @@
             });
             return inner_html ? `<div class="torbox-item__tech-bar">${inner_html}</div>` : '';
         }
+        
+        // ***************************************************************
+        // * ИСПРАВЛЕННАЯ ЛОГИКА ЗАПУСКА И ОТСЛЕЖИВАНИЯ
+        // ***************************************************************
 
-        const onTorrentClick = async (torrent) => {
-            abort.abort();
+        this.onTorrentClick = async (torrent) => {
+            if (abort) abort.abort();
             abort = new AbortController();
+            
             try {
-                if (!torrent.magnet) throw { type: 'validation', message: 'Magnet-ссылка не найдена' };
-                UI.showStatus('Добавление торрента в TorBox…');
-                const res = await Api.addMagnet(torrent.magnet, abort.signal);
-                const tid = res.data.torrent_id || res.data.id;
-                if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-                const torrentData = await track(tid);
-                torrentData.hash = torrent.hash;
+                if (!torrent?.magnet) throw {type: 'validation', message: 'Не найдена magnet-ссылка.'};
+                
+                UI.showStatus('Добавление торрента...');
+                const result = await Api.addMagnet(torrent.magnet, abort.signal);
+                const torrentId = result.data.torrent_id || result.data.id;
+                if (!torrentId) throw {type: 'api', message: 'Не удалось получить ID торрента.'};
+                
+                const finalTorrentData = await this.track(torrentId, abort.signal);
+                finalTorrentData.hash = torrent.hash; // Передаем оригинальный хеш
+                
                 Lampa.Modal.close();
-                selectFile(torrentData);
+                this.selectFile(finalTorrentData);
+
             } catch (e) {
-                Lampa.Modal.close();
-                if (e.name !== 'AbortError' && e.type !== 'user') {
+                if (e.type !== "user" && e.name !== "AbortError") {
                     ErrorHandler.show(e.type || 'unknown', e);
                 }
+                Lampa.Modal.close();
             }
         };
 
-        const track = (id) => {
+        this.track = (torrentId, signal) => {
             return new Promise((resolve, reject) => {
-                let isActive = true;
-                const controller = abort;
+                let isTrackingActive = true; 
+                let pollTimeout;
+                let retries = 0;
+                const MAX_RETRIES = 8;
+                const RETRY_DELAY = 3500;
+    
+                const onCancel = () => { 
+                    if (isTrackingActive) { 
+                        isTrackingActive = false; 
+                        clearTimeout(pollTimeout); 
+                        reject({type: 'user', message: 'Отменено пользователем'}); 
+                    } 
+                };
+    
+                UI.showStatus('Отслеживание статуса...', onCancel);
+                
+                if (signal) signal.addEventListener('abort', () => { 
+                    isTrackingActive = false; 
+                    clearTimeout(pollTimeout); 
+                    reject(new DOMException('Aborted', 'AbortError')); 
+                }, { once: true });
+    
                 const poll = async () => {
-                    if (!isActive || controller.signal.aborted) return;
+                    if (!isTrackingActive) { clearTimeout(pollTimeout); return; }
+                    
                     try {
-                        const { data } = await Api.myList(id, controller.signal);
-                        const torrent = data?.[0];
-                        if (!torrent) {
-                           if (isActive) setTimeout(poll, 5000);
-                           return;
+                        const torrentResult = await Api.myList(torrentId, signal);
+                        const torrentData = torrentResult?.data?.[0];
+    
+                        if (!isTrackingActive) return;
+    
+                        if (!torrentData) {
+                            retries++;
+                            if (retries > MAX_RETRIES) {
+                                isTrackingActive = false;
+                                return reject({type: 'api', message: "Торрент не появился в списке после добавления."});
+                            } else {
+                                updateStatusModal({ status: `Ожидание в списке... (попытка ${retries})` });
+                                if (isTrackingActive) pollTimeout = setTimeout(poll, RETRY_DELAY);
+                                return;
+                            }
                         }
-                        const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных' };
-                        const statusText = statusMap[torrent.download_state] || torrent.download_state;
-                        const perc = parseFloat(torrent.progress) * 100;
+    
+                        retries = 0; 
+                        const currentStatus = torrentData.download_state || torrentData.status;
+                        const statusMap = {'queued':'В очереди','downloading':'Загрузка','uploading':'Раздача','completed':'Завершен','stalled':'Остановлен','error':'Ошибка','metadl':'Получение метаданных','paused':'На паузе','failed':'Ошибка загрузки','checking':'Проверка'};
+                        const statusText = statusMap[currentStatus.toLowerCase().split(' ')[0]] || currentStatus;
+                        let progressValue = parseFloat(torrentData.progress);
+                        let progressPercent = isNaN(progressValue) ? 0 : (progressValue > 1 ? progressValue : progressValue * 100);
+                        
                         UI.updateStatusModal({ 
-                            status: statusText, 
-                            progress: perc, 
-                            progressText: `${perc.toFixed(2)}% из ${Utils.formatBytes(torrent.size)}`, 
-                            speed: `Скорость: ${Utils.formatBytes(torrent.download_speed, true)}`, 
-                            eta: `Осталось: ${Utils.formatTime(torrent.eta)}`, 
-                            peers: `Сиды: ${torrent.seeds || 0} / Пиры: ${torrent.peers || 0}` 
+                            status: Utils.escapeHtml(statusText), 
+                            progress: progressPercent, 
+                            progressText: `${progressPercent.toFixed(2)}% из ${Utils.formatBytes(torrentData.size)}`, 
+                            speed: `Скорость: ${Utils.formatBytes(torrentData.download_speed, true)}`, 
+                            eta: `Осталось: ${Utils.formatTime(torrentData.eta)}`, 
+                            peers: `Сиды: ${torrentData.seeds||0} / Пиры: ${torrentData.peers||0}` 
                         });
-                        const isFinished = ['completed', 'uploading'].includes(torrent.download_state) || perc >= 100;
-                        if (isFinished && torrent.files?.length) {
-                           isActive = false;
-                           return resolve(torrent);
+    
+                        const isDownloadFinished = currentStatus === 'completed' || torrentData.download_finished || progressPercent >= 100;
+                        const filesAreReady = torrentData.files && torrentData.files.length > 0;
+    
+                        if (isDownloadFinished && filesAreReady) {
+                            isTrackingActive = false;
+                            if (currentStatus.startsWith('uploading')) {
+                                updateStatusModal({ status: 'Загрузка завершена. Остановка раздачи...', progress: 100 });
+                                await Api.stopTorrent(torrentData.id, signal).catch(e => LOG('Не удалось остановить раздачу:', e.message));
+                            }
+                            resolve(torrentData);
+                        } else {
+                            if (isTrackingActive) pollTimeout = setTimeout(poll, 5000);
                         }
-                        if (isActive) setTimeout(poll, 5000);
-                    } catch (e) { 
-                        if (isActive && e.name !== 'AbortError') { 
-                            isActive = false; 
-                            reject(e); 
-                        } 
+                    } catch (error) { 
+                        if (isTrackingActive) {
+                            isTrackingActive = false; 
+                            reject(error); 
+                        }
                     }
                 };
-                const onCancel = () => {
-                    if (isActive) {
-                        isActive = false;
-                        reject({ type: 'user', message: 'Отменено пользователем' });
-                    }
-                };
-                UI.showStatus('Отслеживание статуса загрузки…', onCancel);
-                controller.signal.addEventListener('abort', onCancel, { once: true });
                 poll();
             });
         };
 
-        const selectFile = (torrent_data) => {
+        this.selectFile = (torrent_data) => {
             const videoFiles = torrent_data.files
                 .filter(f => /\.(mkv|mp4|avi|ts|mov)$/i.test(f.name))
                 .sort(Utils.naturalSort);
-            if (!videoFiles.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
+
+            if (!videoFiles.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены в торренте.' });
+            
             const isLikelyMovie = videoFiles.length === 1 || !/s\d{2}e\d{2}/i.test(videoFiles.map(f => f.name).join(''));
             if (isLikelyMovie) {
-                return play(torrent_data, videoFiles[0]);
+                return this.play(torrent_data, videoFiles[0]);
             }
-            const movieId = object.movie.imdb_id || object.movie.id;
+
+            const movieId = this.movie.imdb_id || this.movie.id;
             const lastPlayedId = Store.get(`torbox_last_played_${movieId}`, null);
+
             Lampa.Select.show({
                 title: 'Выберите файл для воспроизведения',
                 items: videoFiles.map(file => ({
@@ -498,65 +551,40 @@
                     file: file,
                     cls: String(file.id) === lastPlayedId ? 'select__item--last-played' : ''
                 })),
-                onSelect: (item) => play(torrent_data, item.file),
+                onSelect: (item) => this.play(torrent_data, item.file),
                 onBack: () => Lampa.Controller.toggle('content')
             });
         };
 
-        /**
-         * Получить ссылку на файл и запустить плеер (ИЗМЕНЕНО)
-         */
-        const play = async (torrent_data, file) => {
+        this.play = async (torrent_data, file) => {
             Lampa.Loading.start();
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id, abort.signal);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
 
-                const movieId = object.movie.imdb_id || object.movie.id;
+                const movieId = this.movie.imdb_id || this.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${movieId}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${movieId}`, String(file.id));
 
-                // Получаем "живой" объект timeline от Lampa
                 const timeline = Lampa.Timeline.view(torrent_data.hash + file.id);
+                const playerTimelineData = { hash: timeline.hash, time: timeline.time, duration: timeline.duration, percent: timeline.percent };
+                const playerObject = { url: link, title: `${this.movie.title} / ${file.name}`, poster: this.movie.img, timeline: playerTimelineData };
 
-                // Создаем ОБЫЧНЫЙ объект с данными для плеера, чтобы избежать передачи методов
-                const playerTimelineData = {
-                    hash: timeline.hash,
-                    time: timeline.time,
-                    duration: timeline.duration,
-                    percent: timeline.percent,
-                };
-                
-                const playerObject = {
-                    url: link,
-                    title: `${object.movie.title} / ${file.name}`,
-                    poster: object.movie.img,
-                    timeline: playerTimelineData // Передаем только данные
-                };
-
-                // Отслеживаем закрытие плеера, чтобы сохранить прогресс
                 const onPlayerDestroy = () => {
-                    // Получаем финальные данные времени из плеера
                     const finalTimeline = Lampa.Player.timeline();
-                    // Обновляем наш "живой" объект timeline
                     timeline.time = finalTimeline.time;
                     timeline.duration = finalTimeline.duration;
                     timeline.percent = finalTimeline.percent;
-
-                    // Сохраняем обновленный объект
                     Lampa.Timeline.update(timeline);
-                    markAsPlayed(torrent_data.hash);
-
-                    // ОБЯЗАТЕЛЬНО удаляем слушатель, чтобы он не сработал для следующего плеера
+                    this.markAsPlayed(torrent_data.hash);
                     Lampa.Player.listener.remove('destroy', onPlayerDestroy);
                 };
 
                 Lampa.Player.listener.follow('destroy', onPlayerDestroy);
-                
                 Lampa.Player.play(playerObject);
-                Lampa.Player.playlist([playerObject]); // Создаем плейлист, это хорошая практика
+                Lampa.Player.playlist([playerObject]);
                 
             } catch (e) {
                 if (e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
@@ -565,7 +593,7 @@
             }
         };
 
-        const markAsPlayed = (hash) => {
+        this.markAsPlayed = (hash) => {
             if (!scroll) return;
             const currentItem = scroll.render().find(`[data-hash="${hash}"]`);
             if (currentItem.length) {
@@ -573,6 +601,10 @@
                 currentItem.addClass('torbox-item--just-watched');
             }
         };
+        
+        // ***************************************************************
+        // * КОНЕЦ ИСПРАВЛЕННОЙ ЛОГИКИ
+        // ***************************************************************
 
         this.empty = (msg) => {
             scroll.clear();
@@ -625,7 +657,7 @@
             let list = state.all_torrents.filter(t => {
                 for (const key in defaultFilters) {
                     if (state.filters[key] && state.filters[key] !== 'all') {
-                        const value = t[key] || t.voices; // Особый случай для voices/translation
+                        const value = t[key] || t.voices;
                         if (Array.isArray(value) ? !value.includes(state.filters[key]) : value !== state.filters[key]) {
                             return false;
                         }
@@ -655,7 +687,7 @@
             scroll.clear();
             if (!items.length) return this.empty('Ничего не найдено по заданным фильтрам');
         
-            const lastKey = `torbox_last_torrent_${object.movie.imdb_id || object.movie.id}`;
+            const lastKey = `torbox_last_torrent_${this.movie.imdb_id || this.movie.id}`;
             const lastHash = Store.get(lastKey, null);
 
             items.forEach(item_data => {
@@ -666,7 +698,7 @@
                     state.last_hash = item_data.hash;
                     scroll.update($(e.target), true);
                 }).on('hover:enter', () => {
-                    onTorrentClick(item_data);
+                    this.onTorrentClick(item_data);
                 }).on('hover:long', () => {
                     Lampa.Select.show({
                         title: 'Действия',
