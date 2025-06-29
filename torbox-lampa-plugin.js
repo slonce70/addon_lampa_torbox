@@ -274,7 +274,7 @@
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
-    // ───────────────────────── UI helpers ─────────────────────────────
+    // ───────────────────────── UI helpers ─────────────────────────��───
     const UI = (() => {
         let cache = {};
         const showStatus = (title, back) => {
@@ -320,7 +320,7 @@
     })();
     const { ErrorHandler } = UI;
 
-    // ───────────────────── component ▸ TorBoxComponent ───────────────
+    // ───────���───────────── component ▸ TorBoxComponent ───────────────
     function component(object) { // Renamed from TorBoxComponent to component
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -330,57 +330,6 @@
         let created = false;
         let abort = new AbortController();
         
-        // Navigator для управления навигацией
-        const Navigator = {
-            items: [],
-            focused: null,
-            
-            focus: function(target, items_list) {
-                if (this.focused) {
-                    this.focused.removeClass('focus');
-                }
-                
-                this.focused = target;
-                this.items = items_list || [];
-                
-                if (target) {
-                    target.addClass('focus');
-                    scroll.update(target, true);
-                }
-            },
-            
-            canmove: function(direction) {
-                if (!this.items.length || !this.focused) return false;
-                const current = this.items.indexOf(this.focused[0]);
-                if (current === -1) return false;
-                
-                if (direction === 'up') return current > 0;
-                if (direction === 'down') return current < this.items.length - 1;
-                if (direction === 'left') return current > 0;
-                if (direction === 'right') return current < this.items.length - 1;
-                return false;
-            },
-            
-            move: function(direction) {
-                if (!this.canmove(direction)) return;
-                const current = this.items.indexOf(this.focused[0]);
-                let next = current;
-                
-                if (direction === 'up' || direction === 'left') next = current - 1;
-                if (direction === 'down' || direction === 'right') next = current + 1;
-                
-                if (next >= 0 && next < this.items.length) {
-                    this.focus($(this.items[next]), this.items);
-                    last = this.items[next];
-                }
-            }
-        };
-        
-        // Добавляем обработчик скроллинга
-        scroll.onWheel = (step) => {
-            Navigator.move(step > 0 ? 'down' : 'up');
-        };
-
         this.activity = object.activity;
 
         let sort_types = [
@@ -569,8 +518,8 @@
             Lampa.Select.show({
                 title: 'Выберите файл',
                 items: items,
-                onSelect: i => play(torrent_data, i.file, vids)
-                // onBack убран, чтобы главный обработчик back() мог его перехватить
+                onSelect: i => play(torrent_data, i.file, vids),
+                onBack: () => Lampa.Controller.toggle('content')
             });
         };
 
@@ -714,7 +663,6 @@
         
             const lastKey = `torbox_last_torrent_${object.movie.imdb_id || object.movie.id}`;
             const lastHash = Store.get(lastKey, null);
-            const itemElements = [];
 
             items.forEach(item_data => {
                 let item = Lampa.Template.get('torbox_item', item_data);
@@ -726,9 +674,7 @@
                 item.on('hover:focus', (e) => {
                     last = e.target;
                     state.last_hash = item_data.hash;
-                    Navigator.focus($(e.target), itemElements);
-                }).on('hover:hover', (e) => {
-                    Navigator.focus($(e.target), itemElements);
+                    scroll.update($(e.target), true);
                 }).on('hover:enter', () => {
                     onTorrentClick(item_data);
                 }).on('hover:long', () => {
@@ -744,27 +690,15 @@
                 });
                 
                 scroll.append(item);
-                itemElements.push(item[0]);
             });
 
-            // Обновляем Navigator с новыми элементами
-            Navigator.items = itemElements;
-            
-            // Восстанавливаем фокус
-            let focus_element = null;
-            if (state.last_hash) {
-                focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
-            }
-            if (!focus_element || !focus_element.length) {
+            let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
+            if (!focus_element.length) {
                 focus_element = scroll.render().find('.selector').first();
             }
-            
-            if (focus_element && focus_element.length) {
-                Navigator.focus(focus_element, itemElements);
+            if (focus_element.length) {
                 last = focus_element[0];
-            } else if (itemElements.length > 0) {
-                Navigator.focus($(itemElements[0]), itemElements);
-                last = itemElements[0];
+                Lampa.Controller.collectionFocus(last, scroll.render());
             }
         };
 
@@ -801,76 +735,30 @@
             
             Lampa.Controller.add('torbox_component', {
                 toggle: () => {
-                    if (Lampa.Controller.enabled().name === 'torbox_component') {
-                        Lampa.Controller.collectionSet(filter.render(), scroll.render());
-                        Lampa.Controller.collectionFocus(last || false, scroll.render());
-                    }
+                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
+                    Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
                 up: () => {
-                    if (Navigator.canmove('up')) Navigator.move('up');
-                    else Lampa.Controller.toggle('head');
+                    Lampa.Controller.toggle('head');
                 },
                 down: () => {
-                    if (Navigator.canmove('down')) Navigator.move('down');
+                    Lampa.Controller.toggle('content');
                 },
                 left: () => {
-                    if (Navigator.canmove('left')) Navigator.move('left');
-                    else Lampa.Controller.toggle('menu');
+                    Lampa.Controller.toggle('menu');
                 },
                 right: () => {
-                    if (Navigator.canmove('right')) Navigator.move('right');
-                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
-                back: () => {
-                    this.back();
-                }
+                back: this.back
             });
             
             Lampa.Controller.toggle('torbox_component');
         };
         
         this.back = function() {
-            // Централизованный обработчик "назад"
-            console.log('[TorBox] Back button pressed');
-            
-            if ($('.modal').length) {
-                console.log('[TorBox] Closing modal');
-                Lampa.Modal.close();
-            } else if ($('body').hasClass('selectbox--open') || $('.selectbox').length) {
-                console.log('[TorBox] Closing selectbox');
-                if (Lampa.Select && Lampa.Select.close) Lampa.Select.close();
-            } else if ($('.filter').length || $('.filter--visible').length) {
-                console.log('[TorBox] Hiding filter');
-                if (Lampa.Filter && Lampa.Filter.hide) Lampa.Filter.hide();
-            } else if ($('video').length || document.fullscreenElement || $('body').hasClass('player--active') || $('body').hasClass('player--visible')) {
-                console.log('[TorBox] Player detected, attempting to close');
-                console.log('[TorBox] Video elements:', $('video').length);
-                console.log('[TorBox] Fullscreen:', !!document.fullscreenElement);
-                console.log('[TorBox] Player active class:', $('body').hasClass('player--active'));
-                console.log('[TorBox] Player visible class:', $('body').hasClass('player--visible'));
-                
-                // Если есть видео элемент, полноэкранный режим или активный плеер
-                if ($('video').length && !$('video')[0].paused) {
-                    console.log('[TorBox] Pausing video');
-                    $('video')[0].pause();
-                }
-                // Выход из полноэкранного режима
-                if (document.fullscreenElement) {
-                    console.log('[TorBox] Exiting fullscreen');
-                    document.exitFullscreen();
-                }
-                // Принудительное закрытие плеера через Lampa API
-                if (Lampa.Player && Lampa.Player.stop) {
-                    console.log('[TorBox] Calling Lampa.Player.stop()');
-                    Lampa.Player.stop();
-                }
-                console.log('[TorBox] Calling Activity.backward()');
-                Lampa.Activity.backward();
-            } else {
-                console.log('[TorBox] Default back action');
-                if (abort) abort.abort();
-                Lampa.Activity.backward();
-            }
+            if (abort) abort.abort();
+            Lampa.Activity.backward();
         };
 
         this.pause = function () {};
@@ -915,21 +803,15 @@
             state = null;
             created = false;
             initialized = false;
-            
-            // Очищаем Navigator
-            if (Navigator) {
-                Navigator.items = [];
-                Navigator.current = -1;
-            }
         };
     }
 
 
-    // ───────────────────── plugin ▸ main integration ──────────────��
+    // ───────────────────── plugin ▸ main integration ──────────────────
     const Plugin = (() => {
         const manifest = {
             type: 'video',
-            version: '35.2.1', // Incremented version
+            version: '35.2.2', // Incremented version
             name: 'TorBox Enhanced',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_component',
@@ -1016,7 +898,7 @@
                 en: 'Search did not return any results'
             },
             torbox_balanser_timeout: {
-                ru: 'Источник будет переключен автоматически через <span class="timeout">10</span> секунд.',
+                ru: 'Источник будет пер��ключен автоматически через <span class="timeout">10</span> секунд.',
                 uk: 'Джерело буде автоматично переключено через <span class="timeout">10</span> секунд.',
                 en: 'The source will be switched automatically after <span class="timeout">10</span> seconds.'
             },
@@ -1075,7 +957,7 @@
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
-                /* --- Контейнер ��ля списка --- */
+                /* --- Контейнер для списка --- */
                 .torbox-list-container {
                     display: block;
                     padding: 1em;
@@ -1193,7 +1075,7 @@
             Lampa.Component.add('torbox_component', component);
             addSettings();
             boot();
-            LOG('TorBox v35.2.1 ready');
+            LOG('TorBox v35.2.2 ready');
         };
         return { init };
     })();
