@@ -1,21 +1,16 @@
-/* TorBox Enhanced – Universal Lampa Plugin v35.3.1 (UI/UX Stability Fix) */
+/* TorBox Enhanced – Universal Lampa Plugin v35.3.0 (UI/UX Stability Fix) */
 (function() {
     'use strict';
 
     // ═══════════════════════ CONFIGURATION ═══════════════════════
     const Config = {
         DEF: {
-            proxyUrl: 'https://cors-anywhere.herokuapp.com/',
-            apiKey: 'f8b6c8b5c8e4f8b6c8b5c8e4f8b6c8b5c8e4f8b6'
+            debug: false
         },
         get: k => Lampa.Storage.get(k, Config.DEF[k.replace('torbox_', '')])
     };
 
     const CFG = {
-        get proxyUrl() { return Config.get('torbox_proxy_url') || Config.DEF.proxyUrl; },
-        set proxyUrl(value) { Lampa.Storage.set('torbox_proxy_url', value); },
-        get apiKey() { return Config.get('torbox_api_key') || Config.DEF.apiKey; },
-        set apiKey(value) { Lampa.Storage.set('torbox_api_key', value); },
         get debug() { return Config.get('torbox_debug') || false; },
         set debug(value) { Lampa.Storage.set('torbox_debug', value); }
     };
@@ -75,14 +70,38 @@
 
     // ═══════════════════════ API MODULE ═══════════════════════
     const API = {
-        search: async (query, signal) => {
-            const url = `${CFG.proxyUrl}https://torrentapi.org/pubapi_v2.php?mode=search&search_string=${encodeURIComponent(query)}&ranked=0&category=movies;tv&format=json_extended&app_id=torbox_lampa&token=${CFG.apiKey}`;
+        token: null,
+        
+        getToken: async () => {
+            if (API.token) return API.token;
             
             try {
-                const data = await Utils.safeRequest(url, { signal, timeout: 10000 });
+                const response = await fetch('https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=torbox_lampa');
+                const data = await response.json();
+                API.token = data.token;
+                return API.token;
+            } catch (error) {
+                Utils.error('Failed to get API token:', error);
+                throw error;
+            }
+        },
+        
+        search: async (query, signal) => {
+            try {
+                const token = await API.getToken();
+                const url = `https://torrentapi.org/pubapi_v2.php?mode=search&search_string=${encodeURIComponent(query)}&ranked=0&category=movies;tv&format=json_extended&app_id=torbox_lampa&token=${token}`;
+                
+                const data = await Utils.safeRequest(url, { signal, timeout: 15000 });
                 
                 if (data.error_code === 20) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    // Rate limit, wait and retry
+                    await new Promise(resolve => setTimeout(resolve, 2100));
+                    return API.search(query, signal);
+                }
+                
+                if (data.error_code === 4) {
+                    // Invalid token, reset and retry
+                    API.token = null;
                     return API.search(query, signal);
                 }
                 
