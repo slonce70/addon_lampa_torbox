@@ -1,21 +1,18 @@
 /*
- * TorBox Enhanced – Universal Lampa Plugin v30.0.5 (Refactored)
+ * TorBox Enhanced – Universal Lampa Plugin v31.0.0 (Refactored by Cline)
  * =================================================================================
- * • КРИТИЧНЕ ВИПРАВЛЕННЯ: Усунуто помилки `component.render is not a function` та 
- * `appendChild is not a function`, які виникали через несумісність з API Lampa 
- * після рефакторингу. Плагін знову повністю функціональний.
- * • БЕЗПЕКА: Усунуто потенційні XSS-вразливості.
- * • ПРОДУКТИВНІСТЬ: Паралельні запити, обмежений кеш.
- * • СТАБІЛЬНІСТЬ: Відсутність таймерів, безпечне сховище.
- * • СУПРОВІДНІСТЬ: Код реструктуризовано на логічні секції.
- * • ЗАХИСТ КЛЮЧА: API-ключ зберігається у кодованому вигляді (Base64).
+ * • ВЕРСІЯ 31.0.0: Глибокий рефакторинг для підвищення стабільності та чистоти коду.
+ * • ШАБЛОНИ: Генерація HTML-розмітки перенесена в Lampa.Template для кращої читабельності.
+ * • ОПТИМІЗАЦІЯ: Покращено механізм відстеження статусу торрента, додано ліміт спроб.
+ * • СТАНДАРТИЗАЦІЯ: Уніфіковано роботу з DOM через jQuery, спрощено конструктор компонента.
+ * • СУПРОВІДНІСТЬ: Код став ще чистішим і простішим для подальшого розвитку.
  */
 
 (function () {
     'use strict';
 
     // ─── core: guard & version ────────────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v30_0_5_refactored';
+    const PLUGIN_ID = 'torbox_enhanced_v31_0_0_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -396,46 +393,23 @@
             if ($('.modal').length) Lampa.Modal.close();
             modalCache = {};
 
-            const modal = document.createElement('div');
-            modal.className = 'torbox-status';
-
-            const titleEl = document.createElement('div');
-            titleEl.className = 'torbox-status__title';
-            titleEl.textContent = title;
-
-            const statusEl = document.createElement('div');
-            statusEl.className = 'torbox-status__info';
-            statusEl.dataset.name = 'status';
-            statusEl.textContent = 'Ожидание...';
-
-            const progressTextEl = document.createElement('div');
-            progressTextEl.className = 'torbox-status__info';
-            progressTextEl.dataset.name = 'progress-text';
-
-            const progressContainer = document.createElement('div');
-            progressContainer.className = 'torbox-status__progress-container';
-            const progressBar = document.createElement('div');
-            progressBar.className = 'torbox-status__progress-bar';
-            progressBar.style.width = '0%';
-            progressContainer.appendChild(progressBar);
-            
-            const speedEl = document.createElement('div');
-            speedEl.className = 'torbox-status__info';
-            speedEl.dataset.name = 'speed';
-
-            const etaEl = document.createElement('div');
-            etaEl.className = 'torbox-status__info';
-            etaEl.dataset.name = 'eta';
-
-            const peersEl = document.createElement('div');
-            peersEl.className = 'torbox-status__info';
-            peersEl.dataset.name = 'peers';
-
-            modal.append(titleEl, statusEl, progressTextEl, progressContainer, speedEl, etaEl, peersEl);
+            const modal = $(`
+                <div class="torbox-status">
+                    <div class="torbox-status__title">${title}</div>
+                    <div class="torbox-status__info" data-name="status">Ожидание...</div>
+                    <div class="torbox-status__info" data-name="progress-text"></div>
+                    <div class="torbox-status__progress-container">
+                        <div class="torbox-status__progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="torbox-status__info" data-name="speed"></div>
+                    <div class="torbox-status__info" data-name="eta"></div>
+                    <div class="torbox-status__info" data-name="peers"></div>
+                </div>
+            `);
             
             Lampa.Modal.open({
                 title: 'TorBox',
-                html: $(modal),
+                html: modal,
                 size: 'medium',
                 onBack: onBack || (() => { Lampa.Modal.close(); modalCache = {}; })
             });
@@ -487,12 +461,6 @@
     
     // ─── component: TorBoxComponent ───────────────────────────────
     function TorBoxComponent(object) {
-        for (const key in this) {
-            if (typeof this[key] === 'function') {
-                this[key] = this[key].bind(this);
-            }
-        }
-        
         this.activity = object.activity;
         this.movie = object.movie;
         this.params = object;
@@ -779,68 +747,68 @@
     };
     
     TorBoxComponent.prototype._createTorrentDOMItem = function(t, lastTorrentHash) {
-        const item = document.createElement('div');
-        item.className = 'torbox-item selector';
-        if (lastTorrentHash && t.hash === lastTorrentHash) {
-            item.classList.add('torbox-item--last-played');
-        }
+        const titleText = `${t.cached ? '⚡ ' : '☁️ '}${t.raw_title || t.title}`;
+        const mainInfoText = `[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
+        const metaText = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
 
-        const title = document.createElement('div');
-        title.className = 'torbox-item__title';
-        title.textContent = `${t.cached ? '⚡ ' : '☁️ '}${t.raw_title || t.title}`;
-        
-        const mainInfo = document.createElement('div');
-        mainInfo.className = 'torbox-item__main-info';
-        mainInfo.innerHTML = `[${t.quality}] ${Utils.formatBytes(t.size)} | 🟢 <span style="color:var(--color-good);">${t.last_known_seeders||0}</span> / 🔴 <span style="color:var(--color-bad);">${t.last_known_peers||0}</span>`;
-        
-        const meta = document.createElement('div');
-        meta.className = 'torbox-item__meta';
-        meta.textContent = `Трекери: ${t.trackers?.join(', ')||'н/д'} | Додано: ${t.age||'н/д'}`;
-        
-        item.append(title, mainInfo, meta);
+        let techBarHtml = '';
+        let techBarClass = 'hide';
 
         if (t.video_resolution) {
-            const techBar = this._createTechBar(t);
-            item.appendChild(techBar);
+            techBarHtml = this._createTechBar(t);
+            techBarClass = '';
         }
-        return item;
+
+        const item = $(Lampa.Template.get('torbox_item_template', {
+            title: titleText,
+            main_info: mainInfoText,
+            meta: metaText,
+            tech_bar_content: techBarHtml,
+            tech_bar_class: techBarClass
+        }));
+
+        if (lastTorrentHash && t.hash === lastTorrentHash) {
+            item.addClass('torbox-item--last-played');
+        }
+        return item[0]; // Return the native DOM element
     };
 
     TorBoxComponent.prototype._createTechBar = function(t) {
-        const techBar = document.createElement('div');
-        techBar.className = 'torbox-item__tech-bar';
-        
         const createTag = (text, type) => {
-            const tag = document.createElement('div');
-            tag.className = `torbox-item__tech-item torbox-item__tech-item--${type}`;
-            tag.textContent = text;
-            return tag;
+            return `<div class="torbox-item__tech-item torbox-item__tech-item--${type}">${text}</div>`;
         };
 
-        techBar.appendChild(createTag(t.video_resolution, 'res'));
-        if (t.video_codec) techBar.appendChild(createTag(t.video_codec.toUpperCase(), 'codec'));
-        if (t.has_hdr) techBar.appendChild(createTag('HDR', 'hdr'));
-        if (t.has_dv) techBar.appendChild(createTag('Dolby Vision', 'dv'));
+        const videoCodecHtml = t.video_codec ? createTag(t.video_codec.toUpperCase(), 'codec') : '';
+        const hasHdrHtml = t.has_hdr ? createTag('HDR', 'hdr') : '';
+        const hasDvHtml = t.has_dv ? createTag('Dolby Vision', 'dv') : '';
+
+        const audioStreamsHtml = (t.raw_data.ffprobe || [])
+            .filter(s => s.codec_type === 'audio')
+            .map(s => {
+                const lang = s.tags?.language?.toUpperCase() || '???';
+                const codec = s.codec_name?.toUpperCase() || '';
+                const layout = s.channel_layout || '';
+                return createTag(`${lang} ${codec} ${layout}`, 'audio');
+            })
+            .join('');
         
-        t.raw_data.ffprobe?.filter(s => s.codec_type === 'audio').forEach(s => {
-            const lang = s.tags?.language?.toUpperCase() || '???';
-            const codec = s.codec_name?.toUpperCase() || '';
-            const layout = s.channel_layout || '';
-            techBar.appendChild(createTag(`${lang} ${codec} ${layout}`, 'audio'));
+        return Lampa.Template.get('torbox_tech_bar_template', {
+            video_resolution: t.video_resolution,
+            video_codec_html: videoCodecHtml,
+            has_hdr_html: hasHdrHtml,
+            has_dv_html: hasDvHtml,
+            audio_streams_html: audioStreamsHtml
         });
-        
-        return techBar;
     };
 
     TorBoxComponent.prototype._renderEmpty = function(msg) { 
         const scrollRender = this.state.scroll.render();
         scrollRender.empty();
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'empty';
-        const text = document.createElement('div');
-        text.className = 'empty__text';
-        text.textContent = msg || 'Торренти не знайдені';
-        emptyMsg.appendChild(text);
+        const emptyMsg = $(`
+            <div class="empty">
+                <div class="empty__text">${msg || 'Торренти не знайдені'}</div>
+            </div>
+        `);
         scrollRender.append(emptyMsg);
         this.activity.loader(false);
     };
@@ -866,9 +834,14 @@
     
     TorBoxComponent.prototype._trackTorrentStatus = function(torrentId, signal) {
         return new Promise((resolve, reject) => {
-            let isTrackingActive = true; 
+            let isTrackingActive = true;
+            let pollAttempts = 0;
+            const MAX_POLL_ATTEMPTS = 12; // 12 attempts * 5 seconds = 60 seconds (1 minute)
+
             const poll = async () => {
                 if (!isTrackingActive) return;
+                pollAttempts++;
+
                 try {
                     const torrentResult = await Api.myList(torrentId, signal);
                     const torrentData = torrentResult?.data?.[0];
@@ -876,7 +849,12 @@
                     if (!isTrackingActive) return;
 
                     if (!torrentData) {
-                       throw {type: 'api', message: "Торрент не з'явився у списку після додавання."};
+                       if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+                           throw {type: 'api', message: "Торрент не з'явився у списку після додавання. Спробуйте пізніше."};
+                       }
+                       LOG(`Torrent data not yet available, attempt ${pollAttempts}/${MAX_POLL_ATTEMPTS}`);
+                       setTimeout(poll, 5000);
+                       return;
                     }
                     
                     const statusText = torrentData.download_state || torrentData.status;
@@ -1079,11 +1057,28 @@
             `;
             document.head.appendChild(style);
 
+            Lampa.Template.add('torbox_item_template', `
+                <div class="torbox-item selector">
+                    <div class="torbox-item__title">{title}</div>
+                    <div class="torbox-item__main-info">{main_info}</div>
+                    <div class="torbox-item__meta">{meta}</div>
+                    <div class="torbox-item__tech-bar {tech_bar_class}">{tech_bar_content}</div>
+                </div>
+            `);
+
+            Lampa.Template.add('torbox_tech_bar_template', `
+                <div class="torbox-item__tech-item torbox-item__tech-item--res">{video_resolution}</div>
+                {video_codec_html}
+                {has_hdr_html}
+                {has_dv_html}
+                {audio_streams_html}
+            `);
+
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
             setupGlobalActivityListener();
-            LOG('TorBox v30.0.5 (Refactored) ready');
+            LOG('TorBox v31.0.0 (Refactored) ready');
         };
 
         return { init };
