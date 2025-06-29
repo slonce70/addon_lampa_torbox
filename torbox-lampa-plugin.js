@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.2 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.4 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -544,20 +544,21 @@
                 
                 Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
-                const onBack = () => {
+                const onComplete = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward();
-                };
-
-                const onComplete = () => {
                     if (all_video_files.length > 1) {
-                        onBack(); 
                         setTimeout(() => selectFile(torrent_data), 50);
                     } else {
                         markAsPlayed(torrent_data.hash);
-                        onBack();
+                        Lampa.Controller.toggle('content');
                     }
+                };
+
+                const onBack = () => {
+                    Lampa.Player.listener.remove('complite', onComplete);
+                    Lampa.Player.listener.remove('back', onBack);
+                    Lampa.Activity.backward(); // [ИСПРАВЛЕНИЕ] Корректное закрытие плеера
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
@@ -769,7 +770,7 @@
                     if (Navigator.canmove('right')) Navigator.move('right');
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
-                back: this.back
+                back: this.back.bind(this)
             });
             Lampa.Controller.toggle('content');
         };
