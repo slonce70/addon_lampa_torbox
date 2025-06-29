@@ -13,8 +13,11 @@
 
     const CFG = {
         get proxyUrl() { return Config.get('torbox_proxy_url') || Config.DEF.proxyUrl; },
+        set proxyUrl(value) { Lampa.Storage.set('torbox_proxy_url', value); },
         get apiKey() { return Config.get('torbox_api_key') || Config.DEF.apiKey; },
-        get debug() { return Config.get('torbox_debug') || false; }
+        set apiKey(value) { Lampa.Storage.set('torbox_api_key', value); },
+        get debug() { return Config.get('torbox_debug') || false; },
+        set debug(value) { Lampa.Storage.set('torbox_debug', value); }
     };
 
     const Store = {
