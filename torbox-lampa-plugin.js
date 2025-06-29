@@ -10,7 +10,7 @@
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_refactored_v1';
+    const PLUGIN_ID = 'torbox_enhanced_refactored_v2';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -334,7 +334,7 @@
          * Главная функция поиска и обработки торрентов
          * @param {boolean} force - Игнорировать кэш
          */
-        const search = async (force = false) => {
+        this.search = async function (force = false) {
             if (abort) abort.abort();
             abort = new AbortController();
 
