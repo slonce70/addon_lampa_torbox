@@ -1,4 +1,4 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.1.5 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v35.1.6 (Template Fix)
  * =======================================================================
  * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
  * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
@@ -542,32 +542,10 @@
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                let play_object = { url: link, title: file.name || object.movie.title, poster: object.movie.img };
+                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: object.movie.img });
 
-                Lampa.Player.play(play_object);
-
-                let playlist = [];
-                playlist.push(play_object);
-                Lampa.Player.playlist(playlist);
-
-                const onBack = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward();
-                };
-
-                const onComplete = () => {
-                    if (all_video_files.length > 1) {
-                        onBack(); 
-                        setTimeout(() => selectFile(torrent_data), 50);
-                    } else {
-                        markAsPlayed(torrent_data.hash);
-                        onBack();
-                    }
-                };
-
-                Lampa.Player.listener.follow('complite', onComplete);
-                Lampa.Player.listener.follow('back', onBack);
+                // Lampa.Player.playlist() больше не нужен, так как this.back() будет обрабатывать возврат
+                
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             } finally {
@@ -741,7 +719,7 @@
                 this.build();
                 Lampa.Controller.toggle('content');
             };
-            filter.onBack = () => Lampa.Controller.toggle('content');
+            filter.onBack = () => this.back();
 
             if (filter.addButtonBack) filter.addButtonBack();
             
@@ -754,15 +732,9 @@
          * [РЕФАКТОРИНГ] Главный управляющий метод.
          */
         this.start = function () {
-            // Запускаем инициализацию только один раз
-            if (!initialized) {
-                this.initialize();
-                initialized = true;
-            }
-            
             Lampa.Controller.add('content', {
                 toggle: () => {
-                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
+                    Lampa.Controller.collectionSet(this.render(), scroll.render());
                     Lampa.Controller.collectionFocus(last || false, scroll.render());
                 },
                 up: () => Navigator.move('up'),
@@ -777,6 +749,13 @@
                 },
                 back: this.back.bind(this)
             });
+            
+            // Запускаем инициализацию только один раз
+            if (!initialized) {
+                this.initialize();
+                initialized = true;
+            }
+            
             Lampa.Controller.toggle('content');
         };
         
