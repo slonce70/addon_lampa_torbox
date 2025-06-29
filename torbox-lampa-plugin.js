@@ -831,13 +831,43 @@
         
         this.back = function() {
             // Централизованный обработчик "назад"
+            console.log('[TorBox] Back button pressed');
+            
             if ($('.modal').length) {
+                console.log('[TorBox] Closing modal');
                 Lampa.Modal.close();
             } else if ($('body').hasClass('selectbox--open') || $('.selectbox').length) {
+                console.log('[TorBox] Closing selectbox');
                 if (Lampa.Select && Lampa.Select.close) Lampa.Select.close();
             } else if ($('.filter').length || $('.filter--visible').length) {
+                console.log('[TorBox] Hiding filter');
                 if (Lampa.Filter && Lampa.Filter.hide) Lampa.Filter.hide();
+            } else if ($('video').length || document.fullscreenElement || $('body').hasClass('player--active') || $('body').hasClass('player--visible')) {
+                console.log('[TorBox] Player detected, attempting to close');
+                console.log('[TorBox] Video elements:', $('video').length);
+                console.log('[TorBox] Fullscreen:', !!document.fullscreenElement);
+                console.log('[TorBox] Player active class:', $('body').hasClass('player--active'));
+                console.log('[TorBox] Player visible class:', $('body').hasClass('player--visible'));
+                
+                // Если есть видео элемент, полноэкранный режим или активный плеер
+                if ($('video').length && !$('video')[0].paused) {
+                    console.log('[TorBox] Pausing video');
+                    $('video')[0].pause();
+                }
+                // Выход из полноэкранного режима
+                if (document.fullscreenElement) {
+                    console.log('[TorBox] Exiting fullscreen');
+                    document.exitFullscreen();
+                }
+                // Принудительное закрытие плеера через Lampa API
+                if (Lampa.Player && Lampa.Player.stop) {
+                    console.log('[TorBox] Calling Lampa.Player.stop()');
+                    Lampa.Player.stop();
+                }
+                console.log('[TorBox] Calling Activity.backward()');
+                Lampa.Activity.backward();
             } else {
+                console.log('[TorBox] Default back action');
                 if (abort) abort.abort();
                 Lampa.Activity.backward();
             }
