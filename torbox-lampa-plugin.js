@@ -539,6 +539,7 @@
                 const onBack = () => {
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
+                    Lampa.Activity.backward(); // Добавлено для выхода из плеера
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
