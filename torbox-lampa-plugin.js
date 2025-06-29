@@ -379,6 +379,10 @@
             </div>`);
             this.activity.loader(false);
             startProcess();
+            return this.render();
+        };
+
+        this.render = function() {
             return body;
         };
 
@@ -478,6 +482,10 @@
             });
             
             items_container.append(scroll.render());
+            return this.render();
+        };
+
+        this.render = function() {
             return items_container;
         };
 
