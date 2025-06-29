@@ -474,7 +474,6 @@
             });
             
             items_container.append(scroll.render());
-            this.activity.loader(false);
             return items_container;
         };
 
