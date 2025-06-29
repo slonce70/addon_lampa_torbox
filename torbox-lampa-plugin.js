@@ -1,14 +1,13 @@
-/* TorBox Enhanced – Universal Lampa Plugin  v35.3.1 (Template Fix)
+/* TorBox Enhanced – Universal Lampa Plugin  v36.3.0 (Refactoring)
  * =======================================================================
- * ▸ ИСПРАВЛЕНА ОТРИСОВКА: Решена проблема с отображением кода шаблона ({_if...})
- * вместо готовых элементов. Шаблон преобразован в одну строку для корректной
- * обработки движком Lampa.
+ * ▸ ФАЗА 2: Улучшена обработка ошибок.
+ * ▸ Ошибки теперь могут отображаться прямо в интерфейсе, а не только как уведомления.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_v35_1_0_template_fix';
+    const PLUGIN_ID = 'torbox_enhanced_v36_3_0_refactoring';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -107,12 +106,11 @@
     // ───────────────────── core ▸ CACHE (simple LRU) ───────────────────
     const Cache = (() => {
         const map = new Map();
-        const LIM = 128;
         return {
             get(k) {
                 if (!map.has(k)) return null;
                 const o = map.get(k);
-                if (Date.now() - o.ts > 600000) { // 10-минутный кэш
+                if (Date.now() - o.ts > Config.DEF.CACHE_TTL) {
                     map.delete(k);
                     return null;
                 }
@@ -123,7 +121,7 @@
             set(k, v) {
                 if (map.has(k)) map.delete(k);
                 map.set(k, { ts: Date.now(), val: v });
-                if (map.size > LIM) map.delete(map.keys().next().value); // удалить самый старый
+                if (map.size > Config.DEF.CACHE_LIMIT) map.delete(map.keys().next().value); // удалить самый старый
             }
         };
     })();
@@ -132,7 +130,11 @@
     const Config = (() => {
         const DEF = {
             proxyUrl: 'https://my-torbox-proxy.slonce70.workers.dev/',
-            apiKey: ''
+            apiKey: '',
+            API_TIMEOUT: 20000,   // Таймаут для API запросов в мс
+            POLL_INTERVAL: 5000,  // Интервал опроса статуса торрента в мс
+            CACHE_LIMIT: 128,     // Максимальное количество записей в кэше
+            CACHE_TTL: 600000,    // Время жизни кэша торрентов в мс (10 минут)
         };
         const CFG = {
             get debug() { return Store.get('torbox_debug', '0') === '1'; },
@@ -151,14 +153,27 @@
             }
         };
         const LOG = (...a) => CFG.debug && console.log('[TorBox]', ...a);
-        const PUBLIC_PARSERS = [
-            { name: 'Viewbox', url: 'jacred.viewbox.dev', key: 'viewbox' },
-            { name: 'Jacred', url: 'jacred.xyz', key: '' }
-        ];
+        
+        // [РЕФАКТОРИНГ] Замена жестко заданных парсеров на гибкую систему источников
+        const SOURCES = {
+            'viewbox': {
+                name: 'Viewbox',
+                type: 'jackett',
+                endpoint: 'jacred.viewbox.dev',
+                api_key: 'viewbox'
+            },
+            'jacred': {
+                name: 'Jacred',
+                type: 'jackett',
+                endpoint: 'jacred.xyz',
+                api_key: ''
+            }
+        };
+
         const ICON = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
-        return { CFG, LOG, PUBLIC_PARSERS, ICON, DEF };
+        return { CFG, LOG, SOURCES, ICON, DEF };
     })();
-    const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
+    const { CFG, LOG, SOURCES, ICON } = Config;
 
     // ───────────────────── core ▸ API ────────────────────────────────
     const Api = (() => {
@@ -191,8 +206,7 @@
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
 
             const controller = new AbortController();
-            const timeout = 20000; // 20 секунд
-            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            const timeoutId = setTimeout(() => controller.abort(), DEF.API_TIMEOUT);
             if (signal) signal.addEventListener('abort', () => controller.abort());
 
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
@@ -204,7 +218,7 @@
                 return _process(await res.text(), res.status);
             } catch (e) {
                 if (e.name === 'AbortError') {
-                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${timeout / 1000} сек)` };
+                    if (!signal || !signal.aborted) throw { type: 'network', message: `Таймаут запроса (${DEF.API_TIMEOUT / 1000} сек)` };
                     throw e; // Отмена пользователем
                 }
                 throw { type: 'network', message: e.message };
@@ -214,29 +228,36 @@
         };
 
         const searchPublicTrackers = async (movie, signal) => {
-            for (const p of PUBLIC_PARSERS) {
+            // [РЕФАКТОРИНГ] Использование системы источников
+            for (const key in SOURCES) {
+                const source = SOURCES[key];
+                if (source.type !== 'jackett') continue;
+
                 const qs = new URLSearchParams({
-                    apikey: p.key,
+                    apikey: source.api_key,
                     Query: `${movie.title} ${movie.year || ''}`.trim(),
                     title: movie.title,
                     title_original: movie.original_title,
-                    Category: '2000,5000'
+                    Category: '2000,5000' // Фильмы + Сериалы
                 });
                 if (movie.year) qs.append('year', movie.year);
-                const u = `https://${p.url}/api/v2.0/indexers/all/results?${qs}`;
-                LOG('Parser', p.name, u);
+                
+                const url = `https://${source.endpoint}/api/v2.0/indexers/all/results?${qs}`;
+                LOG('Источник:', source.name, url);
+                
                 try {
-                    const j = await request(u, { method: 'GET', is_torbox_api: false }, signal);
-                    if (j && Array.isArray(j.Results) && j.Results.length) {
-                        LOG('Parser success', p.name, j.Results.length);
-                        return j.Results;
+                    const json = await request(url, { method: 'GET', is_torbox_api: false }, signal);
+                    if (json && Array.isArray(json.Results) && json.Results.length) {
+                        LOG('Источник успешно ответил:', source.name, `${json.Results.length} результатов`);
+                        // Добавляем информацию об источнике в каждый результат
+                        return json.Results.map(r => ({ ...r, _source: source.name }));
                     }
-                    LOG('Parser empty', p.name);
+                    LOG('Источник пуст:', source.name);
                 } catch (err) {
-                    LOG('Parser fail', p.name, err.message);
+                    LOG('Источник не ответил:', source.name, err.message);
                 }
             }
-            throw { type: 'api', message: 'Все публичные парсеры недоступны или без результатов' };
+            throw { type: 'api', message: 'Все источники недоступны или не дали результатов' };
         };
 
         const checkCached = async (hashes, signal) => {
@@ -315,10 +336,14 @@
             cache.bar.css('width', Math.min(100, d.progress || 0) + '%');
         };
         const ErrorHandler = {
-            show(t, e) {
+            show(t, e, context = {}) {
                 const msg = e.message || 'Ошибка';
-                Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
-                LOG('ERR', t, e);
+                if (context.component && context.component.empty) {
+                    context.component.empty(`Ошибка: ${msg}`);
+                } else {
+                    Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
+                }
+                LOG('ERR', t, msg, e);
             }
         };
         return { showStatus, updateStatusModal: upd, ErrorHandler };
@@ -344,15 +369,28 @@
             { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
         ];
-        let defaultFilters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
         
         // Состояние
         let state = {
             all_torrents: [],
-            sort: Store.get('torbox_sort_method', 'seeders'),
-            filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(defaultFilters))),
             last_hash: null,
         };
+
+        // [РЕФАКТОРИНГ] Управление состоянием (фильтры, сортировка) по аналогии с bwa.js
+        const getChoice = () => {
+            const def = {
+                sort: 'seeders',
+                filters: { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' }
+            };
+            const stored = Store.get(`torbox_choice_${object.movie.id}`, null);
+            return stored ? { ...def, ...JSON.parse(stored) } : def;
+        };
+
+        const saveChoice = (newChoice) => {
+            Store.set(`torbox_choice_${object.movie.id}`, JSON.stringify(newChoice));
+        };
+
+        let currentChoice = getChoice();
 
         // Логика обработки торрентов, перенесенная из старого кода
         const procRaw = (raw, hash, cachedSet) => {
@@ -463,8 +501,8 @@
                 })
                 .catch(err => {
                     if (abort.signal.aborted) return;
-                    this.empty(err.message || 'Ошибка');
-                    ErrorHandler.show(err.type || 'unknown', err);
+                    // [РЕФАКТОРИНГ] Используем новый ErrorHandler с контекстом
+                    ErrorHandler.show(err.type || 'unknown', err, { component: this });
                 })
                 .finally(() => {
                     this.activity.loader(false);
@@ -484,7 +522,7 @@
                 Lampa.Modal.close();
                 selectFile(data);
             } catch (e) {
-                if (e.type !== 'user' && e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
+                if (e.type !== 'user' && e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e, { component: this });
                 Lampa.Modal.close();
             }
         };
@@ -497,7 +535,7 @@
                     try {
                         const d = (await Api.myList(id, abort.signal)).data[0];
                         if (!d) {
-                           if (active) setTimeout(poll, 5000); return;
+                           if (active) setTimeout(poll, Config.DEF.POLL_INTERVAL); return;
                         }
                         const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
                         const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
@@ -509,7 +547,7 @@
                         if (is_finished && d.files?.length) {
                            active = false; return ok(d);
                         }
-                        if (active) setTimeout(poll, 5000);
+                        if (active) setTimeout(poll, Config.DEF.POLL_INTERVAL);
                     } catch (e) { if (e.name !== 'AbortError') { active = false; fail(e); } }
                 };
                 const cancel = () => { if (active) { active = false; fail({ type: 'user', message: 'Отменено пользователем' }); } };
@@ -521,7 +559,7 @@
 
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.(mkv|mp4|avi)$/i.test(f.name)).sort(Utils.naturalSort);
-            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
+            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' }, { component: this });
             if (vids.length === 1) return play(torrent_data, vids[0], vids);
 
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
@@ -554,7 +592,7 @@
                     }
                 });
             } catch (e) {
-                ErrorHandler.show(e.type || 'unknown', e);
+                ErrorHandler.show(e.type || 'unknown', e, { component: this });
             } finally {
                 Lampa.Loading.stop();
             }
@@ -606,8 +644,8 @@
         this.buildFilter = function () {
             const build = (key, title, arr) => {
                 const uni = [...new Set(arr.flat().filter(Boolean))].sort();
-                const items = ['all', ...uni].map(v => ({ title: v === 'all' ? 'Все' : v.toUpperCase(), value: v, selected: state.filters[key] === v }));
-                const sub = state.filters[key] === 'all' ? 'Все' : state.filters[key].toUpperCase();
+                const items = ['all', ...uni].map(v => ({ title: v === 'all' ? 'Все' : v.toUpperCase(), value: v, selected: currentChoice.filters[key] === v }));
+                const sub = currentChoice.filters[key] === 'all' ? 'Все' : currentChoice.filters[key].toUpperCase();
                 return { title, subtitle: sub, items, stype: key };
             };
     
@@ -624,27 +662,27 @@
             ];
             filter.set('filter', f_items);
             filter.render().find('.filter--filter span').text('Фильтр');
-            const subTitles = f_items.filter(f => f.stype && state.filters[f.stype] !== 'all').map(f => `${f.title}: ${state.filters[f.stype]}`);
+            const subTitles = f_items.filter(f => f.stype && currentChoice.filters[f.stype] !== 'all').map(f => `${f.title}: ${currentChoice.filters[f.stype]}`);
             filter.chosen('filter', subTitles);
 
-            const sort_items = sort_types.map(i => ({ ...i, selected: i.key === state.sort }));
+            const sort_items = sort_types.map(i => ({ ...i, selected: i.key === currentChoice.sort }));
             filter.set('sort', sort_items);
             filter.render().find('.filter--sort span').text('Сортировка');
-            filter.chosen('sort', [(sort_types.find(s => s.key === state.sort) || {}).title]);
+            filter.chosen('sort', [(sort_types.find(s => s.key === currentChoice.sort) || {}).title]);
         };
 
         this.applyFiltersSort = function () {
             let list = state.all_torrents.filter(t => {
-                if (state.filters.quality !== 'all' && t.quality !== state.filters.quality) return false;
-                if (state.filters.video_type !== 'all' && t.video_type !== state.filters.video_type) return false;
-                if (state.filters.translation !== 'all' && !(t.voices || []).includes(state.filters.translation)) return false;
-                if (state.filters.lang !== 'all' && !(t.audio_langs || []).includes(state.filters.lang)) return false;
-                if (state.filters.video_codec !== 'all' && t.video_codec !== state.filters.video_codec) return false;
-                if (state.filters.audio_codec !== 'all' && !(t.audio_codecs || []).includes(state.filters.audio_codec)) return false;
-                if (state.filters.tracker !== 'all' && !(t.trackers || []).includes(state.filters.tracker)) return false;
+                if (currentChoice.filters.quality !== 'all' && t.quality !== currentChoice.filters.quality) return false;
+                if (currentChoice.filters.video_type !== 'all' && t.video_type !== currentChoice.filters.video_type) return false;
+                if (currentChoice.filters.translation !== 'all' && !(t.voices || []).includes(currentChoice.filters.translation)) return false;
+                if (currentChoice.filters.lang !== 'all' && !(t.audio_langs || []).includes(currentChoice.filters.lang)) return false;
+                if (currentChoice.filters.video_codec !== 'all' && t.video_codec !== currentChoice.filters.video_codec) return false;
+                if (currentChoice.filters.audio_codec !== 'all' && !(t.audio_codecs || []).includes(currentChoice.filters.audio_codec)) return false;
+                if (currentChoice.filters.tracker !== 'all' && !(t.trackers || []).includes(currentChoice.filters.tracker)) return false;
                 return true;
             });
-            const s = sort_types.find(s => s.key === state.sort);
+            const s = sort_types.find(s => s.key === currentChoice.sort);
             if (s) {
                 list.sort((a, b) => {
                     let va = a[s.field] || 0, vb = b[s.field] || 0;
@@ -711,15 +749,18 @@
         this.initialize = function() {
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
+                currentChoice = getChoice(); // Обновляем перед изменением
                 if (type === 'sort') {
-                    state.sort = a.key;
-                    Store.set('torbox_sort_method', a.key);
+                    currentChoice.sort = a.key;
                 } else if (type === 'filter') {
                     if (a.refresh) return search(true);
-                    if (a.reset) state.filters = JSON.parse(JSON.stringify(defaultFilters));
-                    else if (a.stype) state.filters[a.stype] = b.value;
-                    Store.set('torbox_filters_v2', JSON.stringify(state.filters));
+                    if (a.reset) {
+                        currentChoice.filters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
+                    } else if (a.stype) {
+                        currentChoice.filters[a.stype] = b.value;
+                    }
                 }
+                saveChoice(currentChoice);
                 this.build();
                 Lampa.Controller.toggle('content');
             };
@@ -961,7 +1002,7 @@
             Lampa.Component.add('torbox_component', TorBoxComponent);
             addSettings();
             boot();
-            LOG('TorBox v34.0.0 ready');
+            LOG('TorBox v36.3.0 ready');
         };
         return { init };
     })();
