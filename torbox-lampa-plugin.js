@@ -1,19 +1,18 @@
-/* TorBox Enhanced - Final Stable Version (BWA Architecture)
+/* TorBox Enhanced - Final Stable Version (BWA Architecture + Video Proxy Fix)
  * =======================================================================
  * ▸ АРХИТЕКТУРА: Плагин полностью перенесен на стабильный и проверенный
- * "скелет" компонента bwa.js. Это обеспечивает максимальную
- * отказоустойчивость, правильную навигацию и управление состоянием.
- * ▸ ФУНКЦИОНАЛ: Вся уникальная логика TorBox (поиск, проверка кеша,
- * отслеживание загрузки) была бережно интегрирована в новую архитектуру.
- * ▸ UI: Сохранен ваш фирменный и удобный вид списка торрентов.
- * ▸ СТАБИЛЬНОСТЬ: Это финальная версия, нацеленная на решение всех
- * проблем с навигацией, зависаниями и выходом из плеера.
+ * "скелет" компонента bwa.js.
+ * ▸ ИСПРАВЛЕНО ЗАВИСАНИЕ ПЛЕЕРА: Реализовано проксирование финального
+ * видеопотока для обхода CORS-ограничений. Это решает корневую проблему
+ * "Failed to load source" и, как следствие, зависание плеера.
+ * ▸ ФУНКЦИОНАЛ: Вся логика TorBox сохранена и интегрирована в новую
+ * стабильную архитектуру.
  * ======================================================================= */
 (function () {
     'use strict';
 
     // ───────────────────────────── guard ──────────────────────────────
-    const PLUGIN_ID = 'torbox_enhanced_final_bwa_arch';
+    const PLUGIN_ID = 'torbox_enhanced_final_stable_v2';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
@@ -258,14 +257,12 @@
 
     // ───────────────────── component ▸ TorBoxComponent (BWA Architecture) ───────────
     function TorBoxComponent(object) {
-        // Привязываем контекст 'this' ко всем методам прототипа
         for (const key in this) {
             if (typeof this[key] === 'function') {
                 this[key] = this[key].bind(this);
             }
         }
         
-        // Основные элементы из bwa.js
         let network = new Lampa.Reguest();
         let scroll = new Lampa.Scroll({ mask: true, over: true });
         let files = new Lampa.Explorer(object);
@@ -274,7 +271,6 @@
         let initialized;
         let abortController;
 
-        // Состояние, специфичное для TorBox
         let state = {
             all_torrents: [],
             sort: Store.get('torbox_sort_method', 'seeders'),
@@ -348,7 +344,7 @@
             filter.onBack = () => Lampa.Controller.toggle('content');
             if (filter.addButtonBack) filter.addButtonBack();
             
-            this.search(); // Первый запуск поиска
+            this.search();
         };
         
         this.search = async function (force = false) {
@@ -504,15 +500,26 @@
             Lampa.Loading.start();
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id, abortController.signal);
-                const link = dlResponse.url || dlResponse.data;
+                let link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
+
+                // *** ГЛАВНОЕ ИСПРАВЛЕНИЕ: ПРОКСИРОВАНИЕ ВИДЕОПОТОКА ***
+                // Это решает проблему с CORS, из-за которой плеер не мог загрузить видео.
+                if (CFG.proxyUrl) {
+                    LOG('Original media URL:', link);
+                    link = `${CFG.proxyUrl}?url=${encodeURIComponent(link)}`;
+                    LOG('Proxied media URL:', link);
+                }
+
                 const movieId = object.movie.imdb_id || object.movie.id;
                 state.last_hash = torrent_data.hash;
                 Store.set(`torbox_last_torrent_${movieId}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${movieId}`, String(file.id));
+
                 const timeline = Lampa.Timeline.view(torrent_data.hash + file.id);
                 const playerTimelineData = { hash: timeline.hash, time: timeline.time, duration: timeline.duration, percent: timeline.percent };
                 const playerObject = { url: link, title: `${object.movie.title} / ${file.name}`, poster: object.movie.img, timeline: playerTimelineData };
+                
                 const onPlayerDestroy = () => {
                     const finalTimeline = Lampa.Player.timeline();
                     timeline.time = finalTimeline.time;
@@ -523,8 +530,10 @@
                     Lampa.Player.listener.remove('destroy', onPlayerDestroy);
                 };
                 Lampa.Player.listener.follow('destroy', onPlayerDestroy);
+                
                 Lampa.Player.play(playerObject);
                 Lampa.Player.playlist([playerObject]);
+
             } catch (e) {
                 if (e.name !== 'AbortError') ErrorHandler.show(e.type || 'unknown', e);
             } finally {
