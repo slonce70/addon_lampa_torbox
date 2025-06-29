@@ -510,7 +510,13 @@
 
             const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
             const items = vids.map(f => ({ title: (lastId == f.id ? `▶️ ` : '') + f.name, subtitle: Utils.formatBytes(f.size), file: f, cls: lastId == f.id ? 'select__item--last-played' : '' }));
-            Lampa.Select.show({ title: 'Выберите файл', items, onSelect: i => play(torrent_data, i.file, vids), onBack: () => { Lampa.Controller.toggle('content'); } });
+            
+            Lampa.Select.show({
+                title: 'Выберите файл',
+                items: items,
+                onSelect: i => play(torrent_data, i.file, vids)
+                // onBack убран, чтобы главный обработчик back() мог его перехватить
+            });
         };
 
         const play = async (torrent_data, file, all_video_files = []) => {
@@ -537,9 +543,9 @@
                 };
 
                 const onBack = () => {
+                    // Просто очищаем слушатели. Lampa сама обработает выход из плеера.
                     Lampa.Player.listener.remove('complite', onComplete);
                     Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward(); // Re-added to correctly exit player
                 };
 
                 Lampa.Player.listener.follow('complite', onComplete);
@@ -734,19 +740,23 @@
                     if (Navigator.canmove('right')) Navigator.move('right');
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
-                back: this.back
+                back: this.back.bind(this)
             });
             Lampa.Controller.toggle('content');
         };
         
         this.back = function() {
-            if ($('body').find('.select').length) return Lampa.Select.close();
-            if ($('body').find('.filter').length) {
+            // Централизованный обработчик "назад"
+            if (Lampa.Modal.visible()) {
+                Lampa.Modal.close();
+            } else if (Lampa.Select.visible()) {
+                Lampa.Select.close();
+            } else if (Lampa.Filter.visible()) {
                 Lampa.Filter.hide();
-                return Lampa.Controller.toggle('content');
+            } else {
+                abort.abort();
+                Lampa.Activity.backward();
             }
-            abort.abort();
-            Lampa.Activity.backward();
         };
 
         this.pause = function () {};
@@ -762,11 +772,11 @@
     }
 
 
-    // ───────────────────── plugin ▸ main integration ───────────────
+    // ───────────────────── plugin ▸ main integration ──────────────��
     const Plugin = (() => {
         const manifest = {
             type: 'video',
-            version: '35.2.0',
+            version: '35.2.1', // Incremented version
             name: 'TorBox Enhanced',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_component',
@@ -912,7 +922,7 @@
             const css = document.createElement('style');
             css.id = 'torbox-enhanced-styles';
             const styles = `
-                /* --- Контейнер для списка --- */
+                /* --- Контейнер ��ля списка --- */
                 .torbox-list-container {
                     display: block;
                     padding: 1em;
@@ -1030,7 +1040,7 @@
             Lampa.Component.add('torbox_component', component);
             addSettings();
             boot();
-            LOG('TorBox v35.2.0 ready');
+            LOG('TorBox v35.2.1 ready');
         };
         return { init };
     })();
@@ -1049,3 +1059,4 @@
         }
     })();
 })();
+
