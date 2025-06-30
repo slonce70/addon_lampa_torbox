@@ -517,11 +517,12 @@
         let filter = new Lampa.Filter(object);
         let last;
         let abort = new AbortController();
+        let initialized = false;
         
         this.activity = object.activity;
 
         let sort_types = [
-            { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
+            { key: 'seeders', title: 'По сида�� (убыв.)', field: 'last_known_seeders', reverse: true },
             { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
             { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
@@ -655,7 +656,6 @@
             if (!torrent.magnet) {
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
-            // This is the rewritten flow. Push a new activity instead of showing a modal.
             Lampa.Activity.push({
                 component: 'torbox_progress',
                 title: 'TorBox - Обработка',
@@ -680,6 +680,7 @@
         this.empty = function(msg) {
             scroll.clear();
             scroll.append(Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' }));
+            Lampa.Controller.enable('content');
         };
         
         this.reset = function() {
@@ -690,19 +691,7 @@
 
         this.build = function() {
             this.buildFilter();
-            const list = this.applyFiltersSort();
-            this.draw(list);
-            
-            if (list.length) {
-                let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
-                if (!focus_element.length) {
-                    focus_element = scroll.render().find('.selector').first();
-                }
-                if (focus_element.length) {
-                    last = focus_element[0];
-                }
-            }
-            Lampa.Controller.toggle('torbox_main_activity');
+            this.draw(this.applyFiltersSort());
         };
 
         this.buildFilter = function () {
@@ -796,10 +785,42 @@
                 
                 scroll.append(item);
             });
+
+            let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
+            if (!focus_element.length) {
+                focus_element = scroll.render().find('.selector').first();
+            }
+            if (focus_element.length) {
+                last = focus_element[0];
+            }
+            Lampa.Controller.enable('content');
         };
 
-        this.start = function () {
-            this.start = function () {
+        this.initialize = function () {
+            Lampa.Controller.add('content', {
+                toggle: () => {
+                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
+                    Lampa.Controller.collectionFocus(last || false, scroll.render());
+                },
+                up: () => {
+                    if (Navigator.canmove('up')) Navigator.move('up');
+                    else Lampa.Controller.toggle('head');
+                },
+                down: () => {
+                    if (Navigator.canmove('down')) Navigator.move('down');
+                },
+                left: () => {
+                    if (Navigator.canmove('left')) Navigator.move('left');
+                    else Lampa.Controller.toggle('menu');
+                },
+                right: () => {
+                    if (Navigator.canmove('right')) Navigator.move('right');
+                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                },
+                back: this.back
+            });
+            Lampa.Controller.toggle('content');
+
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
                 if (type === 'sort') {
@@ -813,27 +834,24 @@
                 }
                 state.last_hash = null;
                 this.build();
-                // Тут был toggle('content'), но build теперь сам вызывает toggle
             };
-            filter.onBack = () => Lampa.Controller.toggle('content');
+            filter.onBack = () => {
+                this.start();
+            };
 
             if (filter.addButtonBack) filter.addButtonBack();
             
-            this.empty('Загрузка...');
+            this.empty('З��грузка...');
             search();
-            
-            Lampa.Controller.add('torbox_main_activity', {
-                toggle: () => {
-                    Lampa.Controller.collectionSet(filter.render(), scroll.render());
-                    Lampa.Controller.collectionFocus(last || false, scroll.render());
-                },
-                up: () => Lampa.Controller.toggle('head'),
-                down: () => Lampa.Controller.toggle('content'),
-                left: () => Lampa.Controller.toggle('menu'),
-                right: () => filter.show(Lampa.Lang.translate('title_filter'), 'filter'),
-                back: this.back
-            });
         };
+
+        this.start = function () {
+            if (Lampa.Activity.active().activity !== this.activity) return;
+            if (!initialized) {
+                initialized = true;
+                this.initialize();
+            }
+            Lampa.Controller.enable('content');
         };
         
         this.back = function() {
@@ -843,7 +861,7 @@
         
         this.destroy = function () {
             abort.abort();
-            Lampa.Controller.clear('torbox_main_activity');
+            Lampa.Controller.clear('content');
             if (scroll) scroll.destroy();
             if (files) files.destroy();
             if (filter) filter.destroy();
