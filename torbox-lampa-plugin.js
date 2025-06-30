@@ -791,8 +791,8 @@
             }
             if (focus_element.length) {
                 last = focus_element[0];
-                Lampa.Controller.collectionFocus(last, scroll.render());
             }
+            Lampa.Controller.toggle('torbox_main_activity');
         };
 
         this.start = function () {
@@ -829,7 +829,6 @@
                 right: () => filter.show(Lampa.Lang.translate('title_filter'), 'filter'),
                 back: this.back
             });
-            Lampa.Controller.toggle('torbox_main_activity');
         };
         
         this.back = function() {
