@@ -425,7 +425,6 @@
         };
 
         const play = async (torrent_data, file) => {
-            Lampa.Loading.start(undefined, 'TorBox: Получение ссылки...');
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
                 const link = dlResponse.url || dlResponse.data;
@@ -440,18 +439,10 @@
                     title: file.name || object.movie.title, 
                     poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
                 };
-
-                Lampa.Loading.stop(); // CRITICAL FIX: Stop loading before playing.
                 
                 Lampa.Player.play(playerConfig);
-                
-                // Add a callback to ensure the activity stack is properly handled on player exit.
-                Lampa.Player.callback(() => {
-                    Lampa.Activity.machine.back();
-                });
 
             } catch (e) {
-                Lampa.Loading.stop(); // Ensure loading is stopped on error.
                 ErrorHandler.show(e.type || 'unknown', e);
             }
         };
@@ -461,8 +452,8 @@
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
 
-            Lampa.Loading.start(undefined, 'TorBox: Добавление т��ррента...');
-            abort = new AbortController();
+            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
+            const abort = new AbortController();
             const signal = abort.signal;
 
             try {
@@ -487,14 +478,14 @@
                                     return;
                                 }
                                 const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
-                                Lampa.Loading.start(undefined, `TorBox: ${d.download_state} - ${perc.toFixed(2)}%`);
                                 
                                 const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
                                 if (is_finished && d.files?.length) {
                                     active = false;
                                     resolve(d);
-                                } else if (active) {
-                                    setTimeout(poll, 5000);
+                                } else {
+                                    Lampa.Loading.start(undefined, `TorBox: ${d.download_state} - ${perc.toFixed(2)}%`);
+                                    if (active) setTimeout(poll, 5000);
                                 }
                             } catch (e) {
                                 if (active) {
@@ -508,7 +499,8 @@
                 };
 
                 const data = await track();
-                Lampa.Loading.stop();
+                
+                Lampa.Loading.stop(); // Stop the loader before playing or showing the selector.
 
                 const vids = data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
                 if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
@@ -527,7 +519,6 @@
                         items: select_items,
                         onSelect: (selected) => {
                             play(data, selected.file);
-                            Lampa.Controller.toggle('content');
                         },
                         onBack: () => {
                             Lampa.Controller.toggle('content');
