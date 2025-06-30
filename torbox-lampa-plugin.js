@@ -477,15 +477,22 @@
                                     if (active) setTimeout(poll, 5000);
                                     return;
                                 }
-                                const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
                                 
-                                const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
+                                const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished;
+                                
                                 if (is_finished && d.files?.length) {
                                     active = false;
                                     resolve(d);
                                 } else {
-                                    Lampa.Loading.start(undefined, `TorBox: ${d.download_state} - ${perc.toFixed(2)}%`);
-                                    if (active) setTimeout(poll, 5000);
+                                    const perc = (parseFloat(d.progress) * 100).toFixed(2);
+                                    const speed = Utils.formatBytes(d.download_speed, true);
+                                    const eta = Utils.formatTime(d.eta);
+                                    const status_text = `Загрузка: ${perc}% | ${speed} | 👤 ${d.seeders}/${d.leechers} | ⏳ ${eta}`;
+                                    
+                                    // Update existing loader text instead of creating a new one
+                                    Lampa.Loading.start(undefined, status_text);
+                                    
+                                    if (active) setTimeout(poll, 2000); // Poll more frequently for smoother updates
                                 }
                             } catch (e) {
                                 if (active) {
