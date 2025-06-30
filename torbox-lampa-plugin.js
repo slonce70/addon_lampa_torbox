@@ -690,7 +690,19 @@
 
         this.build = function() {
             this.buildFilter();
-            this.draw(this.applyFiltersSort());
+            const list = this.applyFiltersSort();
+            this.draw(list);
+            
+            if (list.length) {
+                let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
+                if (!focus_element.length) {
+                    focus_element = scroll.render().find('.selector').first();
+                }
+                if (focus_element.length) {
+                    last = focus_element[0];
+                }
+            }
+            Lampa.Controller.toggle('torbox_main_activity');
         };
 
         this.buildFilter = function () {
@@ -784,18 +796,10 @@
                 
                 scroll.append(item);
             });
-
-            let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
-            if (!focus_element.length) {
-                focus_element = scroll.render().find('.selector').first();
-            }
-            if (focus_element.length) {
-                last = focus_element[0];
-            }
-            Lampa.Controller.toggle('torbox_main_activity');
         };
 
         this.start = function () {
+            this.start = function () {
             filter.onSelect = (type, a, b) => {
                 Lampa.Select.close();
                 if (type === 'sort') {
@@ -809,7 +813,7 @@
                 }
                 state.last_hash = null;
                 this.build();
-                Lampa.Controller.toggle('content');
+                // Тут был toggle('content'), но build теперь сам вызывает toggle
             };
             filter.onBack = () => Lampa.Controller.toggle('content');
 
@@ -829,6 +833,7 @@
                 right: () => filter.show(Lampa.Lang.translate('title_filter'), 'filter'),
                 back: this.back
             });
+        };
         };
         
         this.back = function() {
