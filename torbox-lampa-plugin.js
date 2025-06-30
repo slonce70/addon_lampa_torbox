@@ -407,7 +407,7 @@
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let items_container;
 
-        const play = async (torrent_data, file, all_video_files = []) => {
+        const play = async (torrent_data, file) => {
             Lampa.Loading.start();
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
@@ -418,21 +418,12 @@
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                Lampa.Player.play({ url: link, title: file.name || object.movie.title, poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) });
-
-                const onComplete = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                    Lampa.Activity.backward();
-                };
-
-                const onBack = () => {
-                    Lampa.Player.listener.remove('complite', onComplete);
-                    Lampa.Player.listener.remove('back', onBack);
-                };
-
-                Lampa.Player.listener.follow('complite', onComplete);
-                Lampa.Player.listener.follow('back', onBack);
+                // Просто вызываем плеер. Lampa сама обработает выход.
+                Lampa.Player.play({ 
+                    url: link, 
+                    title: file.name || object.movie.title, 
+                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
+                });
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
@@ -462,9 +453,11 @@
                 return;
             }
             
+            // Если файл один, сразу проигрываем и закрываем это активити.
+            // Lampa вернется на предыдущий экран после закрытия плеера.
             if (vids.length === 1) {
-                play(torrent_data, vids[0], vids);
-                setTimeout(Lampa.Activity.backward, 100);
+                play(torrent_data, vids[0]);
+                setTimeout(Lampa.Activity.backward, 100); // Небольшая задержка для стабильности
                 return;
             }
 
@@ -480,19 +473,19 @@
                 if (is_last) item.addClass('file-item--last-played');
 
                 item.on('hover:enter', () => {
-                    play(torrent_data, file, vids);
+                    play(torrent_data, file);
                 });
                 scroll.append(item);
             });
             
-            Lampa.Controller.add('torbox_files_activity', {
+            Lampa.Controller.add('content', {
                 toggle: () => {
                     Lampa.Controller.collectionSet(this.render());
                     Lampa.Controller.collectionFocus(false, this.render());
                 },
                 back: this.back
             });
-            Lampa.Controller.toggle('torbox_files_activity');
+            Lampa.Controller.enable('content');
         };
 
         this.back = function() {
@@ -500,7 +493,7 @@
         };
 
         this.destroy = function() {
-            Lampa.Controller.clear('torbox_files_activity');
+            Lampa.Controller.clear('content');
             if (scroll) scroll.destroy();
             items_container = null;
         };
