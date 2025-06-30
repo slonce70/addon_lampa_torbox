@@ -282,7 +282,7 @@
         }
     };
 
-    // ───────────────────── component ▸ Main List Component ───���───────────
+    // ───────────────────── component ▸ Main List Component ───�����───────────
     function MainComponent(object) {
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -425,7 +425,7 @@
         };
 
         const play = async (torrent_data, file) => {
-            Lampa.Loading.start();
+            Lampa.Loading.start(undefined, 'TorBox: Получение ссылки...');
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
                 const link = dlResponse.url || dlResponse.data;
@@ -435,16 +435,24 @@
                 Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
-                Lampa.Player.play({ 
+                const playerConfig = { 
                     url: link, 
                     title: file.name || object.movie.title, 
                     poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
+                };
+
+                Lampa.Loading.stop(); // CRITICAL FIX: Stop loading before playing.
+                
+                Lampa.Player.play(playerConfig);
+                
+                // Add a callback to ensure the activity stack is properly handled on player exit.
+                Lampa.Player.callback(() => {
+                    Lampa.Activity.machine.back();
                 });
 
             } catch (e) {
+                Lampa.Loading.stop(); // Ensure loading is stopped on error.
                 ErrorHandler.show(e.type || 'unknown', e);
-            } finally {
-                Lampa.Loading.stop();
             }
         };
 
@@ -453,7 +461,7 @@
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
 
-            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
+            Lampa.Loading.start(undefined, 'TorBox: Добавление т��ррента...');
             abort = new AbortController();
             const signal = abort.signal;
 
