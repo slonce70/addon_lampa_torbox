@@ -283,43 +283,6 @@
     };
 
     // ───────────────────── component ▸ Main List Component ───�����───────────
-    const UI = (() => {
-        let cache = {};
-        const showStatus = (title, back) => {
-            if ($('.modal').length) Lampa.Modal.close();
-            cache = {};
-            const wrap = document.createElement('div');
-            wrap.className = 'torbox-status';
-            wrap.innerHTML = `
-                <div class="torbox-status__title">${Utils.escapeHtml(title)}</div>
-                <div class="torbox-status__info" data-name="status">…</div>
-                <div class="torbox-status__info" data-name="progress-text"></div>
-                <div class="torbox-status__progress-container">
-                    <div class="torbox-status__progress-bar" style="width:0%"></div>
-                </div>
-                <div class="torbox-status__info" data-name="speed"></div>
-                <div class="torbox-status__info" data-name="eta"></div>
-                <div class="torbox-status__info" data-name="peers"></div>`;
-            Lampa.Modal.open({ title: 'TorBox', html: $(wrap), size: 'medium', onBack: back || (() => Lampa.Modal.close()) });
-        };
-        const upd = d => {
-            if (!cache.body) cache.body = $('.modal__content .torbox-status');
-            if (!cache.body.length) return;
-            const set = (n, v) => {
-                if (!cache[n]) cache[n] = cache.body.find(`[data-name="${n}"]`);
-                cache[n].text(v || '');
-            };
-            set('status', d.status);
-            set('progress-text', d.progressText);
-            set('speed', d.speed);
-            set('eta', d.eta);
-            set('peers', d.peers);
-            if (!cache.bar) cache.bar = cache.body.find('.torbox-status__progress-bar');
-            cache.bar.css('width', Math.min(100, d.progress || 0) + '%');
-        };
-        return { showStatus, updateStatusModal: upd };
-    })();
-
     function MainComponent(object) {
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -462,7 +425,6 @@
         };
 
         const play = async (torrent_data, file) => {
-            Lampa.Loading.start(undefined, 'TorBox: Получение ссылки...');
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
                 const link = dlResponse.url || dlResponse.data;
@@ -482,8 +444,6 @@
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
-            } finally {
-                Lampa.Loading.stop();
             }
         };
 
@@ -522,7 +482,7 @@
                     if (active) {
                         active = false;
                         signal.removeEventListener('abort', cancel);
-                        reject({ name: 'AbortError', message: 'Отменено пользователем' });
+                        reject({ name: 'AbortError', message: 'Отменено пользо��ателем' });
                     }
                 };
                 signal.addEventListener('abort', cancel);
