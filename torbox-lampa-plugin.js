@@ -282,228 +282,7 @@
         }
     };
 
-    // ───────────────────── component ▸ Progress Activity ───────────────
-    // This is a new, dedicated component for showing progress.
-    // It's pushed onto the Lampa.Activity stack, which is the correct way to handle temporary views.
-    function ProgressComponent(object) {
-        let abort = new AbortController();
-        let body;
-
-        const updateStatus = (d) => {
-            if (!body) return;
-            const set = (n, v) => body.find(`[data-name="${n}"]`).html(v || '');
-            set('status', d.status);
-            set('progress-text', d.progressText);
-            set('speed', d.speed);
-            set('eta', d.eta);
-            set('peers', d.peers);
-            body.find('.torbox-status__progress-bar').css('width', Math.min(100, d.progress || 0) + '%');
-        };
-
-        const track = (id, signal) => {
-            return new Promise((resolve, reject) => {
-                let active = true;
-                signal.addEventListener('abort', () => {
-                    active = false;
-                    reject({ name: 'AbortError' });
-                });
-
-                const poll = async () => {
-                    if (!active) return;
-                    try {
-                        const d = (await Api.myList(id, signal)).data[0];
-                        if (!d) {
-                            if (active) setTimeout(poll, 5000);
-                            return;
-                        }
-                        const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
-                        const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
-                        const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
-                        updateStatus({ status: statusText, progress: perc, progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`, speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`, eta: `Осталось: ${Utils.formatTime(d.eta)}`, peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}` });
-                        
-                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
-                        if (is_finished && d.files?.length) {
-                            active = false;
-                            resolve(d);
-                        } else if (active) {
-                            setTimeout(poll, 5000);
-                        }
-                    } catch (e) {
-                        if (active) {
-                            active = false;
-                            reject(e);
-                        }
-                    }
-                };
-                poll();
-            });
-        };
-
-        const startProcess = async () => {
-            try {
-                updateStatus({ status: 'Добавление торрента…' });
-                const res = await Api.addMagnet(object.torrent.magnet, abort.signal);
-                const tid = res.data.torrent_id || res.data.id;
-                if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-
-                updateStatus({ status: 'Отслеживание статуса…' });
-                const data = await track(tid, abort.signal);
-                data.hash = object.torrent.hash;
-                
-                // Success! Replace this activity with the next one.
-                Lampa.Activity.replace({
-                    component: 'torbox_files',
-                    torrent_data: data,
-                    movie: object.movie
-                });
-
-            } catch (e) {
-                if (e.name !== 'AbortError') {
-                    ErrorHandler.show(e.type || 'unknown', e);
-                }
-                Lampa.Activity.backward();
-            }
-        };
-
-        this.create = function() {
-            body = $(`<div class="torbox-status">
-                <div class="torbox-status__title">${Utils.escapeHtml(object.torrent.raw_title)}</div>
-                <div class="torbox-status__info" data-name="status">…</div>
-                <div class="torbox-status__info" data-name="progress-text"></div>
-                <div class="torbox-status__progress-container">
-                    <div class="torbox-status__progress-bar" style="width:0%"></div>
-                </div>
-                <div class="torbox-status__info" data-name="speed"></div>
-                <div class="torbox-status__info" data-name="eta"></div>
-                <div class="torbox-status__info" data-name="peers"></div>
-            </div>`);
-            this.activity.loader(false);
-            startProcess();
-            return this.render();
-        };
-
-        this.render = function() {
-            return body;
-        };
-
-        this.back = function() {
-            abort.abort();
-            Lampa.Activity.backward();
-        };
-
-        this.destroy = function() {
-            abort.abort();
-            body = null;
-        };
-
-        this.start = function() {};
-        this.pause = function() {};
-        this.stop = function() {};
-    }
-
-    // ───────────────────── component ▸ File Selector Activity ───────────
-    // This is also a new, dedicated component for selecting a file.
-    function FileSelectorComponent(object) {
-        let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
-        let items_container;
-
-        const play = async (torrent_data, file) => {
-            Lampa.Loading.start();
-            try {
-                const dlResponse = await Api.requestDl(torrent_data.id, file.id);
-                const link = dlResponse.url || dlResponse.data;
-                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-                
-                const mid = object.movie.imdb_id || object.movie.id;
-                Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
-                Store.set(`torbox_last_played_${mid}`, String(file.id));
-                
-                // Просто вызываем плеер. Lampa сама обработает выход.
-                Lampa.Player.play({ 
-                    url: link, 
-                    title: file.name || object.movie.title, 
-                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
-                });
-
-            } catch (e) {
-                ErrorHandler.show(e.type || 'unknown', e);
-            } finally {
-                Lampa.Loading.stop();
-            }
-        };
-
-        this.create = function() {
-            items_container = $(`<div class="file-selector"></div>`);
-            scroll.body().addClass('file-selector-scroll');
-            items_container.append(scroll.render());
-            return this.render();
-        };
-
-        this.render = function() {
-            return items_container;
-        };
-
-        this.start = function() {
-            const torrent_data = object.torrent_data;
-            const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-
-            if (!vids.length) {
-                ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
-                Lampa.Activity.backward();
-                return;
-            }
-            
-            // Если файл один, сразу проигрываем и закрываем это активити.
-            // Lampa вернется на предыдущий экран после закрытия плеера.
-            if (vids.length === 1) {
-                play(torrent_data, vids[0]);
-                setTimeout(Lampa.Activity.backward, 100); // Небольшая задержка для стабильности
-                return;
-            }
-
-            const lastId = Store.get(`torbox_last_played_${object.movie.imdb_id || object.movie.id}`, null);
-            
-            vids.forEach(file => {
-                const is_last = lastId == file.id;
-                const item = $(`<div class="file-item selector">
-                    <div class="file-item__title">${is_last ? '▶️ ' : ''}${file.name}</div>
-                    <div class="file-item__subtitle">${Utils.formatBytes(file.size)}</div>
-                </div>`);
-
-                if (is_last) item.addClass('file-item--last-played');
-
-                item.on('hover:enter', () => {
-                    play(torrent_data, file);
-                });
-                scroll.append(item);
-            });
-            
-            Lampa.Controller.add('content', {
-                toggle: () => {
-                    Lampa.Controller.collectionSet(this.render());
-                    Lampa.Controller.collectionFocus(false, this.render());
-                },
-                back: this.back
-            });
-            Lampa.Controller.enable('content');
-        };
-
-        this.back = function() {
-            Lampa.Activity.backward();
-        };
-
-        this.destroy = function() {
-            Lampa.Controller.clear('content');
-            if (scroll) scroll.destroy();
-            items_container = null;
-        };
-
-        this.pause = function() {};
-        this.stop = function() {};
-    }
-
-
-    // ───────────────────── component ▸ Main List Component ───────────────
+    // ───────────────────── component ▸ Main List Component ───���───────────
     function MainComponent(object) {
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -515,7 +294,7 @@
         this.activity = object.activity;
 
         let sort_types = [
-            { key: 'seeders', title: 'По сида�� (убыв.)', field: 'last_known_seeders', reverse: true },
+            { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
             { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
             { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
             { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
@@ -645,16 +424,115 @@
                 });
         };
 
-        const onTorrentClick = (torrent) => {
+        const play = async (torrent_data, file) => {
+            Lampa.Loading.start();
+            try {
+                const dlResponse = await Api.requestDl(torrent_data.id, file.id);
+                const link = dlResponse.url || dlResponse.data;
+                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
+                
+                const mid = object.movie.imdb_id || object.movie.id;
+                Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
+                Store.set(`torbox_last_played_${mid}`, String(file.id));
+                
+                Lampa.Player.play({ 
+                    url: link, 
+                    title: file.name || object.movie.title, 
+                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
+                });
+
+            } catch (e) {
+                ErrorHandler.show(e.type || 'unknown', e);
+            } finally {
+                Lampa.Loading.stop();
+            }
+        };
+
+        const onTorrentClick = async (torrent) => {
             if (!torrent.magnet) {
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
-            Lampa.Activity.push({
-                component: 'torbox_progress',
-                title: 'TorBox - Обработка',
-                torrent: torrent,
-                movie: object.movie
-            });
+
+            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
+            abort = new AbortController();
+            const signal = abort.signal;
+
+            try {
+                const res = await Api.addMagnet(torrent.magnet, signal);
+                const tid = res.data.torrent_id || res.data.id;
+                if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
+
+                const track = () => {
+                    return new Promise((resolve, reject) => {
+                        let active = true;
+                        signal.addEventListener('abort', () => {
+                            active = false;
+                            reject({ name: 'AbortError' });
+                        });
+
+                        const poll = async () => {
+                            if (!active) return;
+                            try {
+                                const d = (await Api.myList(tid, signal)).data[0];
+                                if (!d) {
+                                    if (active) setTimeout(poll, 5000);
+                                    return;
+                                }
+                                const perc = parseFloat(d.progress) > 1 ? parseFloat(d.progress) : parseFloat(d.progress) * 100;
+                                Lampa.Loading.start(undefined, `TorBox: ${d.download_state} - ${perc.toFixed(2)}%`);
+                                
+                                const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished || perc >= 100;
+                                if (is_finished && d.files?.length) {
+                                    active = false;
+                                    resolve(d);
+                                } else if (active) {
+                                    setTimeout(poll, 5000);
+                                }
+                            } catch (e) {
+                                if (active) {
+                                    active = false;
+                                    reject(e);
+                                }
+                            }
+                        };
+                        poll();
+                    });
+                };
+
+                const data = await track();
+                Lampa.Loading.stop();
+
+                const vids = data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
+                if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
+
+                if (vids.length === 1) {
+                    play(data, vids[0]);
+                } else {
+                    const select_items = vids.map(file => ({
+                        title: file.name,
+                        size: Utils.formatBytes(file.size),
+                        file: file
+                    }));
+
+                    Lampa.Select.show({
+                        title: 'Выберите файл',
+                        items: select_items,
+                        onSelect: (selected) => {
+                            play(data, selected.file);
+                            Lampa.Controller.toggle('content');
+                        },
+                        onBack: () => {
+                            Lampa.Controller.toggle('content');
+                        }
+                    });
+                }
+
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    ErrorHandler.show(e.type || 'unknown', e);
+                }
+                Lampa.Loading.stop();
+            }
         };
 
         this.create = function () {
@@ -834,7 +712,7 @@
 
             if (filter.addButtonBack) filter.addButtonBack();
             
-            this.empty('З��грузка...');
+            this.empty('Загрузка...');
             search();
         };
 
@@ -865,12 +743,11 @@
         this.stop = function() {};
     }
 
-
     // ───────────────────── plugin ▸ main integration ──────────────────
     (function () {
         const manifest = {
             type: 'video',
-            version: '37.0.0', // Major architectural rewrite
+            version: '38.0.0', // Architectural refactoring
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -912,9 +789,6 @@
         function boot() {
             // Register all components with Lampa
             Lampa.Component.add('torbox_main', MainComponent);
-            Lampa.Component.add('torbox_progress', ProgressComponent);
-            Lampa.Component.add('torbox_files', FileSelectorComponent);
-
             addTemplates();
             addSettings();
 
@@ -970,7 +844,7 @@
             document.head.appendChild(css);
 
             Lampa.Manifest.plugins[manifest.name] = manifest;
-            LOG('TorBox Stable v37.0.0 ready');
+            LOG('TorBox Stable v38.0.0 ready');
         }
 
         if (window.Lampa?.Activity) {
