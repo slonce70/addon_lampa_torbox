@@ -492,24 +492,26 @@
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
         
+            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
             abort = new AbortController();
             const signal = abort.signal;
         
             try {
-                UI.showStatus('Добавление торрента…', () => abort.abort());
                 const res = await Api.addMagnet(torrent.magnet, signal);
                 const tid = res.data.torrent_id || res.data.id;
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
         
                 const data = await track(tid, signal);
-                data.hash = torrent.hash; // Pass hash to data object
-                Lampa.Modal.close();
+                data.hash = torrent.hash;
+                
+                Lampa.Loading.stop();
                 selectFile(data);
+        
             } catch (e) {
                 if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
                 }
-                Lampa.Modal.close();
+                Lampa.Loading.stop();
             }
         };
         
@@ -520,7 +522,7 @@
                     if (active) {
                         active = false;
                         signal.removeEventListener('abort', cancel);
-                        reject({ name: 'AbortError', message: 'Отменено п��льзователем' });
+                        reject({ name: 'AbortError', message: 'Отменено пользователем' });
                     }
                 };
                 signal.addEventListener('abort', cancel);
@@ -541,17 +543,13 @@
                             signal.removeEventListener('abort', cancel);
                             resolve(d);
                         } else {
-                            const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
-                            const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
-                            const perc = parseFloat(d.progress) * 100;
-                            UI.updateStatusModal({
-                                status: statusText,
-                                progress: perc,
-                                progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`,
-                                speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`,
-                                eta: `Осталось: ${Utils.formatTime(d.eta)}`,
-                                peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}`
-                            });
+                            const perc = (parseFloat(d.progress) * 100);
+                            const speed = Utils.formatBytes(d.download_speed, true);
+                            const eta = Utils.formatTime(d.eta);
+                            const status_text = `Загрузка: ${perc.toFixed(2)}% | ${speed} | 👤 ${d.seeds || 0}/${d.peers || 0} | ⏳ ${eta}`;
+                            
+                            $('.loading-layer .loading-layer__text').text(status_text);
+                            
                             if (active) setTimeout(poll, 2000);
                         }
                     } catch (e) {
