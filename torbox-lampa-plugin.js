@@ -283,6 +283,43 @@
     };
 
     // ───────────────────── component ▸ Main List Component ───�����───────────
+    const UI = (() => {
+        let cache = {};
+        const showStatus = (title, back) => {
+            if ($('.modal').length) Lampa.Modal.close();
+            cache = {};
+            const wrap = document.createElement('div');
+            wrap.className = 'torbox-status';
+            wrap.innerHTML = `
+                <div class="torbox-status__title">${Utils.escapeHtml(title)}</div>
+                <div class="torbox-status__info" data-name="status">…</div>
+                <div class="torbox-status__info" data-name="progress-text"></div>
+                <div class="torbox-status__progress-container">
+                    <div class="torbox-status__progress-bar" style="width:0%"></div>
+                </div>
+                <div class="torbox-status__info" data-name="speed"></div>
+                <div class="torbox-status__info" data-name="eta"></div>
+                <div class="torbox-status__info" data-name="peers"></div>`;
+            Lampa.Modal.open({ title: 'TorBox', html: $(wrap), size: 'medium', onBack: back || (() => Lampa.Modal.close()) });
+        };
+        const upd = d => {
+            if (!cache.body) cache.body = $('.modal__content .torbox-status');
+            if (!cache.body.length) return;
+            const set = (n, v) => {
+                if (!cache[n]) cache[n] = cache.body.find(`[data-name="${n}"]`);
+                cache[n].text(v || '');
+            };
+            set('status', d.status);
+            set('progress-text', d.progressText);
+            set('speed', d.speed);
+            set('eta', d.eta);
+            set('peers', d.peers);
+            if (!cache.bar) cache.bar = cache.body.find('.torbox-status__progress-bar');
+            cache.bar.css('width', Math.min(100, d.progress || 0) + '%');
+        };
+        return { showStatus, updateStatusModal: upd };
+    })();
+
     function MainComponent(object) {
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
         let files = new Lampa.Explorer(object);
@@ -425,6 +462,7 @@
         };
 
         const play = async (torrent_data, file) => {
+            Lampa.Loading.start(undefined, 'TorBox: Получение ссылки...');
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
                 const link = dlResponse.url || dlResponse.data;
@@ -444,6 +482,8 @@
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
+            } finally {
+                Lampa.Loading.stop();
             }
         };
 
@@ -451,93 +491,104 @@
             if (!torrent.magnet) {
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
-
-            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
-            const abort = new AbortController();
+        
+            abort = new AbortController();
             const signal = abort.signal;
-
+        
             try {
+                UI.showStatus('Добавление торрента…', () => abort.abort());
                 const res = await Api.addMagnet(torrent.magnet, signal);
                 const tid = res.data.torrent_id || res.data.id;
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-
-                const track = () => {
-                    return new Promise((resolve, reject) => {
-                        let active = true;
-                        signal.addEventListener('abort', () => {
-                            active = false;
-                            reject({ name: 'AbortError' });
-                        });
-
-                        const poll = async () => {
-                            if (!active) return;
-                            try {
-                                const d = (await Api.myList(tid, signal)).data[0];
-                                if (!d) {
-                                    if (active) setTimeout(poll, 5000);
-                                    return;
-                                }
-                                
-                                const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished;
-                                
-                                if (is_finished && d.files?.length) {
-                                    active = false;
-                                    resolve(d);
-                                } else {
-                                    const perc = (parseFloat(d.progress) * 100).toFixed(2);
-                                    const speed = Utils.formatBytes(d.download_speed, true);
-                                    const eta = Utils.formatTime(d.eta);
-                                    const status_text = `Загрузка: ${perc}% | ${speed} | 👤 ${d.seeders}/${d.leechers} | ⏳ ${eta}`;
-                                    
-                                    // Update existing loader text instead of creating a new one
-                                    Lampa.Loading.start(undefined, status_text);
-                                    
-                                    if (active) setTimeout(poll, 2000); // Poll more frequently for smoother updates
-                                }
-                            } catch (e) {
-                                if (active) {
-                                    active = false;
-                                    reject(e);
-                                }
-                            }
-                        };
-                        poll();
-                    });
-                };
-
-                const data = await track();
-                
-                Lampa.Loading.stop(); // Stop the loader before playing or showing the selector.
-
-                const vids = data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-                if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
-
-                if (vids.length === 1) {
-                    play(data, vids[0]);
-                } else {
-                    const select_items = vids.map(file => ({
-                        title: file.name,
-                        size: Utils.formatBytes(file.size),
-                        file: file
-                    }));
-
-                    Lampa.Select.show({
-                        title: 'Выберите файл',
-                        items: select_items,
-                        onSelect: (selected) => {
-                            play(data, selected.file);
-                        },
-                        onBack: () => {
-                            Lampa.Controller.toggle('content');
-                        }
-                    });
-                }
-
+        
+                const data = await track(tid, signal);
+                data.hash = torrent.hash; // Pass hash to data object
+                Lampa.Modal.close();
+                selectFile(data);
             } catch (e) {
                 if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
                 }
-                Lampa.Loading.stop();
+                Lampa.Modal.close();
+            }
+        };
+        
+        const track = (id, signal) => {
+            return new Promise((resolve, reject) => {
+                let active = true;
+                const cancel = () => {
+                    if (active) {
+                        active = false;
+                        signal.removeEventListener('abort', cancel);
+                        reject({ name: 'AbortError', message: 'Отменено п��льзователем' });
+                    }
+                };
+                signal.addEventListener('abort', cancel);
+        
+                const poll = async () => {
+                    if (!active) return;
+                    try {
+                        const d = (await Api.myList(id, signal)).data[0];
+                        if (!d) {
+                            if (active) setTimeout(poll, 5000);
+                            return;
+                        }
+                        
+                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished;
+                        
+                        if (is_finished && d.files?.length) {
+                            active = false;
+                            signal.removeEventListener('abort', cancel);
+                            resolve(d);
+                        } else {
+                            const statusMap = { 'queued': 'В очереди', 'downloading': 'Загрузка', 'uploading': 'Раздача', 'completed': 'Завершено', 'stalled': 'Остановлено', 'error': 'Ошибка', 'metadl': 'Получение метаданных', 'paused': 'На паузе', 'failed': 'Ошибка загрузки', 'checking': 'Проверка', 'processing': 'Обработка' };
+                            const statusText = statusMap[(d.download_state || d.status || 'unknown').toLowerCase().split(' ')[0]] || (d.download_state || d.status);
+                            const perc = parseFloat(d.progress) * 100;
+                            UI.updateStatusModal({
+                                status: statusText,
+                                progress: perc,
+                                progressText: d.size ? `${perc.toFixed(2)}% из ${Utils.formatBytes(d.size)}` : `${perc.toFixed(2)}%`,
+                                speed: `Скорость: ${Utils.formatBytes(d.download_speed, true)}`,
+                                eta: `Осталось: ${Utils.formatTime(d.eta)}`,
+                                peers: `Сиды: ${d.seeds || 0} / Пиры: ${d.peers || 0}`
+                            });
+                            if (active) setTimeout(poll, 2000);
+                        }
+                    } catch (e) {
+                        if (active) {
+                            active = false;
+                            signal.removeEventListener('abort', cancel);
+                            reject(e);
+                        }
+                    }
+                };
+                poll();
+            });
+        };
+        
+        const selectFile = (torrent_data) => {
+            const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
+            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
+            
+            if (vids.length === 1) {
+                play(torrent_data, vids[0]);
+            } else {
+                const select_items = vids.map(file => ({
+                    title: file.name,
+                    size: Utils.formatBytes(file.size),
+                    file: file
+                }));
+        
+                Lampa.Select.show({
+                    title: 'Выберите файл',
+                    items: select_items,
+                    onSelect: (selected) => {
+                        play(torrent_data, selected.file);
+                    },
+                    onBack: () => {
+                        Lampa.Controller.toggle('content');
+                    }
+                });
             }
         };
 
