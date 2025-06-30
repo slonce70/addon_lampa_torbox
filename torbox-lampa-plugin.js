@@ -442,6 +442,10 @@
                 
                 Lampa.Player.play(playerConfig);
 
+                Lampa.Player.callback(() => {
+                    Lampa.Activity.machine.back();
+                });
+
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             }
@@ -482,7 +486,8 @@
                     if (active) {
                         active = false;
                         signal.removeEventListener('abort', cancel);
-                        reject({ name: 'AbortError', message: 'Отменено пользо��ателем' });
+                        Lampa.Loading.stop();
+                        reject({ name: 'AbortError', message: 'Отменено пользователем' });
                     }
                 };
                 signal.addEventListener('abort', cancel);
@@ -492,7 +497,7 @@
                     try {
                         const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
-                            if (active) setTimeout(poll, 5000);
+                            if (active) setTimeout(poll, 10000);
                             return;
                         }
                         
@@ -510,7 +515,7 @@
                             
                             $('.loading-layer .loading-layer__text').text(status_text);
                             
-                            if (active) setTimeout(poll, 2000);
+                            if (active) setTimeout(poll, 10000);
                         }
                     } catch (e) {
                         if (active) {
