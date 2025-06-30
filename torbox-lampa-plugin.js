@@ -442,10 +442,6 @@
                 
                 Lampa.Player.play(playerConfig);
 
-                Lampa.Player.callback(() => {
-                    Lampa.Activity.machine.back();
-                });
-
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             }
