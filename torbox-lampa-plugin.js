@@ -452,7 +452,7 @@
                 
                 Lampa.Player.play(playerConfig);
                 Lampa.Player.callback(on_end || (() => {
-                    Lampa.Activity.machine.back();
+                    Lampa.Activity.backward();
                 }));
 
             } catch (e) {
