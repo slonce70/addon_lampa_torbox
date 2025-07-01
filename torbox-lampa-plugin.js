@@ -451,9 +451,7 @@
                 };
                 
                 Lampa.Player.play(playerConfig);
-                Lampa.Player.callback(on_end || (() => {
-                    Lampa.Activity.backward();
-                }));
+                Lampa.Player.callback(on_end || (() => {}));
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
