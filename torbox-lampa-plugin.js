@@ -441,10 +441,6 @@
                 
                 Lampa.Player.play(playerConfig);
 
-                Lampa.Player.callback(() => {
-                    Lampa.Activity.backward();
-                });
-
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
             }
@@ -812,7 +808,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '42.0.0', // Fixed history item display
+            version: '43.0.0', // Fixed player exit navigation
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
