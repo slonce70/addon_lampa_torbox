@@ -297,8 +297,12 @@
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
 
-                const watch_key = `torbox_watch_${torrent_data.hash}`;
-                Store.set(watch_key, String(file_data.id));
+                const fileId = String(file_data.id);
+                const watch_key_prefix = `torbox_watch_${torrent_data.hash}_`;
+                const last_watch_key = `torbox_last_watch_${torrent_data.hash}`;
+
+                Store.set(watch_key_prefix + fileId, '1');
+                Store.set(last_watch_key, fileId);
 
                 const cleanName = file_data.name.split('/').pop();
                 const playerConfig = {
@@ -309,9 +313,10 @@
 
                 Lampa.Player.play(playerConfig);
                 
-                Lampa.Player.listener.follow('destroy', () => {
+                const listener = Lampa.Player.listener.follow('destroy', () => {
                     this.draw();
                     Lampa.Controller.toggle('content');
+                    Lampa.Player.listener.remove('destroy', listener);
                 });
 
             } catch (e) {
@@ -336,11 +341,15 @@
             const torrent_data = object.torrent_data;
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
             
-            const watch_key = `torbox_watch_${torrent_data.hash}`;
-            const lastPlayedId = Store.get(watch_key, null);
+            const watch_key_prefix = `torbox_watch_${torrent_data.hash}_`;
+            const last_watch_key = `torbox_last_watch_${torrent_data.hash}`;
+            const lastPlayedId = Store.get(last_watch_key, null);
 
             vids.forEach(file => {
-                const isLastPlayed = String(file.id) === lastPlayedId;
+                const fileId = String(file.id);
+                const isWatched = Store.get(watch_key_prefix + fileId) === '1';
+                const isLastPlayed = fileId === lastPlayedId;
+
                 const cleanName = file.name.split('/').pop();
                 let item = Lampa.Template.get('torbox_episode_item', {
                     title: cleanName,
@@ -349,6 +358,8 @@
 
                 if (isLastPlayed) {
                     item.addClass('file-item--last-played');
+                } else if (isWatched) {
+                    item.addClass('file-item--watched');
                 }
 
                 item.on('hover:focus', (e) => {
@@ -922,7 +933,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.0.0', // Enhanced episode tracking
+            version: '50.0.1', // Fixed watched episode highlighting
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -1015,7 +1026,8 @@
                 .file-item { display: flex; justify-content: space-between; align-items: center; padding: 1em 1.2em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); transition: all .3s; border: 2px solid transparent; }
                 .file-item__title { font-weight: 600; }
                 .file-item__subtitle { font-size: .9em; opacity: .7; }
-                .file-item--last-played { border-left: 4px solid var(--color-second); background: rgba(var(--color-second-rgb), .1); }
+                .file-item--last-played { border-left: 4px solid var(--color-second) !important; background: rgba(var(--color-second-rgb), .15) !important; }
+                .file-item--watched { opacity: 0.7; }
                 .torbox-watched-item { display: flex; align-items: center; padding: 1em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); border-left: 4px solid var(--color-second); transition: all .3s; border: 2px solid transparent; }
                 .torbox-watched-item__icon { flex-shrink: 0; margin-right: 1em; }
                 .torbox-watched-item__icon svg { width: 2em; height: 2em; }
