@@ -168,22 +168,20 @@
             if (status === 403) throw { type: 'auth', message: '403 – доступ запрещен, проверьте права ключа' };
             if (status === 429) throw { type: 'network', message: '429 – слишком много запросов, попробуйте позже' };
             if (status >= 500) throw { type: 'network', message: `Ошибка сервера TorBox (${status})` };
-            
-            const j = typeof txt === 'object' ? txt : JSON.parse(txt);
-            
-            if (j?.success === false) {
-                 const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
-                 const err = { type: 'api', message: errorMsg };
-                 if (j.error === 'ACTIVE_LIMIT') {
-                    err.error_code = 'ACTIVE_LIMIT';
-                 }
-                 throw err;
-            }
-
-            if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
             if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status})` };
             if (!txt) throw { type: 'api', message: 'Пустой ответ от сервера' };
-            return j;
+            try {
+                if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
+                const j = typeof txt === 'object' ? txt : JSON.parse(txt);
+                if (j?.success === false) {
+                     const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
+                     throw { type: 'api', message: errorMsg };
+                }
+                return j;
+            } catch (e) {
+                if (e.type) throw e;
+                throw { type: 'api', message: 'Некорректный JSON в ответе' };
+            }
         };
 
         const request = async (url, opt = {}, signal) => {
@@ -261,16 +259,9 @@
             const fd = new FormData();
             fd.append('magnet', magnet);
             fd.append('seed', '3');
+            fd.append('as_queued', 'true');
             return { method: 'POST', body: fd };
         })(), signal);
-
-        const getQueued = (signal) => request(`${MAIN}/queued/getqueued?bypass_cache=true&offset=0&limit=1000&type=torrent`, { method: 'GET' }, signal);
-
-        const startQueued = (queued_id, signal) => request(`${MAIN}/queued/controlqueued`, {
-            method: 'POST',
-            body: JSON.stringify({ queued_id, operation: 'start', all: false }),
-            headers: { 'Content-Type': 'application/json' }
-        }, signal);
 
         const myList = async (id, s) => {
             const json = await request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
@@ -281,7 +272,7 @@
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
-        return { searchPublicTrackers, checkCached, addMagnet, myList, getQueued, requestDl, startQueued };
+        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
     const ErrorHandler = {
@@ -486,10 +477,11 @@
                 const res = await Api.addMagnet(torrent.magnet, signal);
                 const tid = res.data.torrent_id || res.data.id;
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-                
+        
                 const data = await track(tid, signal);
                 data.hash = torrent.hash;
                 
+                // Сохраняем полные данные торрента для истории
                 const mid = object.movie.imdb_id || object.movie.id;
                 const torrentForHistory = state.all_torrents.find(t => t.hash === torrent.hash) || torrent;
                 if (torrentForHistory) {
@@ -504,33 +496,10 @@
                 selectFile(data);
         
             } catch (e) {
-                if (e.error_code === 'ACTIVE_LIMIT') {
-                    LOG('Active limit reached, trying to find and start from queue...');
-                    try {
-                        const queued_list = await Api.getQueued(signal);
-                        const info_hash = torrent.hash.toLowerCase();
-                        const queued_item = queued_list.data.find(item => item.hash.toLowerCase() === info_hash);
-
-                        if (queued_item) {
-                            await Api.startQueued(queued_item.id, signal);
-                            const data = await track(queued_item.id, signal);
-                            data.hash = torrent.hash;
-                            Lampa.Loading.stop();
-                            selectFile(data);
-                        } else {
-                            throw { type: 'api', message: 'Торрент не найден в очереди' };
-                        }
-                    } catch (list_err) {
-                        if (list_err.name !== 'AbortError') {
-                            ErrorHandler.show(list_err.type || 'unknown', list_err);
-                        }
-                        Lampa.Loading.stop();
-                    }
-                } else if (e.name !== 'AbortError') {
+                if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
-                } else {
-                    Lampa.Loading.stop();
                 }
+                Lampa.Loading.stop();
             }
         };
         
@@ -552,7 +521,7 @@
                     try {
                         const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
-                            if (active) setTimeout(poll, 5000); // Poll every 5 seconds
+                            if (active) setTimeout(poll, 10000);
                             return;
                         }
                         
@@ -570,12 +539,13 @@
                             
                             $('.loading-layer .loading-layer__text').text(status_text);
                             
-                            if (active) setTimeout(poll, 5000);
+                            if (active) setTimeout(poll, 10000);
                         }
                     } catch (e) {
                         if (active) {
-                           // Ignore errors during polling, just retry
-                           if (active) setTimeout(poll, 5000);
+                            active = false;
+                            signal.removeEventListener('abort', cancel);
+                            reject(e);
                         }
                     }
                 };
@@ -897,7 +867,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '57.0.0', // Final queue handling
+            version: '49.0.0', // Fixed episode component rendering
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
