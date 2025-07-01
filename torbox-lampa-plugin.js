@@ -795,7 +795,7 @@
                     if (Navigator.canmove('right')) Navigator.move('right');
                     else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
                 },
-                back: this.back
+                back: this.back.bind(this)
             });
             Lampa.Controller.toggle('content');
 
