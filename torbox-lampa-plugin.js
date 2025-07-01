@@ -431,7 +431,11 @@
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 
                 const mid = object.movie.imdb_id || object.movie.id;
-                Store.set(`torbox_last_torrent_${mid}`, torrent_data.hash);
+                try {
+                    Store.set(`torbox_last_torrent_data_${mid}`, JSON.stringify(torrent_data));
+                } catch (e) {
+                    LOG('Failed to save full torrent data to localStorage', e);
+                }
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
                 const playerConfig = { 
@@ -467,6 +471,17 @@
         
                 const data = await track(tid, signal);
                 data.hash = torrent.hash;
+                
+                // Сохраняем полные данные торрента для истории
+                const mid = object.movie.imdb_id || object.movie.id;
+                const torrentForHistory = state.all_torrents.find(t => t.hash === torrent.hash);
+                if (torrentForHistory) {
+                     try {
+                        Store.set(`torbox_last_torrent_data_${mid}`, JSON.stringify(torrentForHistory));
+                    } catch (e) {
+                        LOG('Failed to save full torrent data to localStorage', e);
+                    }
+                }
                 
                 Lampa.Loading.stop();
                 selectFile(data);
@@ -536,11 +551,18 @@
             if (vids.length === 1) {
                 play(torrent_data, vids[0]);
             } else {
-                const select_items = vids.map(file => ({
-                    title: file.name,
-                    size: Utils.formatBytes(file.size),
-                    file: file
-                }));
+                const mid = object.movie.imdb_id || object.movie.id;
+                const lastPlayedId = Store.get(`torbox_last_played_${mid}`, null);
+
+                const select_items = vids.map(file => {
+                    const isWatched = String(file.id) === lastPlayedId;
+                    return {
+                        title: file.name + (isWatched ? ' (просмотрено)' : ''),
+                        size: Utils.formatBytes(file.size),
+                        file: file,
+                        watched: isWatched
+                    };
+                });
         
                 Lampa.Select.show({
                     title: 'Выберите файл',
@@ -642,12 +664,34 @@
             last = false;
             scroll.clear();
 
+            const mid = object.movie.imdb_id || object.movie.id;
+            const lastWatchedData = Store.get(`torbox_last_torrent_data_${mid}`);
+
+            if (lastWatchedData) {
+                try {
+                    const lastTorrent = JSON.parse(lastWatchedData);
+                    const historyItem = Lampa.Template.get('torbox_watched_item', {
+                        title: lastTorrent.title,
+                        info: `Продолжить просмотр с последнего места`
+                    });
+                    historyItem.on('hover:enter', () => {
+                        onTorrentClick(lastTorrent);
+                    });
+                    scroll.append(historyItem);
+                } catch (e) {
+                    LOG('Failed to parse last watched torrent data', e);
+                }
+            }
+
             if (!items.length) {
-                return this.empty('Ничего не найдено по заданным фильтрам');
+                if (!lastWatchedData) {
+                    return this.empty('Ничего не найдено по заданным фильтрам');
+                }
+                Lampa.Controller.enable('content');
+                return;
             }
         
-            const lastKey = `torbox_last_torrent_${object.movie.imdb_id || object.movie.id}`;
-            const lastHash = Store.get(lastKey, null);
+            const lastHash = JSON.parse(Store.get(`torbox_last_torrent_data_${mid}`, '{}')).hash;
 
             items.forEach(item_data => {
                 let item = Lampa.Template.get('torbox_item', item_data);
@@ -677,10 +721,12 @@
                 scroll.append(item);
             });
 
-            let focus_element = scroll.render().find(`[data-hash="${state.last_hash}"]`);
-            if (!focus_element.length) {
-                focus_element = scroll.render().find('.selector').first();
+            let focus_element = scroll.render().find('.selector').first();
+            if (state.last_hash) {
+                const focused = scroll.render().find(`[data-hash="${state.last_hash}"]`);
+                if (focused.length) focus_element = focused;
             }
+            
             if (focus_element.length) {
                 last = focus_element[0];
             }
@@ -725,6 +771,7 @@
                 }
                 state.last_hash = null;
                 this.build();
+                Lampa.Controller.toggle('content');
             };
             filter.onBack = () => {
                 this.start();
@@ -767,7 +814,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '38.0.0', // Architectural refactoring
+            version: '39.0.0', // History and focus fixes
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -781,6 +828,7 @@
         function addTemplates() {
             Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{icon} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{tech_bar_html}</div>');
             Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
+            Lampa.Template.add('torbox_watched_item', '<div class="torbox-watched-item selector"><div class="torbox-watched-item__icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5V7.5l5.25 3.5L11 16.5z" fill="currentColor"></path></svg></div><div class="torbox-watched-item__body"><div class="torbox-watched-item__title">{title}</div><div class="torbox-watched-item__info">{info}</div></div></div>');
         }
 
         function addSettings() {
@@ -860,11 +908,18 @@
                 .file-item__title { font-weight: 600; }
                 .file-item__subtitle { font-size: .9em; opacity: .7; }
                 .file-item--last-played .file-item__title { color: var(--color-second); }
+                .torbox-watched-item { display: flex; align-items: center; padding: 1em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); border-left: 4px solid var(--color-second); }
+                .torbox-watched-item:hover, .torbox-watched-item.focus { background: var(--color-primary); color: var(--color-background); }
+                .torbox-watched-item__icon { flex-shrink: 0; margin-right: 1em; }
+                .torbox-watched-item__icon svg { width: 2em; height: 2em; }
+                .torbox-watched-item__body { flex-grow: 1; }
+                .torbox-watched-item__title { font-weight: 600; }
+                .torbox-watched-item__info { font-size: .9em; opacity: .7; }
             `;
             document.head.appendChild(css);
 
             Lampa.Manifest.plugins[manifest.name] = manifest;
-            LOG('TorBox Stable v38.0.0 ready');
+            LOG('TorBox Stable v39.0.0 ready');
         }
 
         if (window.Lampa?.Activity) {
