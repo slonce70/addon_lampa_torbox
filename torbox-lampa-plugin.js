@@ -271,7 +271,15 @@
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
-        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
+        const getQueued = (signal) => request(`${MAIN}/queued/getqueued?bypass_cache=true&offset=0&limit=1000&type=torrent`, { method: 'GET' }, signal);
+
+        const startQueued = (queued_id, signal) => request(`${MAIN}/queued/controlqueued`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queued_id: Number(queued_id), operation: 'start', all: false })
+        }, signal);
+
+        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl, getQueued, startQueued };
     })();
 
     const ErrorHandler = {
@@ -495,10 +503,42 @@
                 selectFile(data);
         
             } catch (e) {
-                if (e.name !== 'AbortError') {
+                if (e.type === 'api' && e.message && e.message.includes('ACTIVE_LIMIT')) {
+                    LOG('Active limit reached, attempting to start from queue...');
+                    try {
+                        const queuedResponse = await Api.getQueued(signal);
+                        const queuedItems = queuedResponse.data || [];
+                        const magnetHash = torrent.magnet.match(/urn:btih:([a-fA-F0-9]{40})/i)[1].toLowerCase();
+                        const queuedTorrent = queuedItems.find(item => item.hash.toLowerCase() === magnetHash);
+
+                        if (queuedTorrent) {
+                            LOG('Found torrent in queue, ID:', queuedTorrent.id);
+                            await Api.startQueued(queuedTorrent.id, signal);
+                            // After starting, we need to get the torrent's new ID from the main list
+                            // This is a bit tricky, as it might not be instant. We'll poll `mylist` with the hash.
+                            // For now, let's just assume it will be added and try to track it.
+                            // A better approach might be needed if this fails often.
+                            const data = await track(queuedTorrent.hash, signal); // Assuming track can handle hash
+                             data.hash = torrent.hash;
+                             Lampa.Loading.stop();
+                             selectFile(data);
+
+                        } else {
+                            throw { type: 'api', message: 'Торрент не найден в очереди после ошибки лимита.' };
+                        }
+                    } catch (queueError) {
+                         if (queueError.name !== 'AbortError') {
+                            ErrorHandler.show(queueError.type || 'unknown', queueError);
+                        }
+                        Lampa.Loading.stop();
+                    }
+
+                } else if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
+                    Lampa.Loading.stop();
+                } else {
+                    Lampa.Loading.stop();
                 }
-                Lampa.Loading.stop();
             }
         };
         
@@ -518,7 +558,8 @@
                 const poll = async () => {
                     if (!active) return;
                     try {
-                        const d = (await Api.myList(id, signal)).data[0];
+                        const listId = String(id).length === 40 ? `hash:${id}` : id;
+                        const d = (await Api.myList(listId, signal)).data[0];
                         if (!d) {
                             if (active) setTimeout(poll, 10000);
                             return;
