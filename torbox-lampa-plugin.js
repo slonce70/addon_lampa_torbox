@@ -670,6 +670,8 @@
                     });
                     historyItem.on('hover:focus', (e) => {
                         last = e.target;
+                        scroll.render().find('.focus').removeClass('focus');
+                        historyItem.addClass('focus');
                         scroll.update($(e.target), true);
                     }).on('hover:enter', () => {
                         onTorrentClick(lastTorrent);
@@ -782,10 +784,14 @@
 
         this.start = function () {
             if (Lampa.Activity.active().activity !== this.activity) return;
+
+            Lampa.Background.immediately(Lampa.Utils.cardImgBackgroundBlur(object.movie));
+
             if (!initialized) {
                 initialized = true;
                 this.initialize();
             } else {
+                this.build();
                 Lampa.Controller.toggle('content');
             }
         };
@@ -812,7 +818,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '44.0.0', // Fixed remote control navigation
+            version: '46.0.0', // Real-time history update
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
