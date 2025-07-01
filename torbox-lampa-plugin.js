@@ -318,6 +318,10 @@
             scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
             scroll.body().addClass('episode-list-container');
             this.draw();
+            return this.render();
+        };
+
+        this.render = function() {
             return scroll.render();
         };
 
@@ -908,7 +912,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '48.0.0', // Added native-style episode selector
+            version: '49.0.0', // Fixed episode component rendering
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
