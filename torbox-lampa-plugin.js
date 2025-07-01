@@ -460,9 +460,12 @@
                 return ErrorHandler.show('validation', { message: 'Magnet-ссылка не найдена' });
             }
         
-            Lampa.Loading.start(undefined, 'TorBox: Добавление торрента...');
             abort = new AbortController();
             const signal = abort.signal;
+
+            Lampa.Loading.start(() => {
+                abort.abort();
+            }, 'TorBox: Добавление торрента...');
         
             try {
                 const res = await Api.addMagnet(torrent.magnet, signal);
@@ -814,7 +817,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '40.0.0', // Focus, history, and stability fixes
+            version: '41.0.0', // Added loading cancellation
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
