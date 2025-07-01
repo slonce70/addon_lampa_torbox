@@ -447,7 +447,7 @@
                 Lampa.Player.play(playerConfig);
 
                 Lampa.Player.callback(() => {
-                    Lampa.Activity.machine.back();
+                    Lampa.Activity.backward();
                 });
 
             } catch (e) {
@@ -474,7 +474,7 @@
                 
                 // Сохраняем полные данные торрента для истории
                 const mid = object.movie.imdb_id || object.movie.id;
-                const torrentForHistory = state.all_torrents.find(t => t.hash === torrent.hash);
+                const torrentForHistory = state.all_torrents.find(t => t.hash === torrent.hash) || torrent;
                 if (torrentForHistory) {
                      try {
                         Store.set(`torbox_last_torrent_data_${mid}`, JSON.stringify(torrentForHistory));
@@ -814,7 +814,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '39.0.0', // History and focus fixes
+            version: '40.0.0', // Focus, history, and stability fixes
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -919,7 +919,7 @@
             document.head.appendChild(css);
 
             Lampa.Manifest.plugins[manifest.name] = manifest;
-            LOG('TorBox Stable v39.0.0 ready');
+            LOG('TorBox Stable v40.0.0 ready');
         }
 
         if (window.Lampa?.Activity) {
