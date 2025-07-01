@@ -431,11 +431,6 @@
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 
                 const mid = object.movie.imdb_id || object.movie.id;
-                try {
-                    Store.set(`torbox_last_torrent_data_${mid}`, JSON.stringify(torrent_data));
-                } catch (e) {
-                    LOG('Failed to save full torrent data to localStorage', e);
-                }
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
                 const playerConfig = { 
@@ -674,8 +669,8 @@
                 try {
                     const lastTorrent = JSON.parse(lastWatchedData);
                     const historyItem = Lampa.Template.get('torbox_watched_item', {
-                        title: lastTorrent.title,
-                        info: `Продолжить просмотр с последнего места`
+                        title: 'Продолжить просмотр',
+                        info: lastTorrent.title
                     });
                     historyItem.on('hover:enter', () => {
                         onTorrentClick(lastTorrent);
@@ -817,7 +812,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '41.0.0', // Added loading cancellation
+            version: '42.0.0', // Fixed history item display
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
