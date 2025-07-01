@@ -282,121 +282,6 @@
         }
     };
 
-    // ───────────────────── component ▸ Episode List Component ────────────────
-    function EpisodeListComponent(object) {
-        let scroll;
-        let last;
-        let component_initialized = false;
-        
-        this.activity = object.activity;
-
-        const play = async (file_data) => {
-            try {
-                const torrent_data = object.torrent_data;
-                const dlResponse = await Api.requestDl(torrent_data.id, file_data.id);
-                const link = dlResponse.url || dlResponse.data;
-                if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-                
-                const mid = object.movie.imdb_id || object.movie.id;
-                Store.set(`torbox_last_played_${mid}`, String(file_data.id));
-                
-                const cleanName = file_data.name.split('/').pop();
-                const playerConfig = { 
-                    url: link, 
-                    title: cleanName || object.movie.title, 
-                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
-                };
-                
-                Lampa.Player.play(playerConfig);
-
-            } catch (e) {
-                ErrorHandler.show(e.type || 'unknown', e);
-            }
-        };
-
-        this.create = function() {
-            this.activity.loader(false);
-            scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
-            scroll.body().addClass('episode-list-container');
-            this.draw();
-            return this.render();
-        };
-
-        this.render = function() {
-            return scroll.render();
-        };
-
-        this.draw = function() {
-            scroll.clear();
-            const torrent_data = object.torrent_data;
-            const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-            const mid = object.movie.imdb_id || object.movie.id;
-            const lastPlayedId = Store.get(`torbox_last_played_${mid}`, null);
-
-            vids.forEach(file => {
-                const isWatched = String(file.id) === lastPlayedId;
-                const cleanName = file.name.split('/').pop();
-                let item = Lampa.Template.get('torbox_episode_item', {
-                    title: cleanName,
-                    size: Utils.formatBytes(file.size)
-                });
-
-                if (isWatched) {
-                    item.addClass('file-item--last-played');
-                }
-
-                item.on('hover:focus', (e) => {
-                    last = e.target;
-                    scroll.update($(e.target), true);
-                }).on('hover:enter', () => {
-                    play(file);
-                });
-                scroll.append(item);
-            });
-
-            if (vids.length > 0) {
-                let focus_element = scroll.render().find('.file-item--last-played').length 
-                    ? scroll.render().find('.file-item--last-played') 
-                    : scroll.render().find('.selector').first();
-                
-                if (focus_element.length) {
-                    last = focus_element[0];
-                }
-            }
-        };
-
-        this.start = function() {
-            if (Lampa.Activity.active().activity !== this.activity) return;
-            Lampa.Background.immediately(Lampa.Utils.cardImgBackgroundBlur(object.movie));
-            
-            if (!component_initialized) {
-                component_initialized = true;
-                Lampa.Controller.add('content', {
-                    toggle: () => {
-                        Lampa.Controller.collectionSet(scroll.render());
-                        Lampa.Controller.collectionFocus(last || false, scroll.render());
-                    },
-                    up: () => Navigator.move('up'),
-                    down: () => Navigator.move('down'),
-                    back: this.back
-                });
-            } else {
-                this.draw();
-            }
-            Lampa.Controller.toggle('content');
-        };
-
-        this.back = function() {
-            Lampa.Activity.backward();
-        };
-
-        this.destroy = function() {
-            if (scroll) scroll.destroy();
-            scroll = last = null;
-        };
-    }
-
-
     // ───────────────────── component ▸ Main List Component ───�����───────────
     function MainComponent(object) {
         let scroll = new Lampa.Scroll({mask: true, over: true, step: 250});
@@ -421,6 +306,8 @@
             sort: Store.get('torbox_sort_method', 'seeders'),
             filters: JSON.parse(Store.get('torbox_filters_v2', JSON.stringify(defaultFilters))),
             last_hash: null,
+            view: 'torrents', // 'torrents' or 'episodes'
+            current_torrent_data: null,
         };
 
         const procRaw = (raw, hash, cachedSet) => {
@@ -539,15 +426,23 @@
                 });
         };
 
-        const play = async (torrent_data, file) => {
+        const play = async (torrent_data, file, on_end) => {
             try {
                 const dlResponse = await Api.requestDl(torrent_data.id, file.id);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
                 
                 const mid = object.movie.imdb_id || object.movie.id;
-                Store.set(`torbox_last_played_${mid}`, String(file.id));
+                const torrent_id = torrent_data.hash || torrent_data.id;
+                const key = `torbox_watched_episodes_${mid}_${torrent_id}`;
                 
+                let watched_episodes = JSON.parse(Store.get(key, '[]'));
+                if (!watched_episodes.includes(file.id)) {
+                    watched_episodes.push(file.id);
+                }
+                Store.set(key, JSON.stringify(watched_episodes));
+                Store.set(`torbox_last_played_file_${mid}`, file.id);
+
                 const cleanName = file.name.split('/').pop();
                 const playerConfig = { 
                     url: link, 
@@ -556,6 +451,9 @@
                 };
                 
                 Lampa.Player.play(playerConfig);
+                Lampa.Player.callback(on_end || (() => {
+                    Lampa.Activity.machine.back();
+                }));
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
@@ -661,13 +559,54 @@
             if (vids.length === 1) {
                 play(torrent_data, vids[0]);
             } else {
-                Lampa.Activity.push({
-                    component: 'torbox_episodes',
-                    title: 'Выберите серию',
-                    torrent_data: torrent_data,
-                    movie: object.movie
-                });
+                state.view = 'episodes';
+                state.current_torrent_data = torrent_data;
+                drawEpisodes(torrent_data);
             }
+        };
+
+        const drawEpisodes = (torrent_data) => {
+            scroll.clear();
+            filter.hide();
+
+            const mid = object.movie.imdb_id || object.movie.id;
+            const lastPlayedId = Store.get(`torbox_last_played_${mid}`, null);
+            const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
+
+            let last_watched_element = null;
+
+            vids.forEach(file => {
+                const isWatched = String(file.id) === lastPlayedId;
+                const cleanName = file.name.split('/').pop();
+                let item = Lampa.Template.get('torbox_episode_item', {
+                    title: cleanName,
+                    size: Utils.formatBytes(file.size)
+                });
+
+                item.on('hover:focus', (e) => {
+                    last = e.target;
+                    scroll.update($(e.target), true);
+                }).on('hover:enter', () => {
+                    play(torrent_data, file, () => {
+                        // После просмотра возвращаемся и перерисовываем список
+                        drawEpisodes(torrent_data);
+                        Lampa.Controller.toggle('content');
+                    });
+                });
+
+                if (isWatched) {
+                    item.addClass('file-item--last-played');
+                    last_watched_element = item;
+                }
+                scroll.append(item);
+            });
+
+            if (last_watched_element) {
+                last = last_watched_element[0];
+                scroll.update(last_watched_element, true);
+            }
+
+            Lampa.Controller.enable('content');
         };
 
         this.create = function () {
@@ -894,8 +833,14 @@
         };
         
         this.back = function() {
-            abort.abort();
-            Lampa.Activity.backward();
+            if (state.view === 'episodes') {
+                state.view = 'torrents';
+                filter.show();
+                this.build();
+            } else {
+                abort.abort();
+                Lampa.Activity.backward();
+            }
         };
         
         this.destroy = function () {
@@ -930,7 +875,7 @@
             Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{icon} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{tech_bar_html}</div>');
             Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
             Lampa.Template.add('torbox_watched_item', '<div class="torbox-watched-item selector"><div class="torbox-watched-item__icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5V7.5l5.25 3.5L11 16.5z" fill="currentColor"></path></svg></div><div class="torbox-watched-item__body"><div class="torbox-watched-item__title">{title}</div><div class="torbox-watched-item__info">{info}</div></div></div>');
-            Lampa.Template.add('torbox_episode_item', '<div class="file-item selector"><div class="file-item__title">{title}</div><div class="file-item__subtitle">{size}</div></div>');
+            Lampa.Template.add('torbox_episode_item', '<div class="file-item selector" data-file-id="{file_id}"><div class="file-item__title">{title}</div><div class="file-item__subtitle">{size}</div></div>');
         }
 
         function addSettings() {
@@ -939,7 +884,7 @@
             [
                 { k: 'torbox_proxy_url', n: 'URL CORS-прокси', d: `Default: ${Config.DEF.proxyUrl}`, t: 'input', v: CFG.proxyUrl },
                 { k: 'torbox_api_key', n: 'API-Key', d: 'Если есть собственный ключ', t: 'input', v: CFG.apiKey },
-                { k: 'torbox_debug', n: 'Debug-режим', d: '��ыводить лог в консоль', t: 'trigger', v: CFG.debug }
+                { k: 'torbox_debug', n: 'Debug-режим', d: 'Выводить лог в кон��оль', t: 'trigger', v: CFG.debug }
             ].forEach(p => {
                 Lampa.SettingsApi.addParam({
                     component: 'torbox_enh',
@@ -959,7 +904,6 @@
         function boot() {
             // Register all components with Lampa
             Lampa.Component.add('torbox_main', MainComponent);
-            Lampa.Component.add('torbox_episodes', EpisodeListComponent);
             addTemplates();
             addSettings();
 
@@ -984,7 +928,7 @@
             const css = document.createElement('style');
             css.id = 'torbox-stable-styles';
             css.textContent = `
-                .torbox-list-container, .episode-list-container { display: block; padding: 1em; }
+                .torbox-list-container { display: block; padding: 1em; }
                 .torbox-item { padding: 1em 1.2em; margin: 0 0 1em 0; border-radius: .8em; background: var(--color-background-light); cursor: pointer; transition: all .3s; border: 2px solid transparent; overflow: hidden; }
                 .torbox-item:last-child { margin-bottom: 0; }
                 .torbox-item--last-played { border-left: 4px solid var(--color-second); background: rgba(var(--color-second-rgb), .1); }
