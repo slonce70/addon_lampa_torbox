@@ -175,7 +175,8 @@
                 const j = typeof txt === 'object' ? txt : JSON.parse(txt);
                 if (j?.success === false) {
                      const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
-                     throw { type: 'api', message: errorMsg };
+                     const error = { type: 'api', message: errorMsg, data: j.data };
+                     throw error;
                 }
                 return j;
             } catch (e) {
@@ -505,34 +506,43 @@
             } catch (e) {
                 if (e.type === 'api' && e.message && e.message.includes('ACTIVE_LIMIT')) {
                     LOG('Active limit reached, attempting to start from queue...');
-                    try {
-                        const queuedResponse = await Api.getQueued(signal);
-                        const queuedItems = queuedResponse.data || [];
-                        const magnetHash = torrent.magnet.match(/urn:btih:([a-fA-F0-9]{40})/i)[1].toLowerCase();
-                        const queuedTorrent = queuedItems.find(item => item.hash.toLowerCase() === magnetHash);
+                    (async () => {
+                        try {
+                            // New: Check if the error response contains the ID
+                            if (e.data && e.data.id) {
+                                LOG('Found torrent ID in error response:', e.data.id);
+                                await Api.startQueued(e.data.id, signal);
+                                const data = await track(torrent.hash, signal);
+                                data.hash = torrent.hash;
+                                Lampa.Loading.stop();
+                                selectFile(data);
+                                return;
+                            }
 
-                        if (queuedTorrent) {
-                            LOG('Found torrent in queue, ID:', queuedTorrent.id);
-                            await Api.startQueued(queuedTorrent.id, signal);
-                            // After starting, we need to get the torrent's new ID from the main list
-                            // This is a bit tricky, as it might not be instant. We'll poll `mylist` with the hash.
-                            // For now, let's just assume it will be added and try to track it.
-                            // A better approach might be needed if this fails often.
-                            const data = await track(queuedTorrent.hash, signal); // Assuming track can handle hash
-                             data.hash = torrent.hash;
-                             Lampa.Loading.stop();
-                             selectFile(data);
+                            // Fallback to searching the queue
+                            LOG('No ID in error, searching queue...');
+                            const queuedResponse = await Api.getQueued(signal);
+                            const queuedItems = queuedResponse.data || [];
+                            const magnetHash = torrent.magnet.match(/urn:btih:([a-fA-F0-9]{40})/i)[1].toLowerCase();
+                            const queuedTorrent = queuedItems.find(item => item.hash.toLowerCase() === magnetHash);
 
-                        } else {
-                            throw { type: 'api', message: 'Торрент не найден в очереди после ошибки лимита.' };
+                            if (queuedTorrent) {
+                                LOG('Found torrent in queue, ID:', queuedTorrent.id);
+                                await Api.startQueued(queuedTorrent.id, signal);
+                                const data = await track(torrent.hash, signal);
+                                data.hash = torrent.hash;
+                                Lampa.Loading.stop();
+                                selectFile(data);
+                            } else {
+                                throw { type: 'api', message: 'Торрент не найден в очереди после ошибки лимита.' };
+                            }
+                        } catch (queueError) {
+                            if (queueError.name !== 'AbortError') {
+                                ErrorHandler.show(queueError.type || 'unknown', queueError);
+                            }
+                            Lampa.Loading.stop();
                         }
-                    } catch (queueError) {
-                         if (queueError.name !== 'AbortError') {
-                            ErrorHandler.show(queueError.type || 'unknown', queueError);
-                        }
-                        Lampa.Loading.stop();
-                    }
-
+                    })();
                 } else if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
                     Lampa.Loading.stop();
