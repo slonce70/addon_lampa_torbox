@@ -175,8 +175,7 @@
                 const j = typeof txt === 'object' ? txt : JSON.parse(txt);
                 if (j?.success === false) {
                      const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
-                     const error = { type: 'api', message: errorMsg, data: j.data };
-                     throw error;
+                     throw { type: 'api', message: errorMsg };
                 }
                 return j;
             } catch (e) {
@@ -272,15 +271,7 @@
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
-        const getQueued = (signal) => request(`${MAIN}/queued/getqueued?bypass_cache=true&offset=0&limit=1000&type=torrent`, { method: 'GET' }, signal);
-
-        const startQueued = (queued_id, signal) => request(`${MAIN}/queued/controlqueued`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ queued_id: Number(queued_id), operation: 'start', all: false })
-        }, signal);
-
-        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl, getQueued, startQueued };
+        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
     const ErrorHandler = {
@@ -504,51 +495,10 @@
                 selectFile(data);
         
             } catch (e) {
-                if (e.type === 'api' && e.message && e.message.includes('ACTIVE_LIMIT')) {
-                    LOG('Active limit reached, attempting to start from queue...');
-                    (async () => {
-                        try {
-                            // New: Check if the error response contains the ID
-                            if (e.data && e.data.id) {
-                                LOG('Found torrent ID in error response:', e.data.id);
-                                await Api.startQueued(e.data.id, signal);
-                                const data = await track(torrent.hash, signal);
-                                data.hash = torrent.hash;
-                                Lampa.Loading.stop();
-                                selectFile(data);
-                                return;
-                            }
-
-                            // Fallback to searching the queue
-                            LOG('No ID in error, searching queue...');
-                            const queuedResponse = await Api.getQueued(signal);
-                            const queuedItems = queuedResponse.data || [];
-                            const magnetHash = torrent.magnet.match(/urn:btih:([a-fA-F0-9]{40})/i)[1].toLowerCase();
-                            const queuedTorrent = queuedItems.find(item => item.hash.toLowerCase() === magnetHash);
-
-                            if (queuedTorrent) {
-                                LOG('Found torrent in queue, ID:', queuedTorrent.id);
-                                await Api.startQueued(queuedTorrent.id, signal);
-                                const data = await track(torrent.hash, signal);
-                                data.hash = torrent.hash;
-                                Lampa.Loading.stop();
-                                selectFile(data);
-                            } else {
-                                throw { type: 'api', message: 'Торрент не найден в очереди после ошибки лимита.' };
-                            }
-                        } catch (queueError) {
-                            if (queueError.name !== 'AbortError') {
-                                ErrorHandler.show(queueError.type || 'unknown', queueError);
-                            }
-                            Lampa.Loading.stop();
-                        }
-                    })();
-                } else if (e.name !== 'AbortError') {
+                if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
-                    Lampa.Loading.stop();
-                } else {
-                    Lampa.Loading.stop();
                 }
+                Lampa.Loading.stop();
             }
         };
         
@@ -568,8 +518,7 @@
                 const poll = async () => {
                     if (!active) return;
                     try {
-                        const listId = String(id).length === 40 ? `hash:${id}` : id;
-                        const d = (await Api.myList(listId, signal)).data[0];
+                        const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
                             if (active) setTimeout(poll, 10000);
                             return;
