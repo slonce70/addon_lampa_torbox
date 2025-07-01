@@ -311,13 +311,12 @@
                     poster: Lampa.Utils.cardImgBackgroundBlur(object.movie)
                 };
 
-                Lampa.Player.play(playerConfig);
-                
                 const listener = Lampa.Player.listener.follow('destroy', () => {
-                    this.draw();
-                    Lampa.Controller.toggle('content');
+                    this.start(); // Re-enter the component to re-draw and set focus
                     Lampa.Player.listener.remove('destroy', listener);
                 });
+
+                Lampa.Player.play(playerConfig);
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
@@ -378,7 +377,6 @@
                 
                 if (focus_element.length) {
                     last = focus_element[0];
-                    scroll.update(focus_element, true);
                 }
             }
         };
@@ -394,13 +392,16 @@
                         Lampa.Controller.collectionSet(scroll.render());
                         Lampa.Controller.collectionFocus(last || false, scroll.render());
                     },
-                    up: () => Navigator.move('up'),
-                    down: () => Navigator.move('down'),
+                    up: () => {
+                        Navigator.move('up');
+                    },
+                    down: () => {
+                        Navigator.move('down');
+                    },
                     back: this.back
                 });
-            } else {
-                this.draw();
             }
+            this.draw(); // Always re-draw to apply latest watched status
             Lampa.Controller.toggle('content');
         };
 
@@ -933,7 +934,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.0.1', // Fixed watched episode highlighting
+            version: '50.0.2', // Fixed episode list scrolling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
