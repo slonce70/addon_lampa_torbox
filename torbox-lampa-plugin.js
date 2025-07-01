@@ -296,18 +296,23 @@
                 const dlResponse = await Api.requestDl(torrent_data.id, file_data.id);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-                
-                const mid = object.movie.imdb_id || object.movie.id;
-                Store.set(`torbox_last_played_${mid}`, String(file_data.id));
-                
+
+                const watch_key = `torbox_watch_${torrent_data.hash}`;
+                Store.set(watch_key, String(file_data.id));
+
                 const cleanName = file_data.name.split('/').pop();
-                const playerConfig = { 
-                    url: link, 
-                    title: cleanName || object.movie.title, 
-                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
+                const playerConfig = {
+                    url: link,
+                    title: cleanName || object.movie.title,
+                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie)
                 };
-                
+
                 Lampa.Player.play(playerConfig);
+                
+                Lampa.Player.listener.follow('destroy', () => {
+                    this.draw();
+                    Lampa.Controller.toggle('content');
+                });
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
@@ -330,18 +335,19 @@
             scroll.clear();
             const torrent_data = object.torrent_data;
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-            const mid = object.movie.imdb_id || object.movie.id;
-            const lastPlayedId = Store.get(`torbox_last_played_${mid}`, null);
+            
+            const watch_key = `torbox_watch_${torrent_data.hash}`;
+            const lastPlayedId = Store.get(watch_key, null);
 
             vids.forEach(file => {
-                const isWatched = String(file.id) === lastPlayedId;
+                const isLastPlayed = String(file.id) === lastPlayedId;
                 const cleanName = file.name.split('/').pop();
                 let item = Lampa.Template.get('torbox_episode_item', {
                     title: cleanName,
                     size: Utils.formatBytes(file.size)
                 });
 
-                if (isWatched) {
+                if (isLastPlayed) {
                     item.addClass('file-item--last-played');
                 }
 
@@ -361,6 +367,7 @@
                 
                 if (focus_element.length) {
                     last = focus_element[0];
+                    scroll.update(focus_element, true);
                 }
             }
         };
@@ -915,7 +922,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '49.0.0', // Fixed episode component rendering
+            version: '50.0.0', // Enhanced episode tracking
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
