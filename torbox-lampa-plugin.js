@@ -269,6 +269,8 @@
 
         const myListAll = (signal) => request(`${MAIN}/torrents/mylist?&bypass_cache=true&offset=0&limit=1000`, { method: 'GET' }, signal);
 
+        const getQueued = (signal) => request(`${MAIN}/queued/getqueued?bypass_cache=true&offset=0&limit=1000&type=torrent`, { method: 'GET' }, signal);
+
         const startQueued = (queued_id, signal) => request(`${MAIN}/queued/controlqueued`, {
             method: 'POST',
             body: JSON.stringify({ queued_id, operation: 'start', all: false }),
@@ -284,7 +286,7 @@
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
-        return { searchPublicTrackers, checkCached, addMagnet, myList, myListAll, requestDl, startQueued };
+        return { searchPublicTrackers, checkCached, addMagnet, myList, getQueued, requestDl, startQueued };
     })();
 
     const ErrorHandler = {
@@ -517,19 +519,20 @@
         
             } catch (e) {
                 if (e.error_code === 'ACTIVE_LIMIT') {
-                    LOG('Active limit reached, trying to find existing torrent.');
+                    LOG('Active limit reached, trying to find and start from queue...');
                     try {
-                        const torrent_list = await Api.myListAll(signal);
+                        const queued_list = await Api.getQueued(signal);
                         const info_hash = torrent.hash.toLowerCase();
-                        const existing_torrent = torrent_list.data.find(item => item.hash.toLowerCase() === info_hash);
+                        const queued_item = queued_list.data.find(item => item.hash.toLowerCase() === info_hash);
 
-                        if (existing_torrent) {
-                            const data = await track(existing_torrent.id, signal);
+                        if (queued_item) {
+                            await Api.startQueued(queued_item.id, signal);
+                            const data = await track(queued_item.id, signal);
                             data.hash = torrent.hash;
                             Lampa.Loading.stop();
                             selectFile(data);
                         } else {
-                            throw { type: 'api', message: 'Торрент не найден в списке активных' };
+                            throw { type: 'api', message: 'Торрент не найден в очереди' };
                         }
                     } catch (list_err) {
                         if (list_err.name !== 'AbortError') {
@@ -907,7 +910,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '53.0.0', // Added full queue/error handling
+            version: '54.0.0', // Added full queue/error handling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
