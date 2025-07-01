@@ -259,7 +259,6 @@
             const fd = new FormData();
             fd.append('magnet', magnet);
             fd.append('seed', '3');
-            fd.append('as_queued', 'false');
             return { method: 'POST', body: fd };
         })(), signal);
 
