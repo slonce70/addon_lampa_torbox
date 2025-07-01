@@ -488,17 +488,8 @@
             }, 'TorBox: Добавление торрента...');
         
             try {
-                let res = await Api.addMagnet(torrent.magnet, signal);
-                let tid;
-
-                if (res.data.queued_id) {
-                    LOG('Torrent was queued, attempting to start it.');
-                    await Api.startQueued(res.data.queued_id, signal);
-                    tid = res.data.queued_id;
-                } else {
-                    tid = res.data.torrent_id || res.data.id;
-                }
-
+                const res = await Api.addMagnet(torrent.magnet, signal);
+                const tid = res.data.torrent_id || res.data.id;
                 if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
                 
                 const data = await track(tid, signal);
@@ -542,8 +533,9 @@
                     }
                 } else if (e.name !== 'AbortError') {
                     ErrorHandler.show(e.type || 'unknown', e);
+                } else {
+                    Lampa.Loading.stop();
                 }
-                Lampa.Loading.stop();
             }
         };
         
@@ -910,7 +902,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '54.0.0', // Added full queue/error handling
+            version: '55.0.0', // Final queue handling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
