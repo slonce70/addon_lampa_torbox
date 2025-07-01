@@ -169,24 +169,21 @@
             if (status === 429) throw { type: 'network', message: '429 – слишком много запросов, попробуйте позже' };
             if (status >= 500) throw { type: 'network', message: `Ошибка сервера TorBox (${status})` };
             
-            try {
-                if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
-                const j = typeof txt === 'object' ? txt : JSON.parse(txt);
-                if (j?.success === false) {
-                     const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
-                     const err = { type: 'api', message: errorMsg };
-                     if (j.error === 'ACTIVE_LIMIT') {
-                        err.error_code = 'ACTIVE_LIMIT';
-                     }
-                     throw err;
-                }
-                if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status})` };
-                if (!txt) throw { type: 'api', message: 'Пустой ответ от сервера' };
-                return j;
-            } catch (e) {
-                if (e.type) throw e;
-                throw { type: 'api', message: 'Некорректный JSON в ответе' };
+            const j = typeof txt === 'object' ? txt : JSON.parse(txt);
+            
+            if (j?.success === false) {
+                 const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
+                 const err = { type: 'api', message: errorMsg };
+                 if (j.error === 'ACTIVE_LIMIT') {
+                    err.error_code = 'ACTIVE_LIMIT';
+                 }
+                 throw err;
             }
+
+            if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
+            if (status >= 400) throw { type: 'network', message: `Ошибка клиента (${status})` };
+            if (!txt) throw { type: 'api', message: 'Пустой ответ от сервера' };
+            return j;
         };
 
         const request = async (url, opt = {}, signal) => {
@@ -266,8 +263,6 @@
             fd.append('seed', '3');
             return { method: 'POST', body: fd };
         })(), signal);
-
-        const myListAll = (signal) => request(`${MAIN}/torrents/mylist?&bypass_cache=true&offset=0&limit=1000`, { method: 'GET' }, signal);
 
         const getQueued = (signal) => request(`${MAIN}/queued/getqueued?bypass_cache=true&offset=0&limit=1000&type=torrent`, { method: 'GET' }, signal);
 
@@ -902,7 +897,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '55.0.0', // Final queue handling
+            version: '57.0.0', // Final queue handling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
