@@ -262,6 +262,12 @@
             return { method: 'POST', body: fd };
         })(), signal);
 
+        const startQueued = (queued_id, signal) => request(`${MAIN}/queued/controlqueued`, {
+            method: 'POST',
+            body: JSON.stringify({ queued_id, operation: 'start', all: false }),
+            headers: { 'Content-Type': 'application/json' }
+        }, signal);
+
         const myList = async (id, s) => {
             const json = await request(`${MAIN}/torrents/mylist?id=${id}&bypass_cache=true`, { method: 'GET' }, s);
             if (json && json.data && !Array.isArray(json.data)) {
@@ -271,7 +277,7 @@
         };
         const requestDl = (tid, fid, s) => request(`${MAIN}/torrents/requestdl?torrent_id=${tid}&file_id=${fid}&token=${CFG.apiKey}`, { method: 'GET' }, s);
 
-        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
+        return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl, startQueued };
     })();
 
     const ErrorHandler = {
@@ -473,14 +479,21 @@
             }, 'TorBox: Добавление торрента...');
         
             try {
-                const res = await Api.addMagnet(torrent.magnet, signal);
-                const tid = res.data.torrent_id || res.data.id;
-                if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
-        
-                const data = await track(tid, signal);
+                let res = await Api.addMagnet(torrent.magnet, signal);
+                let data;
+
+                if (res.data.queued_id) {
+                    LOG('Torrent was queued, attempting to start it.');
+                    await Api.startQueued(res.data.queued_id, signal);
+                    data = await trackByHash(torrent.hash, signal);
+                } else {
+                    const tid = res.data.torrent_id || res.data.id;
+                    if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
+                    data = await track(tid, signal);
+                }
+                
                 data.hash = torrent.hash;
                 
-                // Сохраняем полные данные торрента для истории
                 const mid = object.movie.imdb_id || object.movie.id;
                 const torrentForHistory = state.all_torrents.find(t => t.hash === torrent.hash) || torrent;
                 if (torrentForHistory) {
@@ -502,6 +515,55 @@
             }
         };
         
+        const trackByHash = (hash, signal) => {
+            return new Promise((resolve, reject) => {
+                let active = true;
+                const cancel = () => {
+                    if (active) {
+                        active = false;
+                        signal.removeEventListener('abort', cancel);
+                        Lampa.Loading.stop();
+                        reject({ name: 'AbortError', message: 'Отменено пользователем' });
+                    }
+                };
+                signal.addEventListener('abort', cancel);
+        
+                const poll = async () => {
+                    if (!active) return;
+                    try {
+                        const d = (await Api.myList(hash, signal)).data[0];
+                        if (!d) {
+                            if (active) setTimeout(poll, 5000); // Poll every 5 seconds
+                            return;
+                        }
+                        
+                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished;
+                        
+                        if (is_finished && d.files?.length) {
+                            active = false;
+                            signal.removeEventListener('abort', cancel);
+                            resolve(d);
+                        } else {
+                            const perc = (parseFloat(d.progress) * 100);
+                            const speed = Utils.formatBytes(d.download_speed, true);
+                            const eta = Utils.formatTime(d.eta);
+                            const status_text = `Загрузка: ${perc.toFixed(2)}% | ${speed} | 👤 ${d.seeds || 0}/${d.peers || 0} | ⏳ ${eta}`;
+                            
+                            $('.loading-layer .loading-layer__text').text(status_text);
+                            
+                            if (active) setTimeout(poll, 5000);
+                        }
+                    } catch (e) {
+                        if (active) {
+                           // Ignore errors during polling, just retry
+                           if (active) setTimeout(poll, 5000);
+                        }
+                    }
+                };
+                poll();
+            });
+        };
+
         const track = (id, signal) => {
             return new Promise((resolve, reject) => {
                 let active = true;
@@ -866,7 +928,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '49.0.0', // Fixed episode component rendering
+            version: '50.0.0', // Added queue handling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
