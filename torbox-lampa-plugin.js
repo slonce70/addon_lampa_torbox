@@ -481,13 +481,15 @@
             try {
                 let res = await Api.addMagnet(torrent.magnet, signal);
                 let data;
+                let tid;
 
                 if (res.data.queued_id) {
                     LOG('Torrent was queued, attempting to start it.');
                     await Api.startQueued(res.data.queued_id, signal);
-                    data = await trackByHash(torrent.hash, signal);
+                    tid = res.data.queued_id;
+                    data = await track(tid, signal);
                 } else {
-                    const tid = res.data.torrent_id || res.data.id;
+                    tid = res.data.torrent_id || res.data.id;
                     if (!tid) throw { type: 'api', message: 'ID торрента не получен' };
                     data = await track(tid, signal);
                 }
@@ -515,7 +517,7 @@
             }
         };
         
-        const trackByHash = (hash, signal) => {
+        const track = (id, signal) => {
             return new Promise((resolve, reject) => {
                 let active = true;
                 const cancel = () => {
@@ -531,7 +533,7 @@
                 const poll = async () => {
                     if (!active) return;
                     try {
-                        const d = (await Api.myList(hash, signal)).data[0];
+                        const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
                             if (active) setTimeout(poll, 5000); // Poll every 5 seconds
                             return;
@@ -557,56 +559,6 @@
                         if (active) {
                            // Ignore errors during polling, just retry
                            if (active) setTimeout(poll, 5000);
-                        }
-                    }
-                };
-                poll();
-            });
-        };
-
-        const track = (id, signal) => {
-            return new Promise((resolve, reject) => {
-                let active = true;
-                const cancel = () => {
-                    if (active) {
-                        active = false;
-                        signal.removeEventListener('abort', cancel);
-                        Lampa.Loading.stop();
-                        reject({ name: 'AbortError', message: 'Отменено пользователем' });
-                    }
-                };
-                signal.addEventListener('abort', cancel);
-        
-                const poll = async () => {
-                    if (!active) return;
-                    try {
-                        const d = (await Api.myList(id, signal)).data[0];
-                        if (!d) {
-                            if (active) setTimeout(poll, 10000);
-                            return;
-                        }
-                        
-                        const is_finished = d.download_state === 'completed' || d.download_state === 'uploading' || d.download_finished;
-                        
-                        if (is_finished && d.files?.length) {
-                            active = false;
-                            signal.removeEventListener('abort', cancel);
-                            resolve(d);
-                        } else {
-                            const perc = (parseFloat(d.progress) * 100);
-                            const speed = Utils.formatBytes(d.download_speed, true);
-                            const eta = Utils.formatTime(d.eta);
-                            const status_text = `Загрузка: ${perc.toFixed(2)}% | ${speed} | 👤 ${d.seeds || 0}/${d.peers || 0} | ⏳ ${eta}`;
-                            
-                            $('.loading-layer .loading-layer__text').text(status_text);
-                            
-                            if (active) setTimeout(poll, 10000);
-                        }
-                    } catch (e) {
-                        if (active) {
-                            active = false;
-                            signal.removeEventListener('abort', cancel);
-                            reject(e);
                         }
                     }
                 };
@@ -928,7 +880,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.0.0', // Added queue handling
+            version: '52.0.0', // Corrected queue handling
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
