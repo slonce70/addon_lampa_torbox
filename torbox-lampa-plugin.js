@@ -670,8 +670,6 @@
                     });
                     historyItem.on('hover:focus', (e) => {
                         last = e.target;
-                        scroll.render().find('.focus').removeClass('focus');
-                        historyItem.addClass('focus');
                         scroll.update($(e.target), true);
                     }).on('hover:enter', () => {
                         onTorrentClick(lastTorrent);
@@ -818,7 +816,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '46.0.0', // Real-time history update
+            version: '47.0.0', // Fixed focus style for history item
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -889,7 +887,7 @@
                 .torbox-item { padding: 1em 1.2em; margin: 0 0 1em 0; border-radius: .8em; background: var(--color-background-light); cursor: pointer; transition: all .3s; border: 2px solid transparent; overflow: hidden; }
                 .torbox-item:last-child { margin-bottom: 0; }
                 .torbox-item--last-played { border-left: 4px solid var(--color-second); background: rgba(var(--color-second-rgb), .1); }
-                .torbox-item:hover, .torbox-item.focus { background: var(--color-primary); color: var(--color-background); transform: scale(1.01); border-color: rgba(255, 255, 255, .3); box-shadow: 0 4px 20px rgba(0, 0, 0, .2); }
+                .torbox-item:hover, .torbox-item.focus, .torbox-watched-item:hover, .torbox-watched-item.focus { background: var(--color-primary); color: var(--color-background); transform: scale(1.01); border-color: rgba(255, 255, 255, .3); box-shadow: 0 4px 20px rgba(0, 0, 0, .2); }
                 .torbox-item:hover .torbox-item__tech-bar, .torbox-item.focus .torbox-item__tech-bar { background: rgba(0, 0, 0, .2); }
                 .torbox-item__title { font-weight: 600; margin-bottom: .3em; font-size: 1.1em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .torbox-item__main-info { font-size: .95em; opacity: .9; line-height: 1.4; margin-bottom: .3em; }
