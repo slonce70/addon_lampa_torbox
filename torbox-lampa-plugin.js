@@ -300,9 +300,10 @@
                 const mid = object.movie.imdb_id || object.movie.id;
                 Store.set(`torbox_last_played_${mid}`, String(file_data.id));
                 
+                const cleanName = file_data.name.split('/').pop();
                 const playerConfig = { 
                     url: link, 
-                    title: file_data.name || object.movie.title, 
+                    title: cleanName || object.movie.title, 
                     poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
                 };
                 
@@ -334,8 +335,9 @@
 
             vids.forEach(file => {
                 const isWatched = String(file.id) === lastPlayedId;
+                const cleanName = file.name.split('/').pop();
                 let item = Lampa.Template.get('torbox_episode_item', {
-                    title: file.name,
+                    title: cleanName,
                     size: Utils.formatBytes(file.size)
                 });
 
@@ -546,9 +548,10 @@
                 const mid = object.movie.imdb_id || object.movie.id;
                 Store.set(`torbox_last_played_${mid}`, String(file.id));
                 
+                const cleanName = file.name.split('/').pop();
                 const playerConfig = { 
                     url: link, 
-                    title: file.name || object.movie.title, 
+                    title: cleanName || object.movie.title, 
                     poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
                 };
                 
