@@ -668,7 +668,10 @@
                         title: 'Продолжить просмотр',
                         info: lastTorrent.title
                     });
-                    historyItem.on('hover:enter', () => {
+                    historyItem.on('hover:focus', (e) => {
+                        last = e.target;
+                        scroll.update($(e.target), true);
+                    }).on('hover:enter', () => {
                         onTorrentClick(lastTorrent);
                     });
                     scroll.append(historyItem);
@@ -782,8 +785,9 @@
             if (!initialized) {
                 initialized = true;
                 this.initialize();
+            } else {
+                Lampa.Controller.toggle('content');
             }
-            Lampa.Controller.enable('content');
         };
         
         this.back = function() {
@@ -808,7 +812,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '43.0.0', // Fixed player exit navigation
+            version: '44.0.0', // Fixed remote control navigation
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
