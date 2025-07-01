@@ -296,27 +296,23 @@
                 const dlResponse = await Api.requestDl(torrent_data.id, file_data.id);
                 const link = dlResponse.url || dlResponse.data;
                 if (!link) throw { type: 'api', message: 'Не удалось получить ссылку на файл' };
-
-                const fileId = String(file_data.id);
-                const watch_key_prefix = `torbox_watch_${torrent_data.hash}_`;
-                const last_watch_key = `torbox_last_watch_${torrent_data.hash}`;
-
-                Store.set(watch_key_prefix + fileId, '1');
-                Store.set(last_watch_key, fileId);
-
+                
+                const mid = object.movie.imdb_id || object.movie.id;
+                Store.set(`torbox_last_played_${torrent_data.hash}`, String(file_data.id));
+                
                 const cleanName = file_data.name.split('/').pop();
-                const playerConfig = {
-                    url: link,
-                    title: cleanName || object.movie.title,
-                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie)
+                const playerConfig = { 
+                    url: link, 
+                    title: cleanName || object.movie.title, 
+                    poster: Lampa.Utils.cardImgBackgroundBlur(object.movie) 
                 };
-
-                const listener = Lampa.Player.listener.follow('destroy', () => {
-                    this.start(); // Re-enter the component to re-draw and set focus
-                    Lampa.Player.listener.remove('destroy', listener);
-                });
-
+                
                 Lampa.Player.play(playerConfig);
+
+                Lampa.Player.listener.follow('destroy', ()=>{
+                    this.draw();
+                    Lampa.Controller.toggle('content');
+                });
 
             } catch (e) {
                 ErrorHandler.show(e.type || 'unknown', e);
@@ -339,26 +335,18 @@
             scroll.clear();
             const torrent_data = object.torrent_data;
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-            
-            const watch_key_prefix = `torbox_watch_${torrent_data.hash}_`;
-            const last_watch_key = `torbox_last_watch_${torrent_data.hash}`;
-            const lastPlayedId = Store.get(last_watch_key, null);
+            const lastPlayedId = Store.get(`torbox_last_played_${torrent_data.hash}`, null);
 
             vids.forEach(file => {
-                const fileId = String(file.id);
-                const isWatched = Store.get(watch_key_prefix + fileId) === '1';
-                const isLastPlayed = fileId === lastPlayedId;
-
+                const isWatched = String(file.id) === lastPlayedId;
                 const cleanName = file.name.split('/').pop();
                 let item = Lampa.Template.get('torbox_episode_item', {
                     title: cleanName,
                     size: Utils.formatBytes(file.size)
                 });
 
-                if (isLastPlayed) {
+                if (isWatched) {
                     item.addClass('file-item--last-played');
-                } else if (isWatched) {
-                    item.addClass('file-item--watched');
                 }
 
                 item.on('hover:focus', (e) => {
@@ -400,8 +388,9 @@
                     },
                     back: this.back
                 });
+            } else {
+                this.draw();
             }
-            this.draw(); // Always re-draw to apply latest watched status
             Lampa.Controller.toggle('content');
         };
 
@@ -934,7 +923,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.0.2', // Fixed episode list scrolling
+            version: '50.0.3', // Reverted to simple episode tracking
             name: 'TorBox (Stable)',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
