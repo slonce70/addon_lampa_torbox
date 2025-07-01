@@ -567,20 +567,24 @@
 
         const drawEpisodes = (torrent_data) => {
             scroll.clear();
-            filter.hide();
+            filter.render().hide();
 
             const mid = object.movie.imdb_id || object.movie.id;
-            const lastPlayedId = Store.get(`torbox_last_played_${mid}`, null);
+            const lastPlayedId = Store.get(`torbox_last_played_file_${mid}`, null);
+            const torrent_id = torrent_data.hash || torrent_data.id;
+            const watched_episodes = JSON.parse(Store.get(`torbox_watched_episodes_${mid}_${torrent_id}`, '[]'));
+            
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
 
-            let last_watched_element = null;
+            let last_focused_element = null;
 
             vids.forEach(file => {
-                const isWatched = String(file.id) === lastPlayedId;
+                const isWatched = watched_episodes.includes(file.id);
                 const cleanName = file.name.split('/').pop();
                 let item = Lampa.Template.get('torbox_episode_item', {
                     title: cleanName,
-                    size: Utils.formatBytes(file.size)
+                    size: Utils.formatBytes(file.size),
+                    file_id: file.id
                 });
 
                 item.on('hover:focus', (e) => {
@@ -588,22 +592,24 @@
                     scroll.update($(e.target), true);
                 }).on('hover:enter', () => {
                     play(torrent_data, file, () => {
-                        // После просмотра возвращаемся и перерисовываем список
                         drawEpisodes(torrent_data);
                         Lampa.Controller.toggle('content');
                     });
                 });
 
                 if (isWatched) {
+                    item.addClass('file-item--watched');
+                }
+                if (String(file.id) === lastPlayedId) {
                     item.addClass('file-item--last-played');
-                    last_watched_element = item;
+                    last_focused_element = item;
                 }
                 scroll.append(item);
             });
 
-            if (last_watched_element) {
-                last = last_watched_element[0];
-                scroll.update(last_watched_element, true);
+            if (last_focused_element) {
+                last = last_focused_element[0];
+                scroll.update(last_focused_element, true);
             }
 
             Lampa.Controller.enable('content');
@@ -835,7 +841,7 @@
         this.back = function() {
             if (state.view === 'episodes') {
                 state.view = 'torrents';
-                filter.show();
+                filter.render().show();
                 this.build();
             } else {
                 abort.abort();
@@ -952,7 +958,8 @@
                 .file-item { display: flex; justify-content: space-between; align-items: center; padding: 1em 1.2em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); transition: all .3s; border: 2px solid transparent; }
                 .file-item__title { font-weight: 600; }
                 .file-item__subtitle { font-size: .9em; opacity: .7; }
-                .file-item--last-played { border-left: 4px solid var(--color-second); background: rgba(var(--color-second-rgb), .1); }
+                .file-item--last-played { border-left: 4px solid var(--color-second); }
+                .file-item--watched { color: #888; }
                 .torbox-watched-item { display: flex; align-items: center; padding: 1em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); border-left: 4px solid var(--color-second); transition: all .3s; border: 2px solid transparent; }
                 .torbox-watched-item__icon { flex-shrink: 0; margin-right: 1em; }
                 .torbox-watched-item__icon svg { width: 2em; height: 2em; }
