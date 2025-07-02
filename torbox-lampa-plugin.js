@@ -297,7 +297,7 @@
             { key: 'seeders', title: 'По сидам (убыв.)', field: 'last_known_seeders', reverse: true },
             { key: 'size_desc', title: 'По размеру (убыв.)', field: 'size', reverse: true },
             { key: 'size_asc', title: 'По размеру (возр.)', field: 'size', reverse: false },
-            { key: 'age', title: 'По дате добавления', field: 'publish_date', reverse: true }
+            { key: 'age', title: 'По дате добавления', field: 'publish_timestamp', reverse: true }
         ];
         let defaultFilters = { quality: 'all', tracker: 'all', video_type: 'all', translation: 'all', lang: 'all', video_codec: 'all', audio_codec: 'all' };
         
@@ -322,6 +322,7 @@
                 has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
             };
             const is_cached = cachedSet.has(hash.toLowerCase());
+            const publishDate = raw.PublishDate ? new Date(raw.PublishDate) : null;
             
             return {
                 title: Utils.escapeHtml(raw.Title),
@@ -335,6 +336,7 @@
                 icon: is_cached ? '⚡' : '☁️',
                 cached: is_cached,
                 publish_date: raw.PublishDate,
+                publish_timestamp: publishDate ? publishDate.getTime() : 0,
                 age: Utils.formatAge(raw.PublishDate),
                 quality: Utils.getQualityLabel(raw.Title, raw),
                 video_type: raw.info?.videotype?.toLowerCase(),
@@ -351,8 +353,8 @@
             const tag = (txt, cls) => `<div class="torbox-item__tech-item torbox-item__tech-item--${cls}">${txt}</div>`;
             let inner_html = '';
 
-            if (t.video_resolution) inner_html += tag(t.video_resolution, 'res');
-            if (t.video_codec) inner_html += tag(t.video_codec.toUpperCase(), 'codec');
+            if (t.video_resolution) inner_html += tag(Utils.escapeHtml(t.video_resolution), 'res');
+            if (t.video_codec) inner_html += tag(Utils.escapeHtml(t.video_codec.toUpperCase()), 'codec');
             if (t.has_hdr) inner_html += tag('HDR', 'hdr');
             if (t.has_dv) inner_html += tag('Dolby Vision', 'dv');
         
@@ -372,7 +374,7 @@
                 const codec = s.codec_name?.toUpperCase() || '';
                 const layout = s.channel_layout || '';
                 const displayText = [lang_or_voice, codec, layout].filter(Boolean).join(' ').trim();
-                if (displayText) inner_html += tag(displayText, 'audio');
+                if (displayText) inner_html += tag(Utils.escapeHtml(displayText), 'audio');
             });
             return inner_html ? `<div class="torbox-item__tech-bar">${inner_html}</div>` : '';
         }
@@ -596,10 +598,10 @@
                 });
 
                 if (isWatched) {
-                    item.addClass('file-item--watched');
+                    item.addClass('torbox-file-item--watched');
                 }
                 if (String(file.id) === lastPlayedId) {
-                    item.addClass('file-item--last-played');
+                    item.addClass('torbox-file-item--last-played');
                     last_focused_element = item;
                 }
                 scroll.append(item);
@@ -688,7 +690,6 @@
             if (s) {
                 list.sort((a, b) => {
                     let va = a[s.field] || 0, vb = b[s.field] || 0;
-                    if (s.field === 'publish_date') { va = va ? new Date(va).getTime() : 0; vb = vb ? new Date(vb).getTime() : 0; }
                     return va < vb ? -1 : va > vb ? 1 : 0;
                 });
                 if (s.reverse) list.reverse();
@@ -879,7 +880,7 @@
             Lampa.Template.add('torbox_item', '<div class="torbox-item selector" data-hash="{hash}"><div class="torbox-item__title">{icon} {title}</div><div class="torbox-item__main-info">{info_formated}</div><div class="torbox-item__meta">{meta_formated}</div>{tech_bar_html}</div>');
             Lampa.Template.add('torbox_empty', '<div class="empty"><div class="empty__text">{message}</div></div>');
             Lampa.Template.add('torbox_watched_item', '<div class="torbox-watched-item selector"><div class="torbox-watched-item__icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5V7.5l5.25 3.5L11 16.5z" fill="currentColor"></path></svg></div><div class="torbox-watched-item__body"><div class="torbox-watched-item__title">{title}</div><div class="torbox-watched-item__info">{info}</div></div></div>');
-            Lampa.Template.add('torbox_episode_item', '<div class="file-item selector" data-file-id="{file_id}"><div class="file-item__title">{title}</div><div class="file-item__subtitle">{size}</div></div>');
+            Lampa.Template.add('torbox_episode_item', '<div class="torbox-file-item selector" data-file-id="{file_id}"><div class="torbox-file-item__title">{title}</div><div class="torbox-file-item__subtitle">{size}</div></div>');
         }
 
         function addSettings() {
@@ -953,11 +954,12 @@
                 .torbox-status__info { font-size: 1.1em; margin-bottom: .8em; }
                 .torbox-status__progress-container { margin: 1.5em 0; background: rgba(255, 255, 255, .2) !important; border-radius: 8px; overflow: hidden; height: 12px; }
                 .torbox-status__progress-bar { height: 100%; width: 0; background: linear-gradient(90deg, #4CAF50, #66BB6A) !important; transition: width .5s; border-radius: 8px; }
-                .file-item { display: flex; justify-content: space-between; align-items: center; padding: 1em 1.2em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); transition: all .3s; border: 2px solid transparent; }
-                .file-item__title { font-weight: 600; }
-                .file-item__subtitle { font-size: .9em; opacity: .7; }
-                .file-item--last-played { border-left: 4px solid var(--color-second); }
-                .file-item--watched { color: #888; }
+                .torbox-file-item { display: flex; justify-content: space-between; align-items: center; padding: 1em 1.2em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); transition: all .3s; border: 2px solid transparent; }
+                .torbox-file-item:hover, .torbox-file-item.focus { background: var(--color-primary); color: var(--color-background); transform: scale(1.01); border-color: rgba(255, 255, 255, .3); box-shadow: 0 4px 20px rgba(0, 0, 0, .2); }
+                .torbox-file-item__title { font-weight: 600; }
+                .torbox-file-item__subtitle { font-size: .9em; opacity: .7; }
+                .torbox-file-item--last-played { border-left: 4px solid var(--color-second); }
+                .torbox-file-item--watched { color: #888; }
                 .torbox-watched-item { display: flex; align-items: center; padding: 1em; margin-bottom: 1em; border-radius: .8em; background: var(--color-background-light); border-left: 4px solid var(--color-second); transition: all .3s; border: 2px solid transparent; }
                 .torbox-watched-item__icon { flex-shrink: 0; margin-right: 1em; }
                 .torbox-watched-item__icon svg { width: 2em; height: 2em; }
