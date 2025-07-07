@@ -24,7 +24,7 @@ This plugin integrates the [TorBox.app](httpss://torbox.app) cloud torrent clien
 
 ## Configuration
 
-After installation, go to `Settings` -> `TorBox (Stable)` to enter your TorBox API key and configure other settings.
+After installation, go to `Settings` -> `TorBox` to enter your TorBox API key and configure other settings.
 
 ## Development
 
