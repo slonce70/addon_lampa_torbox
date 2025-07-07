@@ -1,6 +1,6 @@
 # Torbox Lampa Plugin
 
-This plugin integrates the [TorBox.app](https://torbox.app/) cloud torrent client with the [Lampa](https://lampa.mx/) media center. It allows users to search for torrents on public trackers, add them to their TorBox account, wait for the download to complete, and play video files directly within the Lampa interface.
+This plugin integrates the [TorBox.app](httpss://torbox.app) cloud torrent client with the [Lampa](httpss://lampa.mx) media center. It allows users to search for torrents on public trackers, add them to their TorBox account, and play video files directly within the Lampa interface.
 
 ## Features
 
@@ -12,21 +12,19 @@ This plugin integrates the [TorBox.app](https://torbox.app/) cloud torrent clien
 - **Playback Progress**: See your watch progress (timecodes) for torrents, synced with Lampa's history.
 - **Improved UI/UX**: Enhanced button layout and remote control navigation for a smoother experience.
 
-## Architecture
+## Installation
 
-The plugin is built with pure JavaScript (ES6+) and follows a modular architecture for clarity and maintainability. Key components include:
+1.  In Lampa, go to `Settings` -> `Plugins`.
+2.  Click on `Add Plugin`.
+3.  Enter the following URL and press `Enter`:
+    ```
+    https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js
+    ```
+4.  The plugin will be installed and a "TorBox" button will appear on movie pages.
 
-- **Utils**: Helper functions for data formatting, string manipulation, and natural sorting.
-- **Storage**: A resilient storage solution that uses `localStorage` but gracefully falls back to an in-memory store in environments where `localStorage` is unavailable (like incognito mode).
-- **Cache**: An in-memory LRU (Least Recently Used) cache for search results to speed up navigation and reduce API calls.
-- **Config**: Centralized configuration management for settings and API keys.
-- **Api**: Handles all communication with the TorBox API and public trackers, including CORS proxy support and error handling.
-- **UI Components**: The plugin features custom UI components for displaying search results, tracking download progress, and selecting episodes in a series, all designed to integrate smoothly with the Lampa interface.
+## Configuration
 
-## Getting Started
-
-1.  **Installation**: (Instructions to be added on how to install the plugin in Lampa).
-2.  **Configuration**: Go to the Lampa settings, find the Torbox plugin section, and enter your TorBox API key.
+After installation, go to `Settings` -> `TorBox (Stable)` to enter your TorBox API key and configure other settings.
 
 ## Development
 
