@@ -130,7 +130,7 @@
     // ───────────────────── core ▸ CONFIG ───────────────────────────────
     const Config = (() => {
         const DEF = {
-            proxyUrl: 'https://my-torbox-proxy.slonce70.workers.dev/',
+            proxyUrl: '',
             apiKey: ''
         };
         const CFG = {
@@ -1063,7 +1063,7 @@
         const manifest = {
             type: 'video',
             version: '50.2.0', // Restored history integration and fixed continue watching panel layout
-            name: 'TorBox (Stable)',
+            name: 'TorBox',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
         };
@@ -1082,7 +1082,7 @@
 
         function addSettings() {
             if (!Lampa.SettingsApi) return;
-            Lampa.SettingsApi.addComponent({ component: 'torbox_enh', name: 'TorBox (Stable)', icon: ICON });
+            Lampa.SettingsApi.addComponent({ component: 'torbox_enh', name: 'TorBox', icon: ICON });
             [
                 { k: 'torbox_proxy_url', n: 'URL CORS-прокси', d: 'Введите URL для CORS-прокси', t: 'input', v: CFG.proxyUrl },
                 { k: 'torbox_api_key', n: 'API-Key', d: 'Введите ваш API-ключ от TorBox', t: 'input', v: CFG.apiKey },
