@@ -721,7 +721,15 @@
 
         this.empty = function(msg) {
             scroll.clear();
-            scroll.append(Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' }));
+            let emptyElem = Lampa.Template.get('torbox_empty', { message: msg || 'Торренты не найдены' });
+            emptyElem.addClass('selector');
+            emptyElem.on('hover:focus', (e) => {
+                last = e.target;
+                scroll.update($(e.target), true);
+            }).on('hover:enter', () => {
+                Lampa.Noty.show('Нет доступных торрентов. Попробуйте изменить фильтры или уточнить поиск.');
+            });
+            scroll.append(emptyElem);
             Lampa.Controller.enable('content');
         };
         
