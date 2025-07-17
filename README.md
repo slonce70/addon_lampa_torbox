@@ -2,7 +2,7 @@
 
 A robust JavaScript plugin that seamlessly integrates [TorBox.app](https://torbox.app) cloud torrent client with the [Lampa](https://lampa.mx) media center. Stream torrents instantly through TorBox's cached content or download-on-demand system, all within Lampa's familiar interface.
 
-> **Latest Update (v50.2.3)**: Fixed a bug that prevented remote control focus on the "Continue Watching" panel.
+> **Latest Update (v50.2.2)**: Fixed a critical bug related to the logging mechanism after a major refactoring.
 
 ## ✨ Key Features
 

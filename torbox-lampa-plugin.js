@@ -989,7 +989,7 @@ function MainComponent(object) {
 (function () {
     const manifest = {
         type: 'video',
-        version: '50.2.3', // Fixed remote control focus on "Continue Watching"
+        version: '50.2.2', // Fixed a bug related to logging
         name: 'TorBox',
         description: 'Плагин для просмотра торрентов через TorBox',
         component: 'torbox_main',
