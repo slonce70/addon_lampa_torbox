@@ -2,42 +2,43 @@
 
 A robust JavaScript plugin that seamlessly integrates [TorBox.app](https://torbox.app) cloud torrent client with the [Lampa](https://lampa.mx) media center. Stream torrents instantly through TorBox's cached content or download-on-demand system, all within Lampa's familiar interface.
 
-> **Latest Update (v50.2.1)**: Enhanced focus management with intelligent position restoration when applying filters, ensuring seamless navigation experience.
+> **Latest Update (v50.2.2)**: Major code refactoring for improved performance, readability, and maintainability.
 
 ## ✨ Key Features
 
 ### 🎬 Smart Content Discovery
-- **Intelligent Search**: Multi-parser torrent search across public trackers (Viewbox, Jacred)
-- **Custom Query Support**: Manual search refinement with auto-generated title combinations
-- **Cached Content Priority**: Instant streaming detection with ⚡ indicators for cached torrents
-- **Quality Recognition**: Automatic quality detection (4K/FHD/HD/SD) from torrent titles
+- **Intelligent Search**: Parallel multi-parser torrent search across public trackers.
+- **Custom Query Support**: Manual search refinement with auto-generated title combinations.
+- **Cached Content Priority**: Instant streaming detection with ⚡ indicators for cached torrents.
+- **Quality Recognition**: Automatic quality detection (4K/FHD/HD/SD) from torrent titles.
 
 ### 🎯 Advanced Filtering & Organization
-- **Multi-Dimensional Filtering**: Filter by quality, video type, audio language, codecs, and trackers
-- **Smart Cache Toggle**: One-click filtering between cached (⚡) and all (☁️) torrents
-- **Flexible Sorting**: Sort by seeders, file size, or publication date with persistent preferences
-- **Real-Time Updates**: Dynamic filter options based on available content
+- **Multi-Dimensional Filtering**: Filter by quality, video type, audio language, codecs, and trackers.
+- **Smart Cache Toggle**: One-click filtering between cached (⚡) and all (☁️) torrents.
+- **Flexible Sorting**: Sort by seeders, file size, or publication date with persistent preferences.
+- **Real-Time Updates**: Dynamic filter options based on available content.
 
 ### 🎮 Enhanced User Experience
-- **Continue Watching**: Dedicated panel for quick access to your last played content
-- **Visual Progress Tracking**: Progress bars and completion indicators for watched content
-- **Episode Management**: Smart episode detection with watch status tracking
-- **Focus Memory**: Intelligent navigation that remembers your position across operations
-- **Remote Control Optimized**: Full TV remote navigation support with proper focus handling
+- **Continue Watching**: Dedicated panel for quick access to your last played content.
+- **Visual Progress Tracking**: Progress bars and completion indicators for watched content.
+- **Episode Management**: Smart episode detection with watch status tracking.
+- **Focus Memory**: Intelligent navigation that remembers your position across operations.
+- **Remote Control Optimized**: Full TV remote navigation support with proper focus handling.
 
 ### 🛡️ Enterprise-Grade Stability
-- **Bulletproof Error Handling**: Comprehensive error protection with graceful degradation
-- **Safe State Management**: Protected data initialization with corruption recovery
-- **Individual Item Isolation**: Failed items don't break the entire interface
-- **Memory Efficient**: LRU caching with automatic cleanup (10-minute TTL, 128 item limit)
-- **Network Resilience**: Timeout handling, retry logic, and abort controller support
+- **Bulletproof Error Handling**: Comprehensive error protection with graceful degradation.
+- **Safe State Management**: Protected data initialization with corruption recovery.
+- **Individual Item Isolation**: Failed items don't break the entire interface.
+- **Memory Efficient**: LRU caching with automatic cleanup (10-minute TTL, 128 item limit).
+- **Network Resilience**: Timeout handling, retry logic, and abort controller support.
 
 ### 🔧 Technical Excellence
-- **Zero Dependencies**: Pure JavaScript implementation with no external libraries
-- **Modular Architecture**: Clean separation of concerns (Utils, Storage, Cache, API, UI)
-- **Type Safety**: Comprehensive input validation and sanitization
-- **Performance Optimized**: Efficient algorithms with batch processing and early termination
-- **Debug Support**: Comprehensive logging system for troubleshooting
+- **Zero Dependencies**: Pure JavaScript implementation with no external libraries.
+- **Modern Syntax**: Utilizes modern JavaScript (ES6+) features, including classes, async/await, and parallel requests.
+- **Modular Architecture**: Clean separation of concerns (Utils, Storage, Cache, API, UI).
+- **Performance Optimized**: Efficient algorithms with parallel processing and optimized DOM rendering.
+- **Readability**: Clean, well-documented code that is easy to maintain and extend.
+- **Debug Support**: Comprehensive logging system for troubleshooting.
 
 ## 🚀 Quick Start
 
