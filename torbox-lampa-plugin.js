@@ -873,6 +873,7 @@ function MainComponent(object) {
                     title: 'Продолжить просмотр',
                     info: info_text,
                 }));
+                historyItem.addClass('selector');
                 historyItem.on('hover:focus', (e) => {
                     last = e.target;
                     scroll.update($(e.target), true);
@@ -989,7 +990,7 @@ function MainComponent(object) {
 (function () {
     const manifest = {
         type: 'video',
-        version: '50.2.2', // Fixed a bug related to logging
+        version: '50.2.3', // Fixed remote control focus on "Continue Watching"
         name: 'TorBox',
         description: 'Плагин для просмотра торрентов через TorBox',
         component: 'torbox_main',
