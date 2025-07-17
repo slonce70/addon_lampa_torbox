@@ -136,6 +136,9 @@
             { name: 'Jacred', url: 'jacred.xyz', key: '' },
         ];
         this.ICON = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7L12 2L21 7V17L12 22L3 17V7Z" stroke="currentColor" stroke-width="2"/><path d="M12 22V12" stroke="currentColor" stroke-width="2"/><path d="M21 7L12 12L3 7" stroke="currentColor" stroke-width="2"/></svg>`;
+        this.LOG = (...args) => {
+            if (this.debug) console.log('[TorBox]', ...args);
+        };
     }
 
     get debug() { return Store.get('torbox_debug', this.DEF.debug); }
@@ -156,10 +159,6 @@
     }
     set apiKey(v) {
         Store.set('torbox_api_key_b64', v ? btoa(v) : '');
-    }
-
-    LOG(...args) {
-        if (this.debug) console.log('[TorBox]', ...args);
     }
 }
 const Config = new ConfigManager();
@@ -990,7 +989,7 @@ function MainComponent(object) {
 (function () {
     const manifest = {
         type: 'video',
-        version: '50.2.1', // Optimized code and improved performance
+        version: '50.2.2', // Fixed a bug related to logging
         name: 'TorBox',
         description: 'Плагин для просмотра торрентов через TorBox',
         component: 'torbox_main',
