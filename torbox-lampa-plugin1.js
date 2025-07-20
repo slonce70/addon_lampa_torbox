@@ -691,6 +691,11 @@
         const request = async (url, opt = {}, signal) => {
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
 
+            // Validate API key for TorBox API requests
+            if (opt.is_torbox_api !== false && !CFG.apiKey) {
+                throw { type: 'validation', message: 'API-ключ TorBox не задан в настройках' };
+            }
+
             const TIMEOUT_MS = 20000;
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -698,7 +703,7 @@
 
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             opt.headers = opt.headers || {};
-            if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
+            if (opt.is_torbox_api !== false && CFG.apiKey) opt.headers['X-Api-Key'] = CFG.apiKey;
             delete opt.headers['Authorization'];
             try {
                 const res = await fetch(proxy, { ...opt, signal: controller.signal });
@@ -848,7 +853,7 @@
                 console.warn('[TorBox] Invalid raw data:', raw);
                 return null;
             }
-            
+
             const v = raw.ffprobe?.find(s => s.codec_type === 'video');
             const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
             const tech_info = {
@@ -1029,13 +1034,13 @@
                 Lampa.Player.callback(on_end || (() => { }));
 
             } catch (e) {
-                ErrorHandler.show(e.type || 'unknown', e);
+                ErrorHandler.handle(e, { operation: 'play_torrent' });
             }
         };
 
         const onTorrentClick = (torrent) => {
             if (!torrent.magnet || !torrent.hash) {
-                return ErrorHandler.show('validation', { message: 'Magnet-ссылка или хеш не найдены' });
+                return ErrorHandler.handle({ type: 'validation', message: 'Magnet-ссылка или хеш не найдены' }, { operation: 'torrent_click' });
             }
 
             const mid = object.movie.imdb_id || object.movie.id;
@@ -1083,7 +1088,7 @@
             const handleTrackingError = (err) => {
                 Lampa.Loading.stop();
                 if (err.name !== 'AbortError') {
-                    ErrorHandler.show(err.type || 'unknown', err);
+                    ErrorHandler.handle(err, { operation: 'torrent_tracking' });
                 }
             };
 
@@ -1158,7 +1163,7 @@
 
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
+            if (!vids.length) return ErrorHandler.handle({ type: 'validation', message: 'Видеофайлы не найдены' }, { operation: 'file_selection' });
 
             if (vids.length === 1) {
                 play(torrent_data, vids[0]);
