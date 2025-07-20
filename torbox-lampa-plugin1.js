@@ -800,7 +800,7 @@
             if (year) add(`${title} ${year}`);
         }
 
-        if (orig_title && orig_title.toLowerCase() !== title.toLowerCase()) {
+        if (orig_title && title && orig_title.toLowerCase() !== title.toLowerCase()) {
             add(orig_title);
             if (year) add(`${orig_title} ${year}`);
 
@@ -843,6 +843,12 @@
         };
 
         const procRaw = (raw, hash, cachedSet) => {
+            // Safety check for raw data
+            if (!raw || !raw.Title) {
+                console.warn('[TorBox] Invalid raw data:', raw);
+                return null;
+            }
+            
             const v = raw.ffprobe?.find(s => s.codec_type === 'video');
             const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
             const tech_info = {
@@ -850,10 +856,10 @@
                 video_resolution: v ? `${v.width}x${v.height}` : null,
                 audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
                 audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
-                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
-                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
+                has_hdr: /hdr/i.test(raw.Title) || (raw.info?.videotype && raw.info.videotype.toLowerCase() === 'hdr'),
+                has_dv: /dv|dolby vision/i.test(raw.Title) || (raw.info?.videotype && raw.info.videotype.toLowerCase() === 'dovi'),
             };
-            const is_cached = cachedSet.has(hash.toLowerCase());
+            const is_cached = hash && cachedSet.has(hash.toLowerCase());
             const publishDate = raw.PublishDate ? new Date(raw.PublishDate) : null;
 
             return {
@@ -871,7 +877,7 @@
                 publish_timestamp: publishDate ? publishDate.getTime() : 0,
                 age: Utils.formatAge(raw.PublishDate),
                 quality: Utils.getQualityLabel(raw.Title, raw),
-                video_type: raw.info?.videotype?.toLowerCase(),
+                video_type: raw.info?.videotype ? raw.info.videotype.toLowerCase() : '',
                 voices: raw.info?.voices,
                 ...tech_info,
                 raw_data: raw,
@@ -963,8 +969,8 @@
                 })
                 .then(({ withHash, cached }) => {
                     if (signal.aborted) return;
-                    const cachedSet = new Set(Object.keys(cached).map(h => h.toLowerCase()));
-                    state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
+                    const cachedSet = new Set(Object.keys(cached).filter(h => h).map(h => h.toLowerCase()));
+                    state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet)).filter(Boolean);
                     Cache.set(key, state.all_torrents);
                     this.build();
                 })
