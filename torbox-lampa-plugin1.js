@@ -7,171 +7,12 @@
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
-    // ───────────────────── core ▸ NAMESPACE MANAGER ──────────────────────
-    const NamespaceManager = (() => {
-        const PLUGIN_SYMBOL = Symbol.for('torbox.lampa.plugin.v1');
-
-        return {
-            checkDuplicateLoad() {
-                if (window[PLUGIN_SYMBOL]) {
-                    console.log('[TorBox] Plugin already loaded, skipping...');
-                    return true;
-                }
-
-                window[PLUGIN_SYMBOL] = {
-                    version: '50.2.3',
-                    loadTime: Date.now(),
-                    cleanup: []
-                };
-
-                return false;
-            },
-
-            registerForCleanup(resource) {
-                if (window[PLUGIN_SYMBOL]) {
-                    window[PLUGIN_SYMBOL].cleanup.push(resource);
-                }
-            },
-
-            cleanup() {
-                const pluginData = window[PLUGIN_SYMBOL];
-                if (!pluginData) return;
-
-                pluginData.cleanup.forEach(cleanupFn => {
-                    try {
-                        if (typeof cleanupFn === 'function') {
-                            cleanupFn();
-                        }
-                    } catch (e) {
-                        console.log('[TorBox] Cleanup error:', e.message);
-                    }
-                });
-
-                delete window[PLUGIN_SYMBOL];
-            }
-        };
-    })();
-
-    // Check for duplicate loading
-    if (NamespaceManager.checkDuplicateLoad()) {
-        return;
-    }
-
-    // ───────────────────── core ▸ SECURITY UTILS ─────────────────────────
-    const SecurityUtils = {
-        // Optimized escape map using Map for faster lookups
-        _htmlEscapeMap: new Map([
-            ['&', '&amp;'],
-            ['<', '&lt;'],
-            ['>', '&gt;'],
-            ['"', '&quot;'],
-            ["'", '&#x27;'],
-            ['/', '&#x2F;'],
-            ['`', '&#x60;'],
-            ['=', '&#x3D;']
-        ]),
-
-        // Pre-compiled regex for better performance
-        _htmlEscapeRegex: /[&<>"'`=\/]/g,
-
-        // Cached null check for performance
-        _isNullish: (value) => value === null || value === undefined,
-
-        escapeHtml(input) {
-            if (this._isNullish(input)) return '';
-
-            const str = String(input);
-            return str.replace(this._htmlEscapeRegex, (char) => this._htmlEscapeMap.get(char));
-        },
-
-        validateInput(input, options = {}) {
-            const {
-                maxLength = 1000,
-                allowEmpty = false,
-                removeControlChars = true
-            } = options;
-
-            if (input === null || input === undefined) {
-                return allowEmpty ? '' : null;
-            }
-
-            let str = String(input).trim();
-
-            if (!allowEmpty && str.length === 0) return null;
-            if (str.length > maxLength) return null;
-
-            // Remove control characters if requested
-            if (removeControlChars) {
-                str = str.replace(/[\x00-\x1F\x7F]/g, '');
-            }
-
-            return str;
-        }
-    };
-
-    // ───────────────────── core ▸ INPUT VALIDATOR ─────────────────────────
-    const InputValidator = {
-        validateString(input, maxLength = 1000, allowEmpty = false) {
-            if (input === null || input === undefined) {
-                return allowEmpty ? '' : null;
-            }
-
-            const str = String(input).trim();
-
-            if (!allowEmpty && str.length === 0) return null;
-            if (str.length > maxLength) return null;
-
-            // Remove control characters
-            return str.replace(/[\x00-\x1F\x7F]/g, '');
-        },
-
-        validateId(input) {
-            const num = parseInt(input, 10);
-            return !isNaN(num) && num > 0 && num < Number.MAX_SAFE_INTEGER ? num : null;
-        },
-
-        safeJsonParse(jsonString, defaultValue = null) {
-            if (!jsonString || typeof jsonString !== 'string') {
-                return defaultValue;
-            }
-
-            try {
-                const parsed = JSON.parse(jsonString);
-
-                // Additional security check for object constructor
-                if (parsed && typeof parsed === 'object') {
-                    if (parsed.constructor !== Object && parsed.constructor !== Array) {
-                        return defaultValue;
-                    }
-                }
-
-                return parsed;
-            } catch (e) {
-                console.log('[TorBox] JSON parse error:', e.message);
-                return defaultValue;
-            }
-        },
-
-        validateMovieObject(movie) {
-            if (!movie || typeof movie !== 'object') return null;
-
-            const validatedMovie = {
-                title: this.validateString(movie.title, 200),
-                original_title: this.validateString(movie.original_title, 200, true),
-                year: movie.year ? this.validateString(movie.year, 4) : '',
-                id: movie.id ? this.validateId(movie.id) : null,
-                imdb_id: this.validateString(movie.imdb_id, 20, true)
-            };
-
-            if (!validatedMovie.title) return null;
-            return validatedMovie;
-        }
-    };
-
     // ───────────────────── core ▸ UTILS ───────────────────────────────
     const Utils = {
         escapeHtml(str = '') {
-            return SecurityUtils.escapeHtml(str);
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
         },
         formatBytes(bytes = 0, speed = false) {
             const B = Number(bytes);
@@ -258,276 +99,30 @@
         }
     };
 
-    // ───────────────────── core ▸ SECURE STORAGE ─────────────────────────
-    const SecureStorage = {
-        _xorKey: 'TorBoxLampaPlugin2024',
-
-        _xorEncrypt(text, key) {
-            let result = '';
-            for (let i = 0; i < text.length; i++) {
-                result += String.fromCharCode(
-                    text.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-                );
-            }
-            return btoa(result);
-        },
-
-        _xorDecrypt(encrypted, key) {
-            try {
-                const decoded = atob(encrypted);
-                let result = '';
-                for (let i = 0; i < decoded.length; i++) {
-                    result += String.fromCharCode(
-                        decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-                    );
-                }
-                return result;
-            } catch (e) {
-                return null;
-            }
-        },
-
-        setApiKey(key) {
-            if (!this.validateApiKey(key)) {
-                throw new Error('Invalid API key format');
-            }
-            const encrypted = this._xorEncrypt(key.trim(), this._xorKey);
-            Store.set('torbox_api_key_encrypted', encrypted);
-        },
-
-        getApiKey() {
-            const encrypted = Store.get('torbox_api_key_encrypted', '');
-            if (!encrypted) {
-                // Try to migrate from old base64 storage
-                return this.migrateFromBase64();
-            }
-            return this._xorDecrypt(encrypted, this._xorKey) || '';
-        },
-
-        validateApiKey(key) {
-            if (!key || typeof key !== 'string') return false;
-            const apiKeyPattern = /^[a-zA-Z0-9_-]{20,100}$/;
-            return apiKeyPattern.test(key.trim());
-        },
-
-        migrateFromBase64() {
-            const b64 = Store.get('torbox_api_key_b64', '');
-            if (!b64) return '';
-
-            try {
-                const oldKey = atob(b64);
-                if (this.validateApiKey(oldKey)) {
-                    // Migrate to encrypted storage
-                    this.setApiKey(oldKey);
-                    // Remove old storage
-                    Store.set('torbox_api_key_b64', '');
-                    console.log('[TorBox] API key migrated to encrypted storage');
-                    return oldKey;
-                }
-            } catch (e) {
-                console.log('[TorBox] Failed to migrate API key:', e.message);
-                Store.set('torbox_api_key_b64', '');
-            }
-
-            return '';
-        }
-    };
-
-    // ───────────────────── core ▸ MIGRATION UTILITIES ─────────────────────────
-    const MigrationUtils = {
-        version: '50.2.3',
-
-        detectOldVersion() {
-            // Check for old plugin data patterns
-            const hasOldApiKey = Store.get('torbox_api_key_b64', '') !== '';
-            const hasOldFilters = Store.get('torbox_filters', '') !== '';
-            const hasOldCache = Store.get('torbox_cache_data', '') !== '';
-
-            return {
-                hasOldData: hasOldApiKey || hasOldFilters || hasOldCache,
-                apiKey: hasOldApiKey,
-                filters: hasOldFilters,
-                cache: hasOldCache
-            };
-        },
-
-        migrateSettings() {
-            const oldData = this.detectOldVersion();
-            if (!oldData.hasOldData) return true;
-
-            try {
-                // Migrate API key (already handled by SecureStorage.migrateFromBase64)
-                if (oldData.apiKey) {
-                    SecureStorage.migrateFromBase64();
-                }
-
-                // Migrate old filter format to new format
-                if (oldData.filters) {
-                    const oldFilters = Store.get('torbox_filters', '');
-                    if (oldFilters) {
-                        try {
-                            const parsed = InputValidator.safeJsonParse(oldFilters, {});
-                            if (parsed && typeof parsed === 'object') {
-                                Store.set('torbox_filters_v2', JSON.stringify(parsed));
-                                Store.set('torbox_filters', ''); // Clear old
-                                LOG('Filters migrated to new format');
-                            }
-                        } catch (e) {
-                            LOG('Failed to migrate filters:', e.message);
-                        }
-                    }
-                }
-
-                // Clear old cache data (it will be regenerated)
-                if (oldData.cache) {
-                    Store.set('torbox_cache_data', '');
-                    LOG('Old cache data cleared');
-                }
-
-                // Mark migration as complete
-                Store.set('torbox_migration_version', this.version);
-                LOG('Data migration completed successfully');
-                return true;
-
-            } catch (error) {
-                LOG('Migration failed:', error.message);
-                return false;
-            }
-        },
-
-        validateMigratedData() {
-            try {
-                // Validate API key
-                const apiKey = SecureStorage.getApiKey();
-                if (apiKey && !SecureStorage.validateApiKey(apiKey)) {
-                    LOG('Warning: Migrated API key format is invalid');
-                    return false;
-                }
-
-                // Validate filters
-                const filters = Store.get('torbox_filters_v2', '{}');
-                const parsedFilters = InputValidator.safeJsonParse(filters, {});
-                if (!parsedFilters || typeof parsedFilters !== 'object') {
-                    LOG('Warning: Migrated filters are invalid');
-                    return false;
-                }
-
-                return true;
-            } catch (error) {
-                LOG('Migration validation failed:', error.message);
-                return false;
-            }
-        },
-
-        rollbackMigration() {
-            try {
-                // This is a safety mechanism - in case migration causes issues
-                const backupApiKey = Store.get('torbox_api_key_b64_backup', '');
-                if (backupApiKey) {
-                    Store.set('torbox_api_key_b64', backupApiKey);
-                    Store.set('torbox_api_key_encrypted', '');
-                    LOG('API key migration rolled back');
-                }
-
-                const backupFilters = Store.get('torbox_filters_backup', '');
-                if (backupFilters) {
-                    Store.set('torbox_filters', backupFilters);
-                    Store.set('torbox_filters_v2', '');
-                    LOG('Filters migration rolled back');
-                }
-
-                Store.set('torbox_migration_version', '');
-                return true;
-            } catch (error) {
-                LOG('Rollback failed:', error.message);
-                return false;
-            }
-        },
-
-        needsMigration() {
-            const currentVersion = Store.get('torbox_migration_version', '');
-            return currentVersion !== this.version && this.detectOldVersion().hasOldData;
-        }
-    };
-
-    // ───────────────────── core ▸ CACHE (enhanced LRU with cleanup) ───────────────────
+    // ───────────────────── core ▸ CACHE (simple LRU) ───────────────────
     const Cache = (() => {
         const map = new Map();
         const LIMIT = 128;
-        const TTL_MS = 600000;
-        let cleanupTimer = null;
-
-        const cleanup = () => {
-            const now = Date.now();
-            let cleaned = 0;
-
-            for (const [key, value] of map.entries()) {
-                if (now - value.ts > TTL_MS) {
-                    map.delete(key);
-                    cleaned++;
-                }
-            }
-
-            if (cleaned > 0) {
-                console.log(`[TorBox] Cache cleanup: removed ${cleaned} expired entries`);
-            }
-        };
-
-        const scheduleCleanup = () => {
-            if (cleanupTimer) clearTimeout(cleanupTimer);
-            cleanupTimer = setTimeout(cleanup, TTL_MS / 2);
-        };
-
-        // Register cleanup timer for proper resource management
-        NamespaceManager.registerForCleanup(() => {
-            if (cleanupTimer) {
-                clearTimeout(cleanupTimer);
-                cleanupTimer = null;
-            }
-        });
-
+        const TTL_MS = 600000; // 10-минутный кэш
         return {
             get(k) {
                 if (!map.has(k)) return null;
-
                 const o = map.get(k);
                 if (Date.now() - o.ts > TTL_MS) {
                     map.delete(k);
                     return null;
                 }
-
-                // Update timestamp without recreating object (memory optimization)
-                o.ts = Date.now();
-                // Move to end (most recently used)
                 map.delete(k);
-                map.set(k, o);
+                map.set(k, o); // move to top
                 return o.val;
             },
-
             set(k, v) {
                 if (map.has(k)) map.delete(k);
-
                 map.set(k, { ts: Date.now(), val: v });
-
-                if (map.size > LIMIT) {
-                    const firstKey = map.keys().next().value;
-                    map.delete(firstKey);
-                }
-
-                scheduleCleanup();
+                if (map.size > LIMIT) map.delete(map.keys().next().value); // evict oldest
             },
-
             clear() {
                 map.clear();
-                if (cleanupTimer) {
-                    clearTimeout(cleanupTimer);
-                    cleanupTimer = null;
-                }
-            },
-
-            // Manual cleanup method for testing
-            cleanup() {
-                cleanup();
             }
         };
     })();
@@ -544,19 +139,14 @@
             get proxyUrl() { return Store.get('torbox_proxy_url') || DEF.proxyUrl; },
             set proxyUrl(v) { Store.set('torbox_proxy_url', v); },
             get apiKey() {
-                return SecureStorage.getApiKey();
+                const b64 = Store.get('torbox_api_key_b64', '');
+                if (!b64) return DEF.apiKey;
+                try { return atob(b64); }
+                catch { Store.set('torbox_api_key_b64', ''); return DEF.apiKey; }
             },
             set apiKey(v) {
-                if (!v) {
-                    Store.set('torbox_api_key_encrypted', '');
-                    Store.set('torbox_api_key_b64', ''); // Clear old storage too
-                    return;
-                }
-                try {
-                    SecureStorage.setApiKey(v);
-                } catch (e) {
-                    console.log('[TorBox] Failed to set API key:', e.message);
-                }
+                if (!v) return Store.set('torbox_api_key_b64', '');
+                Store.set('torbox_api_key_b64', btoa(v));
             }
         };
         const LOG = (...a) => CFG.debug && console.log('[TorBox]', ...a);
@@ -568,97 +158,6 @@
         return { CFG, LOG, PUBLIC_PARSERS, ICON, DEF };
     })();
     const { CFG, LOG, PUBLIC_PARSERS, ICON } = Config;
-
-    // ───────────────────── core ▸ ERROR HANDLER ──────────────────────────
-    const ErrorHandler = {
-        categories: {
-            NETWORK: 'network',
-            VALIDATION: 'validation',
-            AUTH: 'auth',
-            API: 'api',
-            STORAGE: 'storage'
-        },
-
-        handle(error, context = {}) {
-            const errorInfo = this.categorize(error);
-            this.log(errorInfo, context);
-            this.notify(errorInfo);
-            return this.recover(errorInfo, context);
-        },
-
-        categorize(error) {
-            if (error.name === 'AbortError') {
-                return { category: 'cancelled', message: 'Operation cancelled' };
-            }
-
-            if (error.type) {
-                return { category: error.type, message: error.message };
-            }
-
-            if (error.message?.includes('fetch')) {
-                return { category: this.categories.NETWORK, message: error.message };
-            }
-
-            return { category: 'unknown', message: error.message || 'Unknown error' };
-        },
-
-        log(errorInfo, context) {
-            const logData = {
-                timestamp: new Date().toISOString(),
-                category: errorInfo.category,
-                message: errorInfo.message,
-                context: context,
-                userAgent: navigator.userAgent,
-                pluginVersion: '50.2.3'
-            };
-
-            LOG('Error:', logData);
-        },
-
-        notify(errorInfo) {
-            if (typeof Lampa !== 'undefined' && Lampa.Noty) {
-                const msg = errorInfo.message || 'Ошибка';
-                const type = errorInfo.category === this.categories.NETWORK ? 'Сетевая ошибка' : 'Ошибка';
-                Lampa.Noty.show(`${type}: ${msg}`, { type: 'error' });
-            }
-        },
-
-        recover(errorInfo, context) {
-            switch (errorInfo.category) {
-                case this.categories.NETWORK:
-                    return this.retryWithBackoff(context.operation, context.retryCount || 0);
-                case this.categories.AUTH:
-                    return this.handleAuthError();
-                case this.categories.API:
-                    return this.handleApiError(errorInfo);
-                default:
-                    return false;
-            }
-        },
-
-        async retryWithBackoff(operation, retryCount, maxRetries = 3) {
-            if (retryCount >= maxRetries) return false;
-
-            const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-            await new Promise(resolve => setTimeout(resolve, delay));
-
-            try {
-                return await operation();
-            } catch (error) {
-                return this.retryWithBackoff(operation, retryCount + 1, maxRetries);
-            }
-        },
-
-        handleAuthError() {
-            LOG('Authentication error - API key may be invalid');
-            return false;
-        },
-
-        handleApiError(errorInfo) {
-            LOG('API error:', errorInfo.message);
-            return false;
-        }
-    };
 
     // ───────────────────── core ▸ API ────────────────────────────────
     const Api = (() => {
@@ -673,12 +172,9 @@
             if (!txt) throw { type: 'api', message: 'Пустой ответ от сервера' };
             try {
                 if (typeof txt === 'string' && txt.startsWith('http')) return { success: true, url: txt };
-                const j = InputValidator.safeJsonParse(txt, null);
-                if (j === null) {
-                    throw { type: 'api', message: 'Некорректный JSON в ответе' };
-                }
+                const j = typeof txt === 'object' ? txt : JSON.parse(txt);
                 if (j?.success === false) {
-                    const errorMsg = InputValidator.validateString(j.detail || j.message, 500) || 'Неизвестная ошибка API';
+                    const errorMsg = j.detail || j.message || 'Неизвестная ошибка API';
                     throw { type: 'api', message: errorMsg };
                 }
                 return j;
@@ -691,11 +187,6 @@
         const request = async (url, opt = {}, signal) => {
             if (!CFG.proxyUrl) throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
 
-            // Validate API key for TorBox API requests
-            if (opt.is_torbox_api !== false && !CFG.apiKey) {
-                throw { type: 'validation', message: 'API-ключ TorBox не задан в настройках' };
-            }
-
             const TIMEOUT_MS = 20000;
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -703,7 +194,7 @@
 
             const proxy = `${CFG.proxyUrl}?url=${encodeURIComponent(url)}`;
             opt.headers = opt.headers || {};
-            if (opt.is_torbox_api !== false && CFG.apiKey) opt.headers['X-Api-Key'] = CFG.apiKey;
+            if (opt.is_torbox_api !== false) opt.headers['X-Api-Key'] = CFG.apiKey;
             delete opt.headers['Authorization'];
             try {
                 const res = await fetch(proxy, { ...opt, signal: controller.signal });
@@ -720,20 +211,15 @@
         };
 
         const searchPublicTrackers = async (movie, signal) => {
-            const validatedMovie = InputValidator.validateMovieObject(movie);
-            if (!validatedMovie) {
-                throw { type: 'validation', message: 'Некорректные данные фильма для поиска' };
-            }
-
             for (const p of PUBLIC_PARSERS) {
                 const qs = new URLSearchParams({
                     apikey: p.key,
-                    Query: `${validatedMovie.title} ${validatedMovie.year || ''}`.trim(),
-                    title: validatedMovie.title,
-                    title_original: validatedMovie.original_title,
+                    Query: `${movie.title} ${movie.year || ''}`.trim(),
+                    title: movie.title,
+                    title_original: movie.original_title,
                     Category: '2000,5000'
                 });
-                if (validatedMovie.year) qs.append('year', validatedMovie.year);
+                if (movie.year) qs.append('year', movie.year);
                 const u = `https://${p.url}/api/v2.0/indexers/all/results?${qs}`;
                 LOG('Parser', p.name, u);
                 try {
@@ -744,10 +230,6 @@
                     }
                     LOG('Parser empty', p.name);
                 } catch (err) {
-                    ErrorHandler.handle(err, {
-                        operation: 'parser_request',
-                        parser: p.name
-                    });
                     LOG('Parser fail', p.name, err.message);
                 }
             }
@@ -792,6 +274,14 @@
         return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
     })();
 
+    const ErrorHandler = {
+        show(t, e) {
+            const msg = e.message || 'Ошибка';
+            Lampa.Noty.show(`${t === 'network' ? 'Сетевая ошибка' : 'Ошибка'}: ${msg}`, { type: 'error' });
+            LOG('ERR', t, e);
+        }
+    };
+
     function generateSearchCombinations(movie) {
         const combinations = new Set();
         const title = movie.title?.trim();
@@ -805,7 +295,7 @@
             if (year) add(`${title} ${year}`);
         }
 
-        if (orig_title && title && orig_title.toLowerCase() !== title.toLowerCase()) {
+        if (orig_title && orig_title.toLowerCase() !== title.toLowerCase()) {
             add(orig_title);
             if (year) add(`${orig_title} ${year}`);
 
@@ -848,12 +338,6 @@
         };
 
         const procRaw = (raw, hash, cachedSet) => {
-            // Safety check for raw data
-            if (!raw || !raw.Title) {
-                console.warn('[TorBox] Invalid raw data:', raw);
-                return null;
-            }
-
             const v = raw.ffprobe?.find(s => s.codec_type === 'video');
             const a = raw.ffprobe?.filter(s => s.codec_type === 'audio') || [];
             const tech_info = {
@@ -861,10 +345,10 @@
                 video_resolution: v ? `${v.width}x${v.height}` : null,
                 audio_langs: [...new Set(a.map(s => s.tags?.language).filter(Boolean))],
                 audio_codecs: [...new Set(a.map(s => s.codec_name).filter(Boolean))],
-                has_hdr: /hdr/i.test(raw.Title) || (raw.info?.videotype && raw.info.videotype.toLowerCase() === 'hdr'),
-                has_dv: /dv|dolby vision/i.test(raw.Title) || (raw.info?.videotype && raw.info.videotype.toLowerCase() === 'dovi'),
+                has_hdr: /hdr/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'hdr',
+                has_dv: /dv|dolby vision/i.test(raw.Title) || raw.info?.videotype?.toLowerCase() === 'dovi',
             };
-            const is_cached = hash && cachedSet.has(hash.toLowerCase());
+            const is_cached = cachedSet.has(hash.toLowerCase());
             const publishDate = raw.PublishDate ? new Date(raw.PublishDate) : null;
 
             return {
@@ -882,7 +366,7 @@
                 publish_timestamp: publishDate ? publishDate.getTime() : 0,
                 age: Utils.formatAge(raw.PublishDate),
                 quality: Utils.getQualityLabel(raw.Title, raw),
-                video_type: raw.info?.videotype ? raw.info.videotype.toLowerCase() : '',
+                video_type: raw.info?.videotype?.toLowerCase(),
                 voices: raw.info?.voices,
                 ...tech_info,
                 raw_data: raw,
@@ -923,6 +407,14 @@
         }
 
         const search = (force = false, customTitle = null) => {
+            // Проверяем наличие API ключа перед поиском
+            const apiKey = Config.get('torbox_api_key');
+            if (!apiKey || apiKey.trim() === '') {
+                this.empty('Необходимо настроить API ключ TorBox в настройках плагина');
+                this.activity.loader(false);
+                return;
+            }
+
             abort.abort();
             abort = new AbortController();
             const signal = abort.signal;
@@ -930,24 +422,13 @@
             this.activity.loader(true);
             this.reset();
 
-            // Validate and sanitize custom search title
-            let validatedCustomTitle = null;
-            if (customTitle) {
-                validatedCustomTitle = InputValidator.validateString(customTitle, 200);
-                if (!validatedCustomTitle) {
-                    this.activity.loader(false);
-                    ErrorHandler.handle({ type: 'validation', message: 'Некорректный поисковый запрос' });
-                    return;
-                }
-            }
+            state.search_query = customTitle;
 
-            state.search_query = validatedCustomTitle;
-
-            const movieForSearch = validatedCustomTitle
-                ? { ...object.movie, title: validatedCustomTitle, original_title: validatedCustomTitle, year: '' }
+            const movieForSearch = customTitle
+                ? { ...object.movie, title: customTitle, original_title: customTitle, year: '' }
                 : object.movie;
 
-            const key = validatedCustomTitle ? `torbox_custom_search_${validatedCustomTitle}` : `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
+            const key = customTitle ? `torbox_custom_search_${customTitle}` : `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
 
             if (!force && Cache.get(key)) {
                 state.all_torrents = Cache.get(key);
@@ -957,7 +438,7 @@
                 return;
             }
 
-            this.empty(validatedCustomTitle ? `Поиск по запросу: "${SecurityUtils.escapeHtml(validatedCustomTitle)}"...` : 'Получение списка…');
+            this.empty(customTitle ? `Поиск по запросу: "${customTitle}"...` : 'Получение списка…');
 
             Api.searchPublicTrackers(movieForSearch, signal)
                 .then(raw => {
@@ -974,20 +455,15 @@
                 })
                 .then(({ withHash, cached }) => {
                     if (signal.aborted) return;
-                    const cachedSet = new Set(Object.keys(cached).filter(h => h).map(h => h.toLowerCase()));
-                    state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet)).filter(Boolean);
+                    const cachedSet = new Set(Object.keys(cached).map(h => h.toLowerCase()));
+                    state.all_torrents = withHash.map(({ raw, hash }) => procRaw(raw, hash, cachedSet));
                     Cache.set(key, state.all_torrents);
                     this.build();
                 })
                 .catch(err => {
                     if (signal.aborted) return;
-                    const handled = ErrorHandler.handle(err, {
-                        operation: 'search',
-                        movie: movieForSearch
-                    });
-                    if (!handled) {
-                        this.empty(err.message || 'Ошибка');
-                    }
+                    this.empty(err.message || 'Ошибка');
+                    ErrorHandler.show(err.type || 'unknown', err);
                 })
                 .finally(() => {
                     this.activity.loader(false);
@@ -1034,13 +510,25 @@
                 Lampa.Player.callback(on_end || (() => { }));
 
             } catch (e) {
-                ErrorHandler.handle(e, { operation: 'play_torrent' });
+                ErrorHandler.show(e.type || 'unknown', e);
             }
         };
 
         const onTorrentClick = (torrent) => {
+            // Проверяем наличие API ключа
+            const apiKey = Config.get('torbox_api_key');
+            if (!apiKey || apiKey.trim() === '') {
+                return ErrorHandler.show('validation', { message: 'Необходимо настроить API ключ TorBox в настройках плагина' });
+            }
+
+            // Проверяем валидность данных торрента
             if (!torrent.magnet || !torrent.hash) {
-                return ErrorHandler.handle({ type: 'validation', message: 'Magnet-ссылка или хеш не найдены' }, { operation: 'torrent_click' });
+                return ErrorHandler.show('validation', { message: 'Magnet-ссылка или хеш не найдены' });
+            }
+
+            // Проверяем формат magnet-ссылки
+            if (!torrent.magnet.startsWith('magnet:?xt=urn:btih:')) {
+                return ErrorHandler.show('validation', { message: 'Некорректный формат magnet-ссылки' });
             }
 
             const mid = object.movie.imdb_id || object.movie.id;
@@ -1088,7 +576,7 @@
             const handleTrackingError = (err) => {
                 Lampa.Loading.stop();
                 if (err.name !== 'AbortError') {
-                    ErrorHandler.handle(err, { operation: 'torrent_tracking' });
+                    ErrorHandler.show(err.type || 'unknown', err);
                 }
             };
 
@@ -1114,6 +602,9 @@
         const track = (id, signal) => {
             return new Promise((resolve, reject) => {
                 let active = true;
+                let pollCount = 0;
+                const maxPolls = 180; // 30 минут при интервале 10 секунд
+                
                 const cancel = () => {
                     if (active) {
                         active = false;
@@ -1126,6 +617,15 @@
 
                 const poll = async () => {
                     if (!active) return;
+                    
+                    pollCount++;
+                    if (pollCount > maxPolls) {
+                        active = false;
+                        signal.removeEventListener('abort', cancel);
+                        reject({ name: 'TimeoutError', message: 'Превышено время ожидания загрузки (30 минут)' });
+                        return;
+                    }
+                    
                     try {
                         const d = (await Api.myList(id, signal)).data[0];
                         if (!d) {
@@ -1163,7 +663,7 @@
 
         const selectFile = (torrent_data) => {
             const vids = torrent_data.files.filter(f => /\.mkv|mp4|avi$/i.test(f.name)).sort(Utils.naturalSort);
-            if (!vids.length) return ErrorHandler.handle({ type: 'validation', message: 'Видеофайлы не найдены' }, { operation: 'file_selection' });
+            if (!vids.length) return ErrorHandler.show('validation', { message: 'Видеофайлы не найдены' });
 
             if (vids.length === 1) {
                 play(torrent_data, vids[0]);
@@ -1272,19 +772,14 @@
         };
 
         this.build = function () {
-            try {
-                this.buildFilter();
-                if (cached_toggle_button) {
-                    const is_cached_only = state.show_only_cached;
-                    cached_toggle_button.toggleClass('filter__item--active', is_cached_only);
-                    cached_toggle_button.find('span').text(is_cached_only ? '⚡' : '☁️');
-                    cached_toggle_button.attr('title', is_cached_only ? 'Показаны только кешированные' : 'Показать только кешированные');
-                }
-                this.draw(this.applyFiltersSort());
-            } catch (error) {
-                ErrorHandler.handle(error, { operation: 'ui_build' });
-                this.empty('Ошибка построения интерфейса');
+            this.buildFilter();
+            if (cached_toggle_button) {
+                const is_cached_only = state.show_only_cached;
+                cached_toggle_button.toggleClass('filter__item--active', is_cached_only);
+                cached_toggle_button.find('span').text(is_cached_only ? '⚡' : '☁️');
+                cached_toggle_button.attr('title', is_cached_only ? 'Показаны только кешированные' : 'Показать только кешированные');
             }
+            this.draw(this.applyFiltersSort());
         };
 
         this.buildFilter = function () {
@@ -1342,22 +837,17 @@
         };
 
         this.draw = function (items) {
-            try {
-                last = false;
-                scroll.clear();
+            last = false;
+            scroll.clear();
 
-                const mid = object.movie.imdb_id || object.movie.id;
+            const mid = object.movie.imdb_id || object.movie.id;
 
-                // Получение информации о просмотре для прогресс-бара
-                const view_info = Lampa.Storage.get('view', '{}');
-                const view_data = view_info[object.movie.id];
+            // Исправленная логика получения времени просмотра
+            const view_info = Lampa.Storage.get('view', '{}'); // Получаем как JSON-строку или пустой объект
+            const view_data = view_info[object.movie.id];
 
-                if (!items.length) {
-                    return this.empty('Ничего не найдено по заданным фильтрам');
-                }
-            } catch (error) {
-                ErrorHandler.handle(error, { operation: 'ui_draw_init' });
-                return this.empty('Ошибка отображения результатов');
+            if (!items.length) {
+                return this.empty('Ничего не найдено по заданным фильтрам');
             }
 
             const lastHash = JSON.parse(Store.get(`torbox_last_torrent_data_${mid}`, '{}')).hash;
@@ -1426,15 +916,30 @@
                 scroll.append(item);
             });
 
-            let focus_element = scroll.render().find('.selector').first();
+            // Улучшенная логика восстановления фокуса для TV/пультов
+            let focus_element = null;
+            
+            // Сначала пытаемся найти элемент по сохраненному хешу
             if (state.last_hash) {
                 const focused = scroll.render().find(`[data-hash="${state.last_hash}"]`);
-                if (focused.length) focus_element = focused;
+                if (focused.length) {
+                    focus_element = focused.first();
+                }
+            }
+            
+            // Если не нашли по хешу, берем первый доступный элемент
+            if (!focus_element || !focus_element.length) {
+                focus_element = scroll.render().find('.selector').first();
             }
 
-            if (focus_element.length) {
+            if (focus_element && focus_element.length) {
                 last = focus_element[0];
+                // Обеспечиваем видимость элемента при восстановлении фокуса
+                setTimeout(() => {
+                    if (last) scroll.update($(last), true);
+                }, 50);
             }
+            
             Lampa.Controller.enable('content');
 
             // Показываем панель "Продолжить просмотр" если есть данные
@@ -1484,22 +989,49 @@
             Lampa.Controller.add('content', {
                 toggle: () => {
                     Lampa.Controller.collectionSet(filter.render(), scroll.render());
-                    Lampa.Controller.collectionFocus(last || false, scroll.render());
+                    // Улучшенная логика фокуса для TV/пультов
+                    const focusTarget = last || scroll.render().find('.selector').first()[0];
+                    if (focusTarget) {
+                        Lampa.Controller.collectionFocus(focusTarget, scroll.render());
+                        // Обеспечиваем видимость элемента
+                        scroll.update($(focusTarget), true);
+                    }
                 },
                 up: () => {
-                    if (Navigator.canmove('up')) Navigator.move('up');
-                    else Lampa.Controller.toggle('head');
+                    if (Navigator.canmove('up')) {
+                        Navigator.move('up');
+                        // Обновляем last для сохранения позиции
+                        const focused = Lampa.Controller.focused();
+                        if (focused) last = focused;
+                    } else {
+                        Lampa.Controller.toggle('head');
+                    }
                 },
                 down: () => {
-                    if (Navigator.canmove('down')) Navigator.move('down');
+                    if (Navigator.canmove('down')) {
+                        Navigator.move('down');
+                        // Обновляем last для сохранения позиции
+                        const focused = Lampa.Controller.focused();
+                        if (focused) last = focused;
+                    }
                 },
                 left: () => {
-                    if (Navigator.canmove('left')) Navigator.move('left');
-                    else Lampa.Controller.toggle('menu');
+                    if (Navigator.canmove('left')) {
+                        Navigator.move('left');
+                        const focused = Lampa.Controller.focused();
+                        if (focused) last = focused;
+                    } else {
+                        Lampa.Controller.toggle('menu');
+                    }
                 },
                 right: () => {
-                    if (Navigator.canmove('right')) Navigator.move('right');
-                    else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    if (Navigator.canmove('right')) {
+                        Navigator.move('right');
+                        const focused = Lampa.Controller.focused();
+                        if (focused) last = focused;
+                    } else {
+                        filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+                    }
                 },
                 back: this.back.bind(this)
             });
@@ -1599,12 +1131,40 @@
         };
 
         this.destroy = function () {
+            // Отменяем все активные запросы
             abort.abort();
+            
+            // Очищаем контроллер
             Lampa.Controller.clear('content');
-            if (scroll) scroll.destroy();
-            if (files) files.destroy();
-            if (filter) filter.destroy();
-            scroll = files = filter = last = null;
+            
+            // Очищаем компоненты
+            if (scroll) {
+                scroll.destroy();
+                scroll = null;
+            }
+            if (files) {
+                files.destroy();
+                files = null;
+            }
+            if (filter) {
+                filter.destroy();
+                filter = null;
+            }
+            
+            // Очищаем состояние
+            state.all_torrents = [];
+            state.current_torrent_data = null;
+            last = null;
+            initialized = false;
+            
+            // Очищаем кэш для этого фильма
+            if (object.movie) {
+                const movieKey = `torbox_hybrid_${object.movie.id || object.movie.imdb_id}`;
+                Cache.delete(movieKey);
+            }
+            
+            // Удаляем обработчики событий
+            $(document).off('.torbox');
         };
 
         this.pause = function () { };
@@ -1615,7 +1175,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.2.0', // Restored history integration and fixed continue watching panel layout
+            version: '50.2.3', // Fixed navigation/focus for TV remotes, added polling timeout protection
             name: 'TorBox',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -1648,18 +1208,22 @@
                     onChange: v => {
                         const val = typeof v === 'object' ? v.value : v;
                         if (p.k === 'torbox_proxy_url') {
-                            const validatedUrl = InputValidator.validateString(String(val).trim(), 500, true);
-                            CFG.proxyUrl = validatedUrl || '';
+                            const url = String(val).trim();
+                            // Базовая валидация URL
+                            if (url && !url.match(/^https?:\/\/.+/)) {
+                                Lampa.Noty.show('Неверный формат URL прокси. Используйте http:// или https://');
+                                return;
+                            }
+                            CFG.proxyUrl = url;
                         }
                         if (p.k === 'torbox_api_key') {
-                            const validatedKey = InputValidator.validateString(String(val).trim(), 100, true);
-                            if (validatedKey && SecureStorage.validateApiKey(validatedKey)) {
-                                CFG.apiKey = validatedKey;
-                            } else if (validatedKey) {
-                                ErrorHandler.handle({ type: 'validation', message: 'Некорректный формат API ключа' });
-                            } else {
-                                CFG.apiKey = '';
+                            const key = String(val).trim();
+                            // Базовая валидация API ключа (должен быть не пустым и содержать буквы/цифры)
+                            if (key && !key.match(/^[a-zA-Z0-9_-]+$/)) {
+                                Lampa.Noty.show('API ключ содержит недопустимые символы');
+                                return;
                             }
+                            CFG.apiKey = key;
                         }
                         if (p.k === 'torbox_debug') CFG.debug = Boolean(val);
                     },
@@ -1669,17 +1233,6 @@
         }
 
         function boot() {
-            // Perform data migration if needed
-            if (MigrationUtils.needsMigration()) {
-                LOG('Starting data migration...');
-                const migrationSuccess = MigrationUtils.migrateSettings();
-                if (migrationSuccess && MigrationUtils.validateMigratedData()) {
-                    LOG('Data migration completed successfully');
-                } else {
-                    LOG('Data migration failed, some features may not work correctly');
-                }
-            }
-
             // Register all components with Lampa
             Lampa.Component.add('torbox_main', MainComponent);
             addTemplates();
@@ -1758,7 +1311,7 @@
             document.head.appendChild(css);
 
             Lampa.Manifest.plugins[manifest.name] = manifest;
-            LOG('TorBox Stable v50.2.0 ready');
+            LOG('TorBox Stable v50.2.3 ready');
         }
 
         if (window.Lampa?.Activity) {
@@ -1771,11 +1324,5 @@
                 }
             });
         }
-
-        // Register cleanup for proper plugin unloading
-        NamespaceManager.registerForCleanup(() => {
-            // Cleanup will be handled by individual modules
-            console.log('[TorBox] Plugin cleanup completed');
-        });
     })();
 })();
