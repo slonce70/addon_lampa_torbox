@@ -1,220 +1,81 @@
-# TorBox Lampa Plugin
+# TorBox Lampa Plugin (Stable Refactored)
 
-A robust JavaScript plugin that seamlessly integrates [TorBox.app](https://torbox.app) cloud torrent client with the [Lampa](https://lampa.mx) media center. Stream torrents instantly through TorBox's cached content or download-on-demand system, all within Lampa's familiar interface.
+Надежный плагин на чистом JavaScript, который легко интегрирует облачный торрент-клиент [TorBox.app](https://torbox.app) с медиацентром [Lampa](https://lampa.mx). Смотрите торренты мгновенно, используя кэшированный контент TorBox, или загружайте их по запросу — всё в привычном интерфейсе Lampa.
 
-> **Latest Update (v50.2.1)**: Enhanced focus management with intelligent position restoration when applying filters, ensuring seamless navigation experience.
+> **Версия 51.0.5 (Стабильная)**
+>
+> Это финальная, отполированная версия, в которой основное внимание уделено максимальной стабильности и совместимости с Lampa.
+>
+> - **Информативный статус:** Добавлен статус "Обработка", когда торрент скачан, но еще не готов к воспроизведению.
+> - **Надежность:** Исправлена критическая ошибка, не позволявшая отменить загрузку торрента.
+> - **Управление фокусом:** Полностью переработана логика фокуса для идеальной навигации с пульта ДУ. Фокус больше не теряется после фильтрации или сортировки.
+> - **Безопасность:** Добавлена защита от поврежденных данных в `localStorage` и улучшена обработка сетевых ошибок.
 
-## ✨ Key Features
+## ✨ Ключевые Возможности
 
-### 🎬 Smart Content Discovery
-- **Intelligent Search**: Multi-parser torrent search across public trackers (Viewbox, Jacred)
-- **Custom Query Support**: Manual search refinement with auto-generated title combinations
-- **Cached Content Priority**: Instant streaming detection with ⚡ indicators for cached torrents
-- **Quality Recognition**: Automatic quality detection (4K/FHD/HD/SD) from torrent titles
+### 🎬 Умный Поиск Контента
+- **Интеллектуальный поиск:** Поиск торрентов по нескольким публичным трекерам (Viewbox, Jacred) с автоматическим переключением.
+- **Пользовательские запросы:** Возможность ручного уточнения поиска с помощью автоматически сгенерированных комбинаций названий.
+- **Приоритет кэша:** Мгновенное определение доступных для стриминга торрентов с иконкой `⚡`.
+- **Распознавание качества:** Автоматическое определение качества (4K/FHD/HD/SD) по названию торрента.
 
-### 🎯 Advanced Filtering & Organization
-- **Multi-Dimensional Filtering**: Filter by quality, video type, audio language, codecs, and trackers
-- **Smart Cache Toggle**: One-click filtering between cached (⚡) and all (☁️) torrents
-- **Flexible Sorting**: Sort by seeders, file size, or publication date with persistent preferences
-- **Real-Time Updates**: Dynamic filter options based on available content
+### 🎯 Продвинутая Фильтрация и Сортировка
+- **Многоуровневая фильтрация:** Фильтруйте по качеству, типу видео (HDR/DV), языку аудио, кодекам и трекерам.
+- **Умный переключатель кэша:** В один клик переключайтесь между отображением только кэшированных (`⚡`) и всех (`☁️`) торрентов.
+- **Гибкая сортировка:** Сортируйте по сидам, размеру файла или дате добавления с сохранением выбора.
+- **Динамические фильтры:** Опции фильтрации генерируются на лету на основе доступных торрентов.
 
-### 🎮 Enhanced User Experience
-- **Continue Watching**: Dedicated panel for quick access to your last played content
-- **Visual Progress Tracking**: Progress bars and completion indicators for watched content
-- **Episode Management**: Smart episode detection with watch status tracking
-- **Focus Memory**: Intelligent navigation that remembers your position across operations
-- **Remote Control Optimized**: Full TV remote navigation support with proper focus handling
+### 🎮 Улучшенный Пользовательский Опыт
+- **Продолжить просмотр:** Специальная панель для быстрого доступа к последнему запущенному торренту для данного фильма/сериала.
+- **Информативный статус загрузки:** Отображается статус "Обработка", когда торрент скачан, но еще не готов к воспроизведению.
+- **Менеджер эпизодов:** Умное определение серий с отслеживанием статуса просмотра.
+- **Память фокуса:** Интеллектуальная навигация, которая запоминает вашу позицию в списке.
+- **Оптимизация для пульта:** Полная поддержка навигации с пульта телевизора с предсказуемым поведением фокуса.
 
-### 🛡️ Enterprise-Grade Stability
-- **Bulletproof Error Handling**: Comprehensive error protection with graceful degradation
-- **Safe State Management**: Protected data initialization with corruption recovery
-- **Individual Item Isolation**: Failed items don't break the entire interface
-- **Memory Efficient**: LRU caching with automatic cleanup (10-minute TTL, 128 item limit)
-- **Network Resilience**: Timeout handling, retry logic, and abort controller support
+### 🛡️ Повышенная Стабильность
+- **Надежная обработка ошибок:** Комплексная защита от ошибок с информативными сообщениями для пользователя.
+- **Безопасное управление состоянием:** Защита от поврежденных данных в `localStorage`.
+- **Изоляция ошибок рендеринга:** Ошибка в одном элементе списка не нарушит отображение остальных.
+- **Эффективное кэширование:** LRU-кэш с автоматической очисткой для снижения нагрузки на сеть.
+- **Устойчивость к сети:** Обработка таймаутов, логика отмены запросов и понятные сообщения о сетевых сбоях.
 
-### 🔧 Technical Excellence
-- **Zero Dependencies**: Pure JavaScript implementation with no external libraries
-- **Modular Architecture**: Clean separation of concerns (Utils, Storage, Cache, API, UI)
-- **Type Safety**: Comprehensive input validation and sanitization
-- **Performance Optimized**: Efficient algorithms with batch processing and early termination
-- **Debug Support**: Comprehensive logging system for troubleshooting
+## 🚀 Быстрый Старт
 
-## 🚀 Quick Start
+### Установка
+1.  Откройте Lampa и перейдите в `Настройки` → `Плагины`.
+2.  Нажмите `Добавить плагин`.
+3.  Введите URL плагина:
+    ```
+    [https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js](https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js)
+    ```
+4.  Нажмите `Enter` для установки.
+5.  На страницах фильмов и сериалов появится кнопка **TorBox**.
 
-### Installation
-1. Open Lampa and navigate to `Settings` → `Plugins`
-2. Click `Add Plugin`
-3. Enter the plugin URL:
-   ```
-   https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js
-   ```
-4. Press `Enter` to install
-5. A "TorBox" button will appear on movie/TV show pages
+### Начальная Настройка
+1.  Перейдите в `Настройки` → `TorBox`.
+2.  Заполните обязательные поля:
+    - **API-Key**: Ваш ключ API от TorBox.app (можно получить в [панели управления TorBox](https://torbox.app/settings)).
+    - **URL CORS-прокси**: URL-адрес CORS-прокси.
+    - **Debug-режим**: Включите для диагностики проблем (опционально).
 
-### Initial Setup
-1. Go to `Settings` → `TorBox`
-2. Configure the required settings:
-   - **API Key**: Your TorBox.app API key (get it from [TorBox Dashboard](https://torbox.app/settings))
-   - **CORS Proxy URL**: A CORS proxy service URL (e.g., `https://cors-anywhere.herokuapp.com/`)
-   - **Debug Mode**: Enable for troubleshooting (optional)
+## 🔧 Устранение Неполадок
 
-### First Use
-1. Navigate to any movie or TV show in Lampa
-2. Click the **TorBox** button
-3. The plugin will automatically search for torrents
-4. Look for ⚡ icons indicating cached (instant) content
-5. Click any torrent to start streaming
-
-## 🎛️ Usage Guide
-
-### Interface Overview
-- **⚡/☁️ Toggle**: Switch between cached-only and all torrents
-- **Filter Menu**: Access comprehensive filtering options
-- **Sort Options**: Change sorting method (seeders, size, date)
-- **Search Refinement**: Create custom search queries
-- **Continue Watching**: Quick access to your last played content
-
-### Navigation Controls
-- **Arrow Keys**: Navigate through torrents
-- **Enter**: Select and play torrent
-- **Back**: Return to previous screen
-- **Long Press**: Access context menu (copy magnet link)
-- **Right Arrow**: Open filter menu
-- **Left Arrow**: Return to main menu
-
-### Filtering Options
-- **Quality**: 4K, FHD, HD, SD
-- **Video Type**: HDR, Dolby Vision, standard
-- **Translation**: Available audio tracks/dubbing
-- **Audio Language**: Language options
-- **Video Codec**: H.264, H.265, etc.
-- **Audio Codec**: AAC, DTS, Dolby Digital, etc.
-- **Tracker**: Source tracker information
-
-### Episode Management
-For multi-file torrents (TV shows):
-- Episodes are automatically detected and sorted
-- Watch status is tracked with visual indicators
-- Last played episode is highlighted
-- Progress is saved across sessions
-
-## ⚙️ Configuration
-
-### Required Settings
-| Setting | Description | Example |
-|---------|-------------|---------|
-| **API Key** | Your TorBox.app API key | `tb_xxxxxxxxxxxxxxxx` |
-| **CORS Proxy** | Proxy service for API calls | `https://cors-anywhere.herokuapp.com/` |
-
-### Optional Settings
-| Setting | Description | Default |
-|---------|-------------|---------|
-| **Debug Mode** | Enable console logging | `false` |
-
-### CORS Proxy Setup
-Since browsers block cross-origin requests, you need a CORS proxy. Options include:
-- **Public Services**: `https://cors-anywhere.herokuapp.com/` (may have rate limits)
-- **Self-Hosted**: Deploy your own CORS proxy for better reliability
-- **Browser Extensions**: CORS-disabling extensions (not recommended for security)
-
-## 🔧 Troubleshooting
-
-### Common Issues
+### Распространенные Проблемы
 
 #### "CORS-proxy не задан в настройках"
-- **Cause**: Missing or invalid CORS proxy URL
-- **Solution**: Set a valid CORS proxy in TorBox settings
+-   **Причина**: Отсутствует или неверно указан URL CORS-прокси.
+-   **Решение**: Укажите корректный URL в настройках плагина.
 
 #### "401 – неверный API-ключ"
-- **Cause**: Invalid or expired TorBox API key
-- **Solution**: Generate a new API key from TorBox dashboard
+-   **Причина**: Недействительный или просроченный API-ключ TorBox.
+-   **Решение**: Сгенерируйте новый ключ в панели управления TorBox и введите его в настройках.
 
 #### "Все публичные парсеры недоступны"
-- **Cause**: Public trackers are down or blocked
-- **Solution**: Try again later or check your internet connection
+-   **Причина**: Публичные трекеры временно не работают или заблокированы вашим провайдером.
+-   **Решение**: Попробуйте позже или проверьте сетевое соединение.
 
-#### No torrents found
-- **Cause**: Search terms too specific or content not available
-- **Solution**: Use "Refine Search" to try different search combinations
-
-#### Playback issues
-- **Cause**: Network problems or torrent not fully cached
-- **Solution**: Wait for download completion or try a different torrent
-
-### Debug Mode
-Enable debug mode in settings to see detailed logs in browser console:
-1. Press `F12` to open developer tools
-2. Go to `Console` tab
-3. Look for `[TorBox]` prefixed messages
-
-### Performance Tips
-- Use cached torrents (⚡) for instant playback
-- Clear browser cache if experiencing issues
-- Disable other plugins if conflicts occur
-- Use wired internet connection for best streaming quality
-
-## 🏗️ Technical Details
-
-### Architecture
-```
-Plugin Structure:
-├── Utils (formatting, sorting, validation)
-├── Storage (localStorage with fallback)
-├── Cache (LRU with 10min TTL)
-├── Config (settings management)
-├── API (TorBox and tracker integration)
-├── ErrorHandler (centralized error management)
-└── MainComponent (UI and state management)
-```
-
-### Data Flow
-1. **Search**: Query public trackers for torrents
-2. **Hash Extraction**: Extract torrent hashes from magnet links
-3. **Cache Check**: Verify which torrents are cached in TorBox
-4. **Display**: Render torrents with cache indicators
-5. **Selection**: Add torrent to TorBox if not cached
-6. **Tracking**: Monitor download progress
-7. **Playback**: Stream video files directly
-
-### Storage Keys
-The plugin uses localStorage for persistence:
-- `torbox_api_key_b64`: Encrypted API key
-- `torbox_proxy_url`: CORS proxy URL
-- `torbox_filters_v2`: Filter preferences
-- `torbox_sort_method`: Sort preference
-- `torbox_show_only_cached`: Cache filter state
-- `torbox_last_torrent_data_*`: Continue watching data
-- `torbox_watched_episodes_*`: Episode watch status
-
-### Network Requirements
-- **Outbound HTTPS**: Access to TorBox API and public trackers
-- **CORS Proxy**: Required for browser-based API calls
-- **Bandwidth**: Varies by content quality (HD: ~5Mbps, 4K: ~25Mbps)
-
-## 🤝 Contributing
-
-This is an open-source project. Contributions are welcome!
-
-### Development Setup
-1. Clone the repository
-2. Edit `torbox-lampa-plugin.js` directly
-3. Test in Lampa using the local file URL
-4. Submit pull requests for improvements
-
-### Code Style
-- Use ES6+ features
-- Follow existing naming conventions
-- Add comprehensive error handling
-- Include debug logging for new features
-- Maintain backward compatibility
-
-## 📄 License
-
-This project is open source. See the repository for license details.
-
-## 🔗 Links
-
-- **TorBox.app**: [https://torbox.app](https://torbox.app)
-- **Lampa**: [https://lampa.mx](https://lampa.mx)
-- **Plugin URL**: [https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js](https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js)
-- **Issues**: Report bugs and feature requests in the repository issues section 
+### Режим Отладки
+Включите режим отладки в настройках, чтобы видеть подробные логи в консоли браузера:
+1.  Нажмите `F12` на клавиатуре, чтобы открыть инструменты разработчика.
+2.  Перейдите на вкладку `Console`.
+3.  Ищите сообщения с префиксом `[TorBox]`.
