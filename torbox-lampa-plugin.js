@@ -127,24 +127,6 @@
         };
     })();
 
-    // ───────────────────── core ▸ KEY ENCRYPTION ───────────────────────
-    function encryptKey(key) {
-        let encrypted = '';
-        for (let i = 0; i < key.length; i++) {
-            encrypted += String.fromCharCode(key.charCodeAt(i) ^ (i % 256 + 1));
-        }
-        return btoa(encrypted);
-    }
-
-    function decryptKey(encryptedB64) {
-        const encrypted = atob(encryptedB64);
-        let key = '';
-        for (let i = 0; i < encrypted.length; i++) {
-            key += String.fromCharCode(encrypted.charCodeAt(i) ^ (i % 256 + 1));
-        }
-        return key;
-    }
-
     // ───────────────────── core ▸ CONFIG ───────────────────────────────
     const Config = (() => {
         const DEF = {
@@ -157,14 +139,14 @@
             get proxyUrl() { return Store.get('torbox_proxy_url') || DEF.proxyUrl; },
             set proxyUrl(v) { Store.set('torbox_proxy_url', v); },
             get apiKey() {
-                const encryptedB64 = Store.get('torbox_api_key_encrypted', '');
-                if (!encryptedB64) return DEF.apiKey;
-                try { return decryptKey(encryptedB64); }
-                catch { Store.set('torbox_api_key_encrypted', ''); return DEF.apiKey; }
+                const b64 = Store.get('torbox_api_key_b64', '');
+                if (!b64) return DEF.apiKey;
+                try { return atob(b64); }
+                catch { Store.set('torbox_api_key_b64', ''); return DEF.apiKey; }
             },
             set apiKey(v) {
-                if (!v) return Store.set('torbox_api_key_encrypted', '');
-                Store.set('torbox_api_key_encrypted', encryptKey(v));
+                if (!v) return Store.set('torbox_api_key_b64', '');
+                Store.set('torbox_api_key_b64', btoa(v));
             }
         };
         const LOG = (...a) => CFG.debug && console.log('[TorBox]', ...a);
@@ -257,24 +239,19 @@
         const checkCached = async (hashes, signal) => {
             if (!hashes.length) return {};
             const data = {};
-            const promises = [];
             for (let i = 0; i < hashes.length; i += 100) {
                 const chunk = hashes.slice(i, i + 100);
                 const qs = new URLSearchParams();
                 chunk.forEach(h => qs.append('hash', h));
                 qs.append('format', 'object');
                 qs.append('list_files', 'false');
-                promises.push(
-                    request(`${MAIN}/torrents/checkcached?${qs}`, { method: 'GET' }, signal)
-                        .then(r => {
-                            if (r?.data) Object.assign(data, r.data);
-                        })
-                        .catch(e => {
-                            LOG('checkCached chunk error', e.message);
-                        })
-                );
+                try {
+                    const r = await request(`${MAIN}/torrents/checkcached?${qs}`, { method: 'GET' }, signal);
+                    if (r?.data) Object.assign(data, r.data);
+                } catch (e) {
+                    LOG('checkCached chunk error', e.message);
+                }
             }
-            await Promise.all(promises);
             return data;
         };
 
@@ -605,8 +582,6 @@
         const track = (id, signal) => {
             return new Promise((resolve, reject) => {
                 let active = true;
-                let attempts = 0;
-                const maxAttempts = 360; // Максимум 1 час при интервале 10 сек
                 const cancel = () => {
                     if (active) {
                         active = false;
@@ -618,13 +593,6 @@
                 signal.addEventListener('abort', cancel);
 
                 const poll = async () => {
-                    attempts++;
-                    if (attempts > maxAttempts) {
-                        active = false;
-                        signal.removeEventListener('abort', cancel);
-                        reject({ type: 'timeout', message: 'Превышен лимит попыток polling' });
-                        return;
-                    }
                     if (!active) return;
                     try {
                         const d = (await Api.myList(id, signal)).data[0];
@@ -863,8 +831,8 @@
 
                 let item = Lampa.Template.get('torbox_item', item_data);
 
-                // Исправленное добавление прогресс-бара только для последнего просмотренного торрента
-                if (lastHash && item_data.hash === lastHash && view_data && view_data.total > 0) {
+                // Исправленное добавление прогресс-бара
+                if (view_data && view_data.total > 0) {
                     const percent = Math.round((view_data.time / view_data.total) * 100);
                     const progress_line = `<div class="torbox-item__progress"><div style="width: ${percent}%"></div></div>`;
                     item.append(progress_line);
@@ -953,7 +921,6 @@
                             title: 'Продолжить просмотр',
                             info: info_text
                         });
-                        historyItem.addClass('selector'); // Ensure focusable for TV remotes
                         historyItem.on('hover:focus', (e) => {
                             last = e.target;
                             scroll.update($(e.target), true);
@@ -1106,7 +1073,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '50.2.3', // Fixed a bug that prevented remote control focus on the "Continue Watching" panel.
+            version: '50.2.0', // Restored history integration and fixed continue watching panel layout
             name: 'TorBox',
             description: 'Плагин для просмотра торрентов через TorBox',
             component: 'torbox_main',
@@ -1137,24 +1104,11 @@
                     param: { name: p.k, type: p.t, values: '', default: p.v },
                     field: { name: p.n, description: p.d },
                     onChange: v => {
-                const val = typeof v === 'object' ? v.value : v;
-                const trimmedVal = String(val).trim();
-                if (p.k === 'torbox_proxy_url') {
-                    if (!trimmedVal || !/^https?:\/\/.+/.test(trimmedVal)) {
-                        Lampa.Noty.show('Неверный URL прокси. Должен начинаться с http:// или https://.');
-                        return;
-                    }
-                    CFG.proxyUrl = trimmedVal;
-                }
-                if (p.k === 'torbox_api_key') {
-                    if (!trimmedVal) {
-                        Lampa.Noty.show('API-ключ не может быть пустым.');
-                        return;
-                    }
-                    CFG.apiKey = trimmedVal;
-                }
-                if (p.k === 'torbox_debug') CFG.debug = Boolean(val);
-            },
+                        const val = typeof v === 'object' ? v.value : v;
+                        if (p.k === 'torbox_proxy_url') CFG.proxyUrl = String(val).trim();
+                        if (p.k === 'torbox_api_key') CFG.apiKey = String(val).trim();
+                        if (p.k === 'torbox_debug') CFG.debug = Boolean(val);
+                    },
                     onRender: f => { if (p.k === 'torbox_api_key') f.find('input').attr('type', 'password'); }
                 });
             });
@@ -1239,7 +1193,7 @@
             document.head.appendChild(css);
 
             Lampa.Manifest.plugins[manifest.name] = manifest;
-            LOG('TorBox Stable v50.2.3 ready');
+            LOG('TorBox Stable v50.2.0 ready');
         }
 
         if (window.Lampa?.Activity) {
