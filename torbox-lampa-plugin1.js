@@ -314,6 +314,10 @@
                 throw { type: 'validation', message: 'CORS-proxy не задан в настройках' };
             }
             
+            if (options.is_torbox_api !== false && !config.apiKey) {
+                throw { type: 'validation', message: 'API ключ не задан в настройках' };
+            }
+            
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
             
@@ -548,6 +552,11 @@
         }
         
         addEventListener(element, event, handler) {
+            if (!element || typeof handler !== 'function') {
+                TorBoxPlugin.Logger.warn('Invalid element or handler for event listener');
+                return;
+            }
+            
             if (!this.eventListeners.has(element)) {
                 this.eventListeners.set(element, new Map());
             }
@@ -558,7 +567,13 @@
             }
             
             elementListeners.get(event).push(handler);
-            element.addEventListener(event, handler);
+            
+            // Add passive option for scroll events to prevent violations
+            const options = event.includes('wheel') || event.includes('scroll') 
+                ? { passive: true } 
+                : false;
+            
+            element.addEventListener(event, handler, options);
         }
         
         removeAllListeners() {
@@ -689,7 +704,14 @@
             let voiceIndex = 0;
             
             audioStreams.forEach(stream => {
-                let langOrVoice = stream.tags?.language?.toUpperCase() || stream.tags?.LANGUAGE?.toUpperCase();
+                let langOrVoice = null;
+                
+                // Safe language extraction
+                if (stream.tags?.language) {
+                    langOrVoice = String(stream.tags.language).toUpperCase();
+                } else if (stream.tags?.LANGUAGE) {
+                    langOrVoice = String(stream.tags.LANGUAGE).toUpperCase();
+                }
                 
                 if (!langOrVoice || langOrVoice === 'UND') {
                     if (raw.info?.voices && raw.info.voices[voiceIndex]) {
@@ -700,7 +722,7 @@
                     }
                 }
                 
-                const codec = stream.codec_name?.toUpperCase() || '';
+                const codec = stream.codec_name ? String(stream.codec_name).toUpperCase() : '';
                 const layout = stream.channel_layout || '';
                 const displayText = [langOrVoice, codec, layout].filter(Boolean).join(' ').trim();
                 
@@ -1687,7 +1709,7 @@
      (function() {
          const manifest = {
              type: 'video',
-             version: '51.0.0',
+             version: '51.0.1',
              name: 'TorBox Optimized',
              description: 'Оптимизированный плагин для просмотра торрентов через TorBox',
              component: 'torbox_optimized'
@@ -2097,23 +2119,26 @@
              document.head.appendChild(css);
              
              // Register manifest
-             if (Lampa.Manifest) {
-                 Lampa.Manifest.plugins[manifest.name] = manifest;
-             }
+            if (window.Lampa && Lampa.Manifest) {
+                Lampa.Manifest.plugins[manifest.name] = manifest;
+            }
              
-             TorBoxPlugin.Logger.log('TorBox Optimized v51.0.0 ready');
+             TorBoxPlugin.Logger.log('TorBox Optimized v51.0.1 ready');
          }
          
          // Initialize when Lampa is ready
-         if (window.Lampa && Lampa.Activity) {
-             boot();
-         } else {
-             const lampaBootListener = Lampa.Listener.follow('app', (event) => {
-                 if (event.type === 'ready') {
-                     boot();
-                     Lampa.Listener.remove('app', lampaBootListener);
-                 }
-             });
-         }
+        if (window.Lampa && Lampa.Activity) {
+            boot();
+        } else if (window.Lampa && Lampa.Listener) {
+            const lampaBootListener = Lampa.Listener.follow('app', (event) => {
+                if (event.type === 'ready') {
+                    boot();
+                    Lampa.Listener.remove('app', lampaBootListener);
+                }
+            });
+        } else {
+            // Fallback for testing environment
+            TorBoxPlugin.Logger.log('Lampa not available, plugin loaded in test mode');
+        }
      })();
  })();
