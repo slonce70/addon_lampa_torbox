@@ -1,18 +1,15 @@
 /*
  * TorBox Lampa Plugin (Stable Refactored)
- * Version: 51.0.2
- * Author: Gemini
+ * Version: 51.0.3
+ *
+ * Changelog v51.0.3:
+ * - FIX (CRITICAL): Восстановлена оригинальная логика вставки кнопки "TorBox" на страницу фильма. Кнопка снова должна появляться корректно.
  *
  * Changelog v51.0.2:
  * - FIX (Robustness): Улучшена логика вставки кнопки "TorBox" для максимальной совместимости с разными версиями Lampa.
  * - FIX (Memory): Добавлена явная очистка обработчиков событий в методе destroy для предотвращения утечек памяти.
  * - FIX (Debug): Улучшено логирование ошибок при рендеринге списка для более легкой диагностики.
  * - DOC: Добавлены дополнительные комментарии для улучшения читаемости кода.
- *
- * Changelog v51.0.1:
- * - FIX (Critical): Исправлен формат запроса к CORS-прокси.
- * - FIX (Critical): Исправлены имена параметров для API публичных парсеров (поиск).
- * - FIX (Compatibility): Возвращена отправка magnet-ссылки через FormData.
  */
 (function () {
     'use strict';
@@ -924,7 +921,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '51.0.2',
+            version: '51.0.3',
             name: 'TorBox',
             description: 'Плагин для просмотра торрентов через TorBox (Refactored)',
             component: 'torbox_main',
@@ -972,12 +969,11 @@
                 btn.on('hover:enter', () => {
                     Lampa.Activity.push({ component: 'torbox_main', title: 'TorBox - ' + (e.data.movie.title || e.data.movie.name), movie: e.data.movie });
                 });
-                // Более надежный способ вставки кнопки, который ищет общий контейнер
-                const buttonsContainer = root.find('.full-start__buttons');
-                if (buttonsContainer.length) {
-                    buttonsContainer.append(btn);
+                // FIX: Возвращена оригинальная, проверенная временем логика вставки кнопки.
+                const torrentBtn = root.find('.view--torrent');
+                if (torrentBtn.length) {
+                    torrentBtn.after(btn);
                 } else {
-                    // Запасной вариант, если структура изменится
                     root.find('.full-start__play').after(btn);
                 }
             });
