@@ -1,3 +1,20 @@
+/*
+ * TorBox Lampa Plugin (Stable Refactored)
+ * Version: 51.0.6
+ *
+ * Changelog v51.0.6:
+ * - FIX (Navigation): Исправлена логика навигации с пульта. Теперь фокус корректно переходит с верхней панели на "Продолжить просмотр" и список торрентов, решая проблему "залипания" на кнопке "Кешированные".
+ * - FIX (UI): Убрана черная полоса под технической информацией о файле. Теперь теги отображаются на прозрачном фоне.
+ *
+ * Changelog v51.0.5:
+ * - FIX (UX): Добавлен статус "Обработка торрента..."
+ *
+ * Changelog v51.0.4:
+ * - FIX (CRITICAL): Исправлена логика отмены загрузки.
+ *
+ * Changelog v51.0.3:
+ * - FIX (CRITICAL): Восстановлена логика вставки кнопки "TorBox".
+ */
 (function () {
     'use strict';
 
@@ -840,8 +857,15 @@
         this.initialize = function () {
             Lampa.Controller.add('content', {
                 toggle: () => { Lampa.Controller.collectionSet(filter.render(), scroll.render()); Lampa.Controller.collectionFocus(last || false, scroll.render()); },
-                up: () => { Navigator.canmove('up') ? Navigator.move('up') : Lampa.Controller.toggle('head'); },
-                down: () => { if (Navigator.canmove('down')) Navigator.move('down'); },
+                up: () => { 
+                    // FIX: Улучшенная логика навигации вверх
+                    if (!Navigator.canmove('up')) {
+                        Lampa.Controller.toggle('head');
+                    } else {
+                        Navigator.move('up');
+                    }
+                },
+                down: () => { Navigator.move('down'); }, // Lampa сама справится с переходом с head
                 left: () => { Navigator.canmove('left') ? Navigator.move('left') : Lampa.Controller.toggle('menu'); },
                 right: () => { Navigator.canmove('right') ? Navigator.move('right') : filter.show(Lampa.Lang.translate('title_filter'), 'filter'); },
                 back: this.back.bind(this)
@@ -872,6 +896,15 @@
                 this.build();
                 Lampa.Controller.toggle('content');
             };
+
+            // FIX: Явный переход фокуса с панели фильтров вниз на список
+            filter.onDown = () => {
+                const first_item = scroll.body().find('.selector').first();
+                if (first_item.length) {
+                    Lampa.Controller.focus(first_item[0]);
+                }
+            };
+            
             filter.onBack = () => this.start();
             filter.onSearch = (value) => search(true, value);
             if (filter.addButtonBack) filter.addButtonBack();
@@ -929,7 +962,7 @@
     (function () {
         const manifest = {
             type: 'video',
-            version: '51.0.5',
+            version: '51.0.6',
             name: 'TorBox',
             description: 'Плагин для просмотра торрентов через TorBox (Refactored)',
             component: 'torbox_main',
@@ -994,11 +1027,11 @@
                 .torbox-item__last-played-icon { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; margin-right: .5em; color: var(--color-second); flex-shrink: 0; }
                 .torbox-item__last-played-icon svg { width: 100%; height: 100%; }
                 .torbox-item.focus, .torbox-watched-item.focus, .torbox-file-item.focus { background: var(--color-primary); color: var(--color-background); transform: scale(1.01); border-color: rgba(255, 255, 255, .3); box-shadow: 0 4px 20px rgba(0, 0, 0, .2); }
-                .torbox-item.focus .torbox-item__tech-bar { background: rgba(0, 0, 0, .2); }
                 .torbox-item__title { font-weight: 600; margin-bottom: .3em; font-size: 1.1em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; }
                 .torbox-item__main-info, .torbox-item__meta { font-size: .95em; opacity: .9; line-height: 1.4; margin-bottom: .3em; }
                 .torbox-item__meta { opacity: .7; margin-bottom: .8em; }
-                .torbox-item__tech-bar { display: flex; flex-wrap: wrap; gap: .6em; margin-top: .5em; }
+                /* FIX: Убран фон и лишние отступы у тех. панели */
+                .torbox-item__tech-bar { display: flex; flex-wrap: wrap; gap: .6em; margin-top: .8em; }
                 .torbox-item__tech-item { padding: .2em .5em; border-radius: .4em; color: #fff; font-size: .85em; font-weight: 500;}
                 .torbox-item__tech-item--res { background: #3b82f6; } .torbox-item__tech-item--codec { background: #16a34a; } .torbox-item__tech-item--audio { background: #f97316; } .torbox-item__tech-item--hdr, .torbox-item__tech-item--dv { background: #8a2be2; }
                 .torbox-cached-toggle { display: inline-flex; align-items: center; justify-content: center; border: 2px solid transparent; transition: all .3s; }
