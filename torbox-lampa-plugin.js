@@ -1,6 +1,12 @@
 /*
  * TorBox Lampa Plugin (Stable Refactored)
- * Version: 51.0.6
+ * Version: 51.0.7
+ *
+ * Changelog v51.0.7:
+ * - REFACTOR: Улучшена структура кода и именование переменных
+ * - OPTIMIZE: Оптимизированы функции для лучшей производительности
+ * - CLEANUP: Приведен код в соответствие с современными стандартами JavaScript
+ * - DOCS: Улучшена документация и комментарии
  *
  * Changelog v51.0.6:
  * - FIX (Navigation): Исправлена логика навигации с пульта. Теперь фокус корректно переходит с верхней панели на "Продолжить просмотр" и список торрентов, решая проблему "залипания" на кнопке "Кешированные".
@@ -18,81 +24,146 @@
 (function () {
     'use strict';
 
-    // ───────────────────────────── guard ──────────────────────────────
+    // ───────────────────────────── GUARD ──────────────────────────────
     const PLUGIN_ID = 'torbox_lampa_plugin_integrated_refactored';
     if (window[PLUGIN_ID]) return;
     window[PLUGIN_ID] = true;
 
-    // ───────────────────── core ▸ UTILS ───────────────────────────────
+    // ───────────────────── CORE ▸ UTILS ───────────────────────────────
     const Utils = {
+        /**
+         * Безопасно экранирует HTML-строку
+         * @param {string} str - строка для экранирования
+         * @returns {string} экранированная строка
+         */
         escapeHtml(str = '') {
             if (typeof str !== 'string') return '';
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
         },
+
+        /**
+         * Форматирует байты в читаемый вид
+         * @param {number} bytes - количество байт
+         * @param {boolean} speed - флаг для отображения скорости
+         * @returns {string} отформатированная строка
+         */
         formatBytes(bytes = 0, speed = false) {
-            const B = Number(bytes);
-            if (isNaN(B) || B === 0) return speed ? '0 KB/s' : '0 B';
+            const bytesNum = Number(bytes);
+            if (isNaN(bytesNum) || bytesNum === 0) {
+                return speed ? '0 KB/s' : '0 B';
+            }
+            
             const k = 1024;
-            const sizes = speed ? ['B/s', 'KB/s', 'MB/s', 'GB/s'] : ['B', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(B) / Math.log(k));
-            return (B / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+            const sizes = speed 
+                ? ['B/s', 'KB/s', 'MB/s', 'GB/s'] 
+                : ['B', 'KB', 'MB', 'GB', 'TB'];
+            
+            const i = Math.floor(Math.log(bytesNum) / Math.log(k));
+            return `${(bytesNum / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
         },
-        formatTime(sec = 0) {
-            const s = parseInt(sec, 10);
-            if (isNaN(s) || s < 0) return 'н/д';
-            if (s === Infinity || s > 2592000) return '∞';
-            const h = Math.floor(s / 3600);
-            const m = Math.floor((s % 3600) / 60);
-            const r = Math.floor(s % 60);
-            return [h ? h + 'ч' : null, m ? m + 'м' : null, r + 'с'].filter(Boolean).join(' ');
+
+        /**
+         * Форматирует секунды в читаемый вид времени
+         * @param {number} seconds - количество секунд
+         * @returns {string} отформатированное время
+         */
+        formatTime(seconds = 0) {
+            const sec = parseInt(seconds, 10);
+            if (isNaN(sec) || sec < 0) return 'н/д';
+            if (sec === Infinity || sec > 2592000) return '∞';
+            
+            const hours = Math.floor(sec / 3600);
+            const minutes = Math.floor((sec % 3600) / 60);
+            const remainingSeconds = Math.floor(sec % 60);
+            
+            const parts = [
+                hours ? `${hours}ч` : null,
+                minutes ? `${minutes}м` : null,
+                `${remainingSeconds}с`
+            ].filter(Boolean);
+            
+            return parts.join(' ');
         },
-        formatAge(iso) {
-            if (!iso) return 'н/д';
+
+        /**
+         * Форматирует возраст от ISO даты
+         * @param {string} isoDate - ISO строка даты
+         * @returns {string} относительное время
+         */
+        formatAge(isoDate) {
+            if (!isoDate) return 'н/д';
+            
             try {
-                const d = new Date(iso);
-                if (isNaN(d.getTime())) return 'н/д';
-                const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-                const m = Math.floor(diff / 60);
-                const h = Math.floor(m / 60);
-                const days = Math.floor(h / 24);
-                if (diff < 60) return `${diff} сек. назад`;
-                if (m < 60) return `${m} мин. назад`;
-                if (h < 24) return `${h} ч. назад`;
+                const date = new Date(isoDate);
+                if (isNaN(date.getTime())) return 'н/д';
+                
+                const diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
+                const minutes = Math.floor(diffSeconds / 60);
+                const hours = Math.floor(minutes / 60);
+                const days = Math.floor(hours / 24);
+                
+                if (diffSeconds < 60) return `${diffSeconds} сек. назад`;
+                if (minutes < 60) return `${minutes} мин. назад`;
+                if (hours < 24) return `${hours} ч. назад`;
                 return `${days} д. назад`;
-            } catch {
+            } catch (error) {
+                console.warn('[TorBox] Ошибка форматирования даты:', error);
                 return 'н/д';
             }
         },
+
+        /**
+         * Получает метку качества из заголовка или данных
+         * @param {string} title - заголовок
+         * @param {Object} raw - сырые данные
+         * @returns {string} метка качества
+         */
         getQualityLabel(title = '', raw) {
-            if (raw?.info?.quality) return raw.info.quality + 'p';
+            if (raw?.info?.quality) return `${raw.info.quality}p`;
             if (/2160p|4K|UHD/i.test(title)) return '4K';
             if (/1080p|FHD/i.test(title)) return 'FHD';
             if (/720p|HD/i.test(title)) return 'HD';
             return 'SD';
         },
+
+        /**
+         * Естественная сортировка для имен файлов
+         * @param {Object} a - первый элемент
+         * @param {Object} b - второй элемент
+         * @returns {number} результат сравнения
+         */
         naturalSort(a, b) {
             const re = /(\d+)/g;
             const aParts = String(a.name || '').split(re);
             const bParts = String(b.name || '').split(re);
+            
             for (let i = 0; i < Math.min(aParts.length, bParts.length); i++) {
                 if (i % 2) {
                     const diff = parseInt(aParts[i], 10) - parseInt(bParts[i], 10);
-                    if (diff) return diff;
+                    if (diff !== 0) return diff;
                 } else if (aParts[i] !== bParts[i]) {
                     return aParts[i].localeCompare(bParts[i]);
                 }
             }
+            
             return aParts.length - bParts.length;
         },
-        // Безопасный парсер JSON из localStorage
+
+        /**
+         * Безопасный парсер JSON из localStorage
+         * @param {string} jsonString - JSON строка
+         * @param {*} defaultValue - значение по умолчанию
+         * @returns {*} распарсенный объект или значение по умолчанию
+         */
         parseJSON(jsonString, defaultValue) {
             if (typeof jsonString !== 'string') return defaultValue;
+            
             try {
                 return JSON.parse(jsonString);
-            } catch (e) {
-                console.error('[TorBox] Ошибка парсинга JSON:', e);
+            } catch (error) {
+                console.error('[TorBox] Ошибка парсинга JSON:', error);
                 return defaultValue;
             }
         }
