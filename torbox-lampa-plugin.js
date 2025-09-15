@@ -478,6 +478,7 @@
     let initialized = false;
     let lastFocused = null;
     let cachedToggleBtn = null;
+    let activeTorrentController = null;
 
     this.activity = object.activity;
 
@@ -517,6 +518,17 @@
       current_torrent_data: null,
       search_query: null,
       show_only_cached: Store.get('torbox_show_only_cached', '0') === '1',
+    };
+
+    const cancelActiveTorrentFlow = () => {
+      if (activeTorrentController) {
+        try {
+          if (!activeTorrentController.signal.aborted) activeTorrentController.abort();
+        } catch (err) {
+          LOG('Abort active torrent flow error', err);
+        }
+      }
+      activeTorrentController = null;
     };
 
     // ───────────────────────────── Rendering helpers ─────────────────────────────
@@ -854,14 +866,22 @@
       const storageKey = `torbox_id_for_hash_${item.hash}`;
       const savedId = Store.get(storageKey, '');
 
+      cancelActiveTorrentFlow();
+
       const controller = new AbortController();
       const signal = controller.signal;
+      activeTorrentController = controller;
 
       Lampa.Loading.start(() => controller.abort(), 'TorBox: Подключение...');
+
+      const finalizeTracker = () => {
+        if (activeTorrentController === controller) activeTorrentController = null;
+      };
 
       const processAndOpen = (data, hash) => {
         data.hash = hash;
         Lampa.Loading.stop();
+        finalizeTracker();
         selectFile(data);
       };
 
@@ -879,6 +899,7 @@
           .then((data) => processAndOpen(data, hash))
           .catch((err) => {
             Lampa.Loading.stop();
+            finalizeTracker();
             if (err?.name !== 'AbortError') ErrorHandler.show(err.type || 'error', err);
           });
       };
@@ -897,6 +918,7 @@
               addThenTrack(item.magnet, item.hash);
             } else {
               Lampa.Loading.stop();
+              finalizeTracker();
               if (err?.name !== 'AbortError') ErrorHandler.show(err.type || 'error', err);
             }
           });
@@ -1123,6 +1145,7 @@
     };
 
     const search = (force = false, customTitle = null) => {
+      cancelActiveTorrentFlow();
       abort.abort();
       abort = new AbortController();
       const signal = abort.signal;
@@ -1306,12 +1329,14 @@
         filter.render().show();
         build();
       } else {
+        cancelActiveTorrentFlow();
         abort.abort();
         Lampa.Activity.backward();
       }
     };
 
     this.destroy = function () {
+      cancelActiveTorrentFlow();
       abort.abort();
       Lampa.Controller.clear('content');
       try {
