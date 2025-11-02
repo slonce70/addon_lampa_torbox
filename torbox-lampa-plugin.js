@@ -1182,6 +1182,8 @@
       const target = prefer.length ? prefer : fallback;
       if (target && target.length) {
         lastFocused = target[0];
+        const hashAttr = target.attr('data-hash');
+        if (hashAttr) state.last_hash = hashAttr;
         Lampa.Controller.collectionFocus(target[0], scroll.render());
       }
     };
@@ -1280,6 +1282,7 @@
       Lampa.Controller.enable('content');
 
       updateContinueWatchingPanel(lastSnapshot);
+      if (!lastFocused) focusFirstListItem();
     };
 
     const empty = (msg) => {
@@ -1474,17 +1477,15 @@
           Lampa.Controller.collectionFocus(lastFocused || false, scroll.render());
         },
         up: () => {
-          if (Navigator.canmove('up')) {
-            Navigator.move('up');
-          } else {
-            const continueItem = scroll.render().find('.torbox-watched-item.selector').first();
-            if (continueItem.length && !continueItem.hasClass('focus')) {
-              lastFocused = continueItem[0];
-              Lampa.Controller.collectionFocus(continueItem[0], scroll.render());
-            } else {
-              Lampa.Controller.toggle('head');
-            }
+          const current = lastFocused ? $(lastFocused) : null;
+          const continueItem = scroll.render().find('.torbox-watched-item.selector').first();
+          if (continueItem.length && current && current.hasClass('torbox-item')) {
+            lastFocused = continueItem[0];
+            Lampa.Controller.collectionFocus(continueItem[0], scroll.render());
+            return;
           }
+          if (Navigator.canmove('up')) Navigator.move('up');
+          else Lampa.Controller.toggle('head');
         },
         down: () => {
           if (Navigator.canmove('down')) Navigator.move('down');
@@ -1550,6 +1551,7 @@
         Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
         build();
         cachedToggleBtn.removeClass('focus');
+        lastFocused = null;
         focusFirstListItem();
       });
       filter.render().find('.filter--sort').before(cachedToggleBtn);
