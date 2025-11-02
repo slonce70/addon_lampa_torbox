@@ -1401,13 +1401,8 @@
             list.push(toViewItem(raw, hex, cachedSet));
           });
 
-          const lightList = list.map((item) => {
-            const { raw_data, ...rest } = item;
-            return rest;
-          });
-
-          Cache.set(cacheKey, lightList);
-          state.all_torrents = lightList;
+          Cache.set(cacheKey, list);
+          state.all_torrents = list;
           build();
         })
         .catch((err) => {
