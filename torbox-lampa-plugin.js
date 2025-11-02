@@ -874,6 +874,13 @@
     const focusToggleButton = () => focusZone(FocusZones.TOGGLE, 0);
     const focusEmptyMessage = () => focusZone(FocusZones.EMPTY, 0);
 
+    const focusFirstListItem = () => {
+      if (!scroll || typeof scroll.render !== 'function') return;
+      if (!isTorrentsView()) return;
+      if (hasContinueItem() && focusContinueItem()) return;
+      if (!focusListByIndex(0)) focusEmptyMessage();
+    };
+
     const focusLastKnownListItem = () => {
       if (!scroll || typeof scroll.render !== 'function') return false;
       if (state.last_hash) {
@@ -1693,13 +1700,6 @@
       if (list.length > CONST.MAX_DRAW_ITEMS) list = list.slice(0, CONST.MAX_DRAW_ITEMS);
 
       return list;
-    };
-
-    const focusFirstListItem = () => {
-      if (!scroll || typeof scroll.render !== 'function') return;
-      if (!isTorrentsView()) return;
-      if (hasContinueItem() && focusContinueItem()) return;
-      if (!focusListByIndex(0)) focusEmptyMessage();
     };
 
     const draw = (items) => {
