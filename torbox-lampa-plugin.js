@@ -21,7 +21,7 @@
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.0.6';
+  const VERSION = '51.0.7';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -84,6 +84,11 @@
       return Store.get('torbox_debug', '0') === '1';
     },
     set debug(v) {
+      if (typeof v === 'string') {
+        const normalized = v.trim().toLowerCase();
+        if (['0', 'false', 'off', 'no'].includes(normalized)) v = false;
+        else if (['1', 'true', 'on', 'yes'].includes(normalized)) v = true;
+      }
       Store.set('torbox_debug', v ? '1' : '0');
     },
     get proxyUrl() {
