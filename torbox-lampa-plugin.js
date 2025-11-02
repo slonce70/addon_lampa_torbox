@@ -21,7 +21,7 @@
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.0.5';
+  const VERSION = '51.0.6';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -492,8 +492,8 @@
     }
 
     function requestDl(tid, fid, signal) {
-      // Authorize via X-Api-Key header so the key does not leak through the proxy
-      const url = `${TB_MAIN}/torrents/requestdl?torrent_id=${encodeURIComponent(tid)}&file_id=${encodeURIComponent(fid)}`;
+      // TorBox API expects token query parameter alongside X-Api-Key header
+      const url = `${TB_MAIN}/torrents/requestdl?torrent_id=${encodeURIComponent(tid)}&file_id=${encodeURIComponent(fid)}&token=${encodeURIComponent(Config.apiKey)}`;
       return request(url, { method: 'GET' }, signal);
     }
 
