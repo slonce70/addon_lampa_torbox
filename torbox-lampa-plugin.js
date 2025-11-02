@@ -276,7 +276,7 @@
     const TB_MAIN = 'https://api.torbox.app/v1/api';
 
     function requireProxy() {
-      if (!Config.proxyUrl) {
+      if (!Config.proxyUrl || !String(Config.proxyUrl).trim()) {
         const err = { type: 'validation', message: 'CORS‑proxy не задан. Укажите URL в настройках TorBox.' };
         throw err;
       }
@@ -297,6 +297,32 @@
       }
     }
 
+    function buildProxyUrl(base, target) {
+      const raw = String(base || '').trim();
+      if (!raw) return raw;
+
+      try {
+        const proxyUrl = new URL(raw);
+        proxyUrl.searchParams.set('url', target);
+        return proxyUrl.toString();
+      } catch (_) {
+        if (raw.includes('{url}')) {
+          return raw.replace('{url}', encodeURIComponent(target));
+        }
+        if (raw.includes('%s')) {
+          return raw.replace('%s', encodeURIComponent(target));
+        }
+
+        const hasQuery = raw.includes('?');
+        const endsWithJoin = /[?&]$/.test(raw);
+        if (/[?&]url=/.test(raw)) {
+          return raw.replace(/([?&]url=)[^&#]*/i, (_, prefix) => `${prefix}${encodeURIComponent(target)}`);
+        }
+        const joiner = hasQuery ? (endsWithJoin ? '' : '&') : '?';
+        return `${raw}${joiner}url=${encodeURIComponent(target)}`;
+      }
+    }
+
     async function request(url, opt = {}, outerSignal) {
       requireProxy();
 
@@ -312,7 +338,7 @@
       if (isTorBox) headers['X-Api-Key'] = Config.apiKey;
 
       // Always go through CORS proxy
-      const proxied = `${Config.proxyUrl}?url=${encodeURIComponent(url)}`;
+      const proxied = buildProxyUrl(Config.proxyUrl, url);
 
       try {
         const res = await fetch(proxied, { ...opt, headers, signal: controller.signal });
@@ -574,7 +600,7 @@
         has_dv: /(dv|dolby\s*vision)/i.test(raw?.Title || '') || /(dovi|dolby\s*vision)/i.test(raw?.info?.videotype || ''),
       };
 
-      const isCached = cachedSet.has(hashHex);
+      const isCached = cachedSet.has(hashHex.toLowerCase());
       const publishDate = raw?.PublishDate ? new Date(raw.PublishDate) : null;
 
       return {
@@ -1198,7 +1224,12 @@
         .then((payload) => {
           if (!payload || signal.aborted) return;
 
-          const cachedSet = new Set(Object.keys(payload.cachedMap || {}).map((h) => h.toLowerCase()));
+          const cachedEntries = Object.entries(payload.cachedMap || {});
+          const cachedSet = new Set(
+            cachedEntries
+              .filter(([, flag]) => flag === true || flag === 'true' || flag === 1 || flag === '1')
+              .map(([h]) => h.toLowerCase())
+          );
           const list = [];
 
           payload.mapByHash.forEach((raw, hex) => {
