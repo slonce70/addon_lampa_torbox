@@ -1173,6 +1173,19 @@
       return list;
     };
 
+    const focusFirstListItem = () => {
+      if (!scroll || typeof scroll.render !== 'function') return;
+      const container = scroll.render();
+      if (!container?.length) return;
+      const prefer = container.find('.torbox-watched-item.selector').first();
+      const fallback = container.find('.torbox-item.selector').first();
+      const target = prefer.length ? prefer : fallback;
+      if (target && target.length) {
+        lastFocused = target[0];
+        Lampa.Controller.collectionFocus(target[0], scroll.render());
+      }
+    };
+
     const draw = (items) => {
       lastFocused = null;
       scroll.clear();
@@ -1461,8 +1474,17 @@
           Lampa.Controller.collectionFocus(lastFocused || false, scroll.render());
         },
         up: () => {
-          if (Navigator.canmove('up')) Navigator.move('up');
-          else Lampa.Controller.toggle('head');
+          if (Navigator.canmove('up')) {
+            Navigator.move('up');
+          } else {
+            const continueItem = scroll.render().find('.torbox-watched-item.selector').first();
+            if (continueItem.length && !continueItem.hasClass('focus')) {
+              lastFocused = continueItem[0];
+              Lampa.Controller.collectionFocus(continueItem[0], scroll.render());
+            } else {
+              Lampa.Controller.toggle('head');
+            }
+          }
         },
         down: () => {
           if (Navigator.canmove('down')) Navigator.move('down');
@@ -1527,6 +1549,8 @@
         state.show_only_cached = !state.show_only_cached;
         Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
         build();
+        cachedToggleBtn.removeClass('focus');
+        focusFirstListItem();
       });
       filter.render().find('.filter--sort').before(cachedToggleBtn);
       updateCachedToggleVisual();
