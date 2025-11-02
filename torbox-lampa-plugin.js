@@ -21,7 +21,7 @@
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.0';
+  const VERSION = '51.1.1';
 
   const CONST = {
     CACHE_LIMIT: 128,
