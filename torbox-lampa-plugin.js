@@ -263,6 +263,25 @@
     },
   };
 
+  const isCachedFlagTrue = (flag) => {
+    if (flag === true || flag === 'true') return true;
+    if (flag === false || flag === 'false') return false;
+    if (typeof flag === 'number') return flag > 0;
+    if (typeof flag === 'string') {
+      const norm = flag.toLowerCase();
+      if (['1', 'true', 'cached', 'ready', 'available', 'complete', 'completed'].includes(norm)) return true;
+      if (['0', 'false', 'missing', 'not_cached'].includes(norm)) return false;
+    }
+    if (flag && typeof flag === 'object') {
+      if ('cached' in flag) return isCachedFlagTrue(flag.cached);
+      if ('ready' in flag) return isCachedFlagTrue(flag.ready);
+      if ('status' in flag) return isCachedFlagTrue(flag.status);
+      if ('available' in flag) return isCachedFlagTrue(flag.available);
+      return Object.values(flag).some(isCachedFlagTrue);
+    }
+    return false;
+  };
+
   // ───────────────────────────── In-memory LRU cache with TTL ─────────────────────────────
   const Cache = (() => {
     const map = new Map(); // k -> {ts, val}
@@ -1392,7 +1411,7 @@
           const cachedEntries = Object.entries(payload.cachedMap || {});
           const cachedSet = new Set(
             cachedEntries
-              .filter(([, flag]) => flag === true || flag === 'true' || flag === 1 || flag === '1')
+              .filter(([, flag]) => isCachedFlagTrue(flag))
               .map(([h]) => h.toLowerCase())
           );
           const list = [];
