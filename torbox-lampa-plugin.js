@@ -12,10 +12,7 @@
  *  - Performance: minimal DOM thrash; style injected once; result caps & dedup
  *  - Compatibility: public surface (component id, templates, settings keys)
  * --------------------------------------------------------------------- */
-
-try {
-  console.log('[TorBox] boot strap', '51.1.2');
-  (function () {
+(function () {
   'use strict';
 
   // ───────────────────────────── Guard (idempotent load) ─────────────────────────────
@@ -24,7 +21,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.2';
+  const VERSION = '51.0.7';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -32,16 +29,7 @@ try {
     REQUEST_TIMEOUT_MS: 20 * 1000, // 20 seconds
     TRACKING_POLL_INTERVAL_MS: 10 * 1000, // 10 seconds
     MAX_DRAW_ITEMS: 300, // Guard against very large result sets
-    RAW_CACHE_HASH_LIMIT: 64,
-    MAX_WATCHED_EPISODES: 250,
-    MAX_SNAPSHOT_BYTES: 4096,
-    TRACK_RETRIES_MIN: 3,
-    TRACK_RETRIES_MAX: 120,
-    TRACK_INTERVAL_MIN_MS: 3000,
-    TRACK_INTERVAL_MAX_MS: 60000,
   };
-
-  const DEFAULT_VIDEO_EXTENSIONS = 'mkv,mp4,avi,ts,m4v,webm';
 
   const PUBLIC_PARSERS = [
     // These are TorBox-compatible tracker indexer gateways frequently used by Lampa plugins.
@@ -107,10 +95,7 @@ try {
       return Store.get('torbox_proxy_url', '');
     },
     set proxyUrl(v) {
-      const normalized = String(v || '')
-        .replace(/[\r\n]+/g, '')
-        .trim();
-      Store.set('torbox_proxy_url', normalized);
+      Store.set('torbox_proxy_url', String(v || ''));
     },
     get apiKey() {
       // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools
@@ -124,11 +109,8 @@ try {
       }
     },
     set apiKey(v) {
-      const normalized = String(v || '')
-        .replace(/[\r\n]+/g, '')
-        .trim();
-      if (!normalized) Store.set('torbox_api_key_b64', '');
-      else Store.set('torbox_api_key_b64', btoa(normalized));
+      if (!v) Store.set('torbox_api_key_b64', '');
+      else Store.set('torbox_api_key_b64', btoa(String(v)));
     },
   };
   const LOG = (...args) => Config.debug && console.log('[TorBox]', ...args);
@@ -544,78 +526,13 @@ try {
 
   // ───────────────────────────── Search helpers ─────────────────────────────
   function generateSearchCombinations(movie = {}) {
-    const combosMap = new Map();
-    const addCombo = (query, tags = [], label) => {
-      const normalized = String(query || '').replace(/\s+/g, ' ').trim();
-      if (!normalized) return;
-      const key = normalized.toLowerCase();
-      const tagSet = new Set(tags.filter(Boolean));
-      if (combosMap.has(key)) {
-        const existing = combosMap.get(key);
-        tagSet.forEach((tag) => existing.tags.add(tag));
-        if (label && label.length < existing.label.length) existing.label = label;
-        return;
-      }
-      combosMap.set(key, {
-        query: normalized,
-        label: label || normalized,
-        tags: tagSet,
-      });
-    };
-
-    const nameMap = new Map();
-    const registerName = (value, tags = []) => {
-      const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-      if (!normalized) return;
-      const key = normalized.toLowerCase();
-      if (!nameMap.has(key)) {
-        nameMap.set(key, { value: normalized, tags: new Set(tags) });
-      } else {
-        const existing = nameMap.get(key);
-        tags.forEach((tag) => existing.tags.add(tag));
-      }
-    };
-
+    const set = new Set();
     const title = (movie.title || movie.name || '').trim();
     const orig = (movie.original_title || movie.original_name || '').trim();
-    const localizedTranslations = Array.isArray(movie.translations)
-      ? movie.translations
-          .map((t) => (t && t.data ? t.data.title : t?.title || t?.name || ''))
-          .filter(Boolean)
+    const localized = Array.isArray(movie.translations)
+      ? movie.translations.map((t) => (t?.data?.title || '').trim())
       : [];
-
-    if (title) registerName(title, ['base']);
-    if (orig && orig.toLowerCase() !== title.toLowerCase()) registerName(orig, ['original']);
-    localizedTranslations.forEach((name) => registerName(name, ['translation']));
-
-    const pushDynamicName = (value) => {
-      if (!value) return;
-      if (typeof value === 'string') registerName(value, ['alt']);
-      else if (Array.isArray(value)) value.forEach((item) => pushDynamicName(item));
-      else if (value && typeof value === 'object') {
-        if (value.title) pushDynamicName(value.title);
-        if (value.name) pushDynamicName(value.name);
-        if (value.value) pushDynamicName(value.value);
-      }
-    };
-
-    Object.keys(movie).forEach((key) => {
-      if (!/title|name/i.test(key)) return;
-      if (['title', 'name', 'original_title', 'original_name'].includes(key)) return;
-      pushDynamicName(movie[key]);
-    });
-
-    if (Array.isArray(movie?.alternative_titles?.titles)) {
-      movie.alternative_titles.titles.forEach((entry) => pushDynamicName(entry?.title));
-    }
-
-    const names = Array.from(nameMap.values()).map((entry) => ({
-      value: entry.value,
-      tags: Array.from(entry.tags),
-    }));
-
-    const yearRaw = (movie.release_date || movie.first_air_date || movie.year || '').toString();
-    const year = yearRaw ? yearRaw.slice(0, 4) : '';
+    const year = (movie.release_date || movie.first_air_date || movie.year || '').toString().slice(0, 4);
     const season = movie.season_number || movie.season || null;
     const episode = movie.episode_number || movie.episode || null;
 
@@ -624,60 +541,46 @@ try {
       .filter(Boolean)
       .reduce((acc, item) => {
         if (typeof item === 'string') acc.push(item);
-        if (item && typeof item === 'object') {
-          if (item.name) acc.push(item.name);
-          if (item.title) acc.push(item.title);
-        }
+        if (item && typeof item === 'object' && item.name) acc.push(item.name);
         return acc;
       }, []);
 
-    names.forEach((entry) => {
-      addCombo(entry.value, entry.tags);
-      if (year) addCombo(`${entry.value} ${year}`, [...entry.tags, 'year']);
-      if (season) {
-        const sNum = String(season).padStart(2, '0');
-        addCombo(`${entry.value} S${sNum}`, [...entry.tags, 'season']);
-        addCombo(`${entry.value} season ${season}`, [...entry.tags, 'season']);
-        if (episode) {
-          const eNum = String(episode).padStart(2, '0');
-          addCombo(`${entry.value} S${sNum}E${eNum}`, [...entry.tags, 'season', 'episode']);
-          addCombo(`${entry.value} ${season} сезон ${episode} серия`, [...entry.tags, 'season', 'episode']);
-        }
+    const add = (s) => {
+      const normalized = s && s.replace(/\s+/g, ' ').trim();
+      if (normalized) set.add(normalized);
+    };
+
+    const baseNames = [title];
+    if (orig && orig.toLowerCase() !== title.toLowerCase()) baseNames.push(orig);
+    localized.forEach((loc) => {
+      if (loc && !baseNames.includes(loc)) baseNames.push(loc);
+    });
+
+    baseNames.filter(Boolean).forEach((name) => {
+      add(name);
+      if (year) add(`${name} ${year}`);
+      if (season) add(`${name} S${String(season).padStart(2, '0')}`);
+      if (season && episode) {
+        add(`${name} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`);
+        add(`${name} ${season} сезон ${episode} серия`);
       }
     });
 
     if (title && orig && title.toLowerCase() !== orig.toLowerCase()) {
-      addCombo(`${title} ${orig}`, ['mix']);
-      if (year) addCombo(`${title} ${orig} ${year}`, ['mix', 'year']);
+      add(`${title} ${orig}`);
+      if (year) add(`${title} ${orig} ${year}`);
     }
 
-    const primaryNames = names
-      .filter((entry) => entry.tags.includes('base') || entry.tags.includes('original') || entry.tags.includes('translation'))
-      .slice(0, 3);
-
-    keywords.slice(0, 10).forEach((kw) => {
-      primaryNames.forEach((entry) => {
-        addCombo(`${entry.value} ${kw}`, [...entry.tags, 'keyword']);
-        if (year) addCombo(`${entry.value} ${kw} ${year}`, [...entry.tags, 'keyword', 'year']);
-      });
+    keywords.forEach((kw) => {
+      add(`${title} ${kw}`);
+      if (year) add(`${title} ${kw} ${year}`);
+      if (orig) add(`${orig} ${kw}`);
     });
 
-    if (movie.imdb_id) addCombo(movie.imdb_id, ['id']);
-    if (movie.tmdb_id || movie.id) addCombo(`tmdb:${movie.tmdb_id || movie.id}`, ['id']);
+    if (movie.imdb_id) add(movie.imdb_id);
+    if (movie.tmdb_id || movie.id) add(`tmdb:${movie.tmdb_id || movie.id}`);
 
-    const limit = 40;
-    const result = Array.from(combosMap.values())
-      .map((entry) => ({
-        query: entry.query,
-        label: entry.label,
-        tags: Array.from(entry.tags).filter((tag, idx, arr) => tag !== 'base' && arr.indexOf(tag) === idx),
-      }))
-      .filter((entry) => entry.query.length)
-      .slice(0, limit);
-
-    if (Config.debug) LOG('Search combinations', result);
-
-    return result;
+    return Array.from(set).filter(Boolean).slice(0, 25);
   }
 
   // ───────────────────────────── Main Component ─────────────────────────────
@@ -691,7 +594,6 @@ try {
     let lastFocused = null;
     let cachedToggleBtn = null;
     let activeTorrentController = null;
-    let pendingPlayback = null;
 
     this.activity = object.activity;
 
@@ -733,279 +635,6 @@ try {
       show_only_cached: Store.get('torbox_show_only_cached', '0') === '1',
     };
 
-    const rawTorrentByView = new WeakMap();
-    const rawTorrentByHash = new Map();
-
-    const storeRawTorrent = (hash, raw, viewItem) => {
-      if (viewItem && raw) rawTorrentByView.set(viewItem, raw);
-      if (!hash || !raw) return;
-      rawTorrentByHash.delete(hash);
-      rawTorrentByHash.set(hash, raw);
-      if (rawTorrentByHash.size > CONST.RAW_CACHE_HASH_LIMIT) {
-        const oldest = rawTorrentByHash.keys().next().value;
-        rawTorrentByHash.delete(oldest);
-      }
-    };
-
-    const getRawTorrentByHash = (hash) => (hash ? rawTorrentByHash.get(hash) || null : null);
-
-    const sanitizeExtensions = (value) => {
-      const parts = String(Array.isArray(value) ? value.join(',') : value || '')
-        .split(/[,\s]+/)
-        .map((ext) => ext.replace(/[^a-z0-9]/gi, '').toLowerCase())
-        .filter(Boolean);
-      const unique = Array.from(new Set(parts));
-      return unique.length ? unique : DEFAULT_VIDEO_EXTENSIONS.split(',');
-    };
-
-    const setVideoExtensions = (value) => {
-      const sanitized = sanitizeExtensions(value);
-      const serialized = sanitized.join(',');
-      if (Store.get('torbox_video_extensions', '') !== serialized) {
-        Store.set('torbox_video_extensions', serialized);
-      }
-      return sanitized;
-    };
-
-    const getVideoExtensions = () => setVideoExtensions(Store.get('torbox_video_extensions', DEFAULT_VIDEO_EXTENSIONS));
-
-    const setTrackRetries = (value) => {
-      const num = Math.round(Number(value));
-      const safe = Utils.clamp(
-        Number.isFinite(num) ? num : 24,
-        CONST.TRACK_RETRIES_MIN,
-        CONST.TRACK_RETRIES_MAX
-      );
-      Store.set('torbox_track_retries', String(safe));
-      return safe;
-    };
-
-    const getTrackRetries = () => setTrackRetries(Store.get('torbox_track_retries', '24'));
-
-    const setTrackIntervalMs = (value) => {
-      const num = Math.round(Number(value));
-      const safe = Utils.clamp(
-        Number.isFinite(num) ? num : CONST.TRACKING_POLL_INTERVAL_MS,
-        CONST.TRACK_INTERVAL_MIN_MS,
-        CONST.TRACK_INTERVAL_MAX_MS
-      );
-      Store.set('torbox_track_interval_ms', String(safe));
-      return safe;
-    };
-
-    const getTrackIntervalMs = () => setTrackIntervalMs(Store.get('torbox_track_interval_ms', CONST.TRACKING_POLL_INTERVAL_MS));
-
-    const FocusZones = Object.freeze({
-      CONTINUE: 'continue',
-      LIST: 'list',
-      TOGGLE: 'toggle',
-      EPISODE: 'episode',
-      EMPTY: 'empty',
-    });
-
-    const focusState = {
-      zone: null,
-      index: 0,
-    };
-
-    const isTorrentsView = () => state.view === 'torrents';
-
-    const getFocusCollection = (zone) => {
-      if (!scroll || typeof scroll.render !== 'function') return $();
-      const root = scroll.render();
-      switch (zone) {
-        case FocusZones.CONTINUE:
-          return root.find('.torbox-watched-item.selector');
-        case FocusZones.LIST:
-          return root.find('.torbox-item.selector');
-        case FocusZones.EMPTY:
-          return root.find('.empty.selector');
-        case FocusZones.TOGGLE:
-          return cachedToggleBtn ? cachedToggleBtn : $();
-        case FocusZones.EPISODE:
-          return root.find('.torbox-file-item.selector');
-        default:
-          return $();
-      }
-    };
-
-    const detectZone = (element) => {
-      if (!element || !element.length) return null;
-      if (element.hasClass('torbox-item')) return FocusZones.LIST;
-      if (element.hasClass('torbox-watched-item')) return FocusZones.CONTINUE;
-      if (element.hasClass('torbox-cached-toggle')) return FocusZones.TOGGLE;
-      if (element.hasClass('torbox-file-item')) return FocusZones.EPISODE;
-      if (element.hasClass('empty')) return FocusZones.EMPTY;
-      return null;
-    };
-
-    const updateFocusMetaFromElement = (element) => {
-      if (!element || !element.length) return;
-      const zone = element.data('torboxZone') || detectZone(element);
-      const index = Number(element.data('torboxIndex')) || 0;
-      focusState.zone = zone;
-      focusState.index = index;
-      lastFocused = element[0];
-      if (zone === FocusZones.LIST) {
-        const hashAttr = element.attr('data-hash');
-        if (hashAttr) state.last_hash = hashAttr;
-      }
-    };
-
-    const focusElement = (element) => {
-      if (!element || !element.length) return false;
-      updateFocusMetaFromElement(element);
-      if (scroll && typeof scroll.render === 'function') {
-        Lampa.Controller.collectionFocus(element[0], scroll.render());
-        if (focusState.zone !== FocusZones.TOGGLE && typeof scroll.update === 'function') {
-          scroll.update(element, true);
-        }
-      }
-      return true;
-    };
-
-    const focusZone = (zone, index = 0) => {
-      const collection = getFocusCollection(zone);
-      if (!collection || !collection.length) return false;
-      const clamped = Math.min(Math.max(index, 0), collection.length - 1);
-      const target = zone === FocusZones.TOGGLE ? collection : collection.eq(clamped);
-      return focusElement(target);
-    };
-
-    const focusListByIndex = (index = 0) => focusZone(FocusZones.LIST, index);
-    const focusContinueItem = () => focusZone(FocusZones.CONTINUE, 0);
-    const focusToggleButton = () => focusZone(FocusZones.TOGGLE, 0);
-    const focusEmptyMessage = () => focusZone(FocusZones.EMPTY, 0);
-
-    const focusFirstListItem = () => {
-      if (!scroll || typeof scroll.render !== 'function') return;
-      if (!isTorrentsView()) return;
-      if (hasContinueItem() && focusContinueItem()) return;
-      if (!focusListByIndex(0)) focusEmptyMessage();
-    };
-
-    const focusLastKnownListItem = () => {
-      if (!scroll || typeof scroll.render !== 'function') return false;
-      if (state.last_hash) {
-        const saved = scroll.render().find(`[data-hash="${state.last_hash}"]`).first();
-        if (saved.length) return focusElement(saved);
-      }
-      return focusListByIndex(0);
-    };
-
-    const hasContinueItem = () => getFocusCollection(FocusZones.CONTINUE).length > 0;
-
-    const openFilterPanel = () => filter.show(Lampa.Lang.translate('title_filter'), 'filter');
-
-    const formatRefineTags = (tags) => {
-      if (!Array.isArray(tags) || !tags.length) return '';
-      const dictionary = {
-        original: translate('torbox_refine_tag_original'),
-        translation: translate('torbox_refine_tag_translation'),
-        alt: translate('torbox_refine_tag_alt'),
-        year: translate('torbox_refine_tag_year'),
-        season: translate('torbox_refine_tag_season'),
-        episode: translate('torbox_refine_tag_episode'),
-        keyword: translate('torbox_refine_tag_keyword'),
-        id: translate('torbox_refine_tag_id'),
-        mix: translate('torbox_refine_tag_mix'),
-      };
-      const labels = tags
-        .map((tag) => dictionary[tag])
-        .filter(Boolean);
-      return labels.join(' • ');
-    };
-
-    const focusRoutes = {
-      [FocusZones.LIST]: {
-        up: () => {
-          if (focusState.index > 0) return focusListByIndex(focusState.index - 1);
-          if (hasContinueItem()) return focusContinueItem();
-          Lampa.Controller.toggle('head');
-          return true;
-        },
-        down: () => focusListByIndex(focusState.index + 1) || focusListByIndex(focusState.index),
-        left: () => {
-          Lampa.Controller.toggle('menu');
-          return true;
-        },
-        right: () => {
-          if (cachedToggleBtn && focusToggleButton()) return true;
-          openFilterPanel();
-          return true;
-        },
-      },
-      [FocusZones.CONTINUE]: {
-        up: () => {
-          Lampa.Controller.toggle('head');
-          return true;
-        },
-        down: () => focusListByIndex(0) || true,
-        left: () => {
-          Lampa.Controller.toggle('menu');
-          return true;
-        },
-        right: () => {
-          if (cachedToggleBtn && focusToggleButton()) return true;
-          return focusListByIndex(0) || (openFilterPanel(), true);
-        },
-      },
-      [FocusZones.TOGGLE]: {
-        up: () => {
-          Lampa.Controller.toggle('head');
-          return true;
-        },
-        down: () => focusListByIndex(0) || focusContinueItem() || true,
-        left: () => focusLastKnownListItem() || focusContinueItem() || true,
-        right: () => {
-          openFilterPanel();
-          return true;
-        },
-      },
-      [FocusZones.EMPTY]: {
-        up: () => {
-          Lampa.Controller.toggle('head');
-          return true;
-        },
-        down: () => true,
-        left: () => {
-          Lampa.Controller.toggle('menu');
-          return true;
-        },
-        right: () => {
-          openFilterPanel();
-          return true;
-        },
-      },
-    };
-
-    const ensureFocusExists = () => {
-      if (!isTorrentsView()) return;
-      if (focusState.zone && lastFocused) return;
-      if (focusLastKnownListItem()) return;
-      if (hasContinueItem() && focusContinueItem()) return;
-      if (!focusListByIndex(0)) focusEmptyMessage();
-    };
-
-    const handleDirectionalNavigation = (direction) => {
-      if (!isTorrentsView()) {
-        if (Navigator.canmove(direction)) Navigator.move(direction);
-        return;
-      }
-
-      ensureFocusExists();
-
-      const zone = focusState.zone || FocusZones.LIST;
-      const handler = focusRoutes[zone]?.[direction];
-
-      if (typeof handler === 'function') {
-        const handled = handler();
-        if (handled) return;
-      }
-
-      if (Navigator.canmove(direction)) Navigator.move(direction);
-    };
-
     const movieStorageKey = () => object.movie.imdb_id || object.movie.id || 'unknown';
 
     const lastTorrentStorageKey = () => `torbox_last_torrent_data_${movieStorageKey()}`;
@@ -1028,25 +657,7 @@ try {
     const saveLastTorrentSnapshot = (snapshot) => {
       const key = lastTorrentStorageKey();
       if (snapshot) {
-        const normalized = Object.assign({}, snapshot, {
-          title: (snapshot.title || '').slice(0, 320),
-        });
-        let payload = JSON.stringify(normalized);
-        if (payload.length > CONST.MAX_SNAPSHOT_BYTES) {
-          const minimal = {
-            hash: normalized.hash,
-            magnet: normalized.magnet,
-            title: normalized.title,
-            cached: !!normalized.cached,
-            quality: normalized.quality || null,
-            size: normalized.size || 0,
-            last_known_seeders: normalized.last_known_seeders || 0,
-            last_known_peers: normalized.last_known_peers || 0,
-            icon: normalized.icon || '',
-          };
-          payload = JSON.stringify(minimal);
-        }
-        Store.set(key, payload);
+        Store.set(key, JSON.stringify(snapshot));
       } else {
         Store.set(key, '');
       }
@@ -1095,8 +706,6 @@ try {
         }
       }
       activeTorrentController = null;
-      const reverted = revertPendingPlayback();
-      if (reverted && state.view === 'torrents') build();
     };
 
     // ───────────────────────────── Rendering helpers ─────────────────────────────
@@ -1145,7 +754,7 @@ try {
       const isCached = cachedSet.has(hashHex.toLowerCase());
       const publishDate = raw?.PublishDate ? new Date(raw.PublishDate) : null;
 
-      const viewItem = {
+      return {
         title: Utils.escapeHtml(raw?.Title || translate('torbox_no_title')),
         raw_title: raw?.Title || '',
         size: Number(raw?.Size) || 0,
@@ -1165,6 +774,7 @@ try {
         video_codec: tech.video_codec,
         audio_langs: tech.audio_langs,
         audio_codecs: tech.audio_codecs,
+        raw_data: raw,
         info_formated:
           `[${Utils.getQualityLabel(raw?.Title || '', raw)}] ${Utils.formatBytes(raw?.Size)} ` +
           `| 🟢<span style="color:var(--color-good);">${Number(raw?.Seeders) || 0}</span>` +
@@ -1176,15 +786,10 @@ try {
           `| ${translate('torbox_info_added')}: ${Utils.formatAge(raw?.PublishDate) || translate('torbox_not_available')}`,
         tech_bar_html: this.buildTechBar(tech, raw),
       };
-
-      storeRawTorrent(hashHex, raw, viewItem);
-      return viewItem;
     };
 
     // ───────────────────────────── Core actions ─────────────────────────────
     const drawEpisodes = (torrentData) => {
-      focusState.zone = FocusZones.EPISODE;
-      focusState.index = 0;
       scroll.clear();
       filter.render().hide();
 
@@ -1192,22 +797,17 @@ try {
       const torrentKey = torrentData.hash || torrentData.id;
       let watchedSet;
       try {
-        const rawWatched = JSON.parse(Store.get(`torbox_watched_episodes_${mid}_${torrentKey}`, '[]'));
-        let sanitized = Array.isArray(rawWatched) ? rawWatched.map((id) => String(id)).filter(Boolean) : [];
-        if (sanitized.length > CONST.MAX_WATCHED_EPISODES) {
-          sanitized = sanitized.slice(-CONST.MAX_WATCHED_EPISODES);
-          Store.set(`torbox_watched_episodes_${mid}_${torrentKey}`, JSON.stringify(sanitized));
-        } else if (sanitized.length !== (Array.isArray(rawWatched) ? rawWatched.length : 0)) {
-          Store.set(`torbox_watched_episodes_${mid}_${torrentKey}`, JSON.stringify(sanitized));
-        }
-        watchedSet = new Set(sanitized);
+        watchedSet = new Set(JSON.parse(Store.get(`torbox_watched_episodes_${mid}_${torrentKey}`, '[]')));
       } catch {
         watchedSet = new Set();
         Store.set(`torbox_watched_episodes_${mid}_${torrentKey}`, '[]');
       }
       const lastPlayedId = Store.get(`torbox_last_played_file_${mid}`, null);
 
-      const videoExtensions = getVideoExtensions();
+      const videoExtensions = Store.get('torbox_video_extensions', 'mkv,mp4,avi,ts,m4v,webm')
+        .split(',')
+        .map((ext) => ext.trim().toLowerCase())
+        .filter(Boolean);
       const videoRegex = new RegExp(
         `\\.(${videoExtensions.map((ext) => ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})$`,
         'i'
@@ -1233,8 +833,7 @@ try {
           file_id: file.id,
         });
 
-        const fileIdStr = String(file.id);
-        const isWatched = watchedSet.has(fileIdStr);
+        const isWatched = watchedSet.has(file.id);
         if (isWatched) item.addClass('torbox-file-item--watched');
         if (String(file.id) === String(lastPlayedId)) {
           item.addClass('torbox-file-item--last-played');
@@ -1242,31 +841,29 @@ try {
         }
 
         item
-          .data('torboxZone', FocusZones.EPISODE)
-          .data('torboxIndex', file.__idx)
           .on('hover:focus', (e) => {
-            const target = $(e.currentTarget);
-            updateFocusMetaFromElement(target);
-            scroll.update(target, true);
+            lastFocused = e.target;
+            scroll.update($(e.target), true);
           })
           .on('hover:enter', () => {
-            play(torrentData, file, {
-              onSuccess: ({ changed }) => {
-                if (!watchedSet.has(fileIdStr) && changed) {
-                  watchedSet.add(fileIdStr);
-                  item.addClass('torbox-file-item--watched');
-                }
-                drawEpisodes(torrentData);
-                Lampa.Controller.toggle('content');
-              },
-              onFail: () => Lampa.Controller.toggle('content'),
+            play(torrentData, file, () => {
+              if (!watchedSet.has(file.id)) {
+                watchedSet.add(file.id);
+                item.addClass('torbox-file-item--watched');
+                Store.set(`torbox_watched_episodes_${mid}_${torrentKey}`, JSON.stringify(Array.from(watchedSet)));
+              }
+              drawEpisodes(torrentData);
+              Lampa.Controller.toggle('content');
             });
           });
 
         scroll.append(item);
       });
 
-      if (focusEl) focusElement(focusEl);
+      if (focusEl) {
+        lastFocused = focusEl[0];
+        scroll.update(focusEl, true);
+      }
       Lampa.Controller.enable('content');
     };
 
@@ -1290,51 +887,19 @@ try {
     const _markWatched = (torrentHashOrId, fileId) => {
       const mid = object.movie.imdb_id || object.movie.id || 'unknown';
       const key = `torbox_watched_episodes_${mid}_${torrentHashOrId}`;
-      let rawList;
+      let v;
       try {
-        rawList = JSON.parse(Store.get(key, '[]'));
+        v = JSON.parse(Store.get(key, '[]'));
       } catch {
-        rawList = [];
+        v = [];
       }
-      if (!Array.isArray(rawList)) rawList = [];
-
-      const seen = new Set();
-      const normalized = [];
-      rawList.forEach((entry) => {
-        const id = String(entry);
-        if (!id || seen.has(id)) return;
-        seen.add(id);
-        normalized.push(id);
-      });
-
-      let changed = normalized.length !== rawList.length;
-      const fileKey = String(fileId);
-      if (fileKey && !seen.has(fileKey)) {
-        normalized.push(fileKey);
-        seen.add(fileKey);
-        changed = true;
-      }
-
-      if (normalized.length > CONST.MAX_WATCHED_EPISODES) {
-        const cut = normalized.slice(-CONST.MAX_WATCHED_EPISODES);
-        normalized.length = 0;
-        normalized.push(...cut);
-        changed = true;
-      }
-
-      Store.set(key, JSON.stringify(normalized));
-      if (fileKey) Store.set(`torbox_last_played_file_${mid}`, fileKey);
-      return changed;
+      if (!v.includes(fileId)) v.push(fileId);
+      Store.set(key, JSON.stringify(v));
+      Store.set(`torbox_last_played_file_${mid}`, fileId);
     };
 
-    const play = async (torrentData, file, callbacks = {}) => {
-      const { onSuccess, onFail, onFinally, onStart } = callbacks || {};
-      let playbackStarted = false;
-      let finished = false;
-
+    const play = async (torrentData, file, onEnd) => {
       try {
-        preparePlaybackState(torrentData);
-
         if (object.movie?.id) Lampa.Favorite.add('history', object.movie);
 
         const dl = await Api.requestDl(torrentData.id, file.id);
@@ -1343,31 +908,13 @@ try {
 
         const playbackConfig = _getPlayerConfig(link, file, object.movie);
 
-        const startResult = Lampa.Player.play(playbackConfig);
-        playbackStarted = startResult !== false;
-        if (!playbackStarted) {
-          throw { type: 'cancel', message: translate('torbox_error_player_cancelled') };
-        }
-
-        if (pendingPlayback) pendingPlayback.started = true;
-        if (typeof onStart === 'function') onStart();
-
+        Lampa.Player.play(playbackConfig);
         Lampa.Player.callback(() => {
-          if (finished) return;
-          finished = true;
-          const changed = _markWatched(torrentData.hash || torrentData.id, file.id);
-          finalizePendingPlayback();
-          if (typeof onSuccess === 'function') onSuccess({ torrentData, file, changed });
+          _markWatched(torrentData.hash || torrentData.id, file.id);
+          if (typeof onEnd === 'function') onEnd();
         });
       } catch (e) {
-        if (!playbackStarted) {
-          const reverted = revertPendingPlayback();
-          if (reverted && state.view === 'torrents') build();
-        }
-        if (typeof onFail === 'function') onFail(e);
-        if (e?.type !== 'cancel') ErrorHandler.show(e.type || 'error', e);
-      } finally {
-        if (typeof onFinally === 'function') onFinally({ started: playbackStarted, file, torrentData });
+        ErrorHandler.show(e.type || 'error', e);
       }
     };
 
@@ -1383,22 +930,16 @@ try {
         if (panel.length) {
           panel.find('.torbox-watched-item__info').text(info);
           panel.data('torboxSnapshot', snapshot);
-          panel.data('torboxZone', FocusZones.CONTINUE);
-          panel.data('torboxIndex', 0);
         } else {
           const historyItem = Lampa.Template.get('torbox_watched_item', {
             title: translate('torbox_continue_watching'),
             info,
           });
-          historyItem
-            .data('torboxSnapshot', snapshot)
-            .data('torboxZone', FocusZones.CONTINUE)
-            .data('torboxIndex', 0);
+          historyItem.data('torboxSnapshot', snapshot);
           historyItem
             .on('hover:focus', (e) => {
-              const target = $(e.currentTarget);
-              updateFocusMetaFromElement(target);
-              scroll.update(target, true);
+              lastFocused = e.target;
+              scroll.update($(e.target), true);
             })
             .on('hover:enter', (e) => {
               const snap = $(e.currentTarget).data('torboxSnapshot');
@@ -1408,11 +949,6 @@ try {
         }
       } else if (panel.length) {
         panel.remove();
-        if (focusState.zone === FocusZones.CONTINUE) {
-          focusState.zone = null;
-          focusState.index = 0;
-          lastFocused = null;
-        }
       }
     };
 
@@ -1442,49 +978,12 @@ try {
       }
     };
 
-    const beginPendingPlayback = (hash, snapshot) => {
-      const previousSnapshot = loadLastTorrentSnapshot();
-      pendingPlayback = {
-        hash,
-        snapshot: snapshot || null,
-        previousSnapshot,
-        previousHash: previousSnapshot?.hash || null,
-        started: false,
-      };
-    };
-
-    const revertPendingPlayback = () => {
-      if (!pendingPlayback || pendingPlayback.started) return false;
-      saveLastTorrentSnapshot(pendingPlayback.previousSnapshot || null);
-      updateContinueWatchingPanel(pendingPlayback.previousSnapshot || null);
-      state.last_hash = pendingPlayback.previousHash || null;
-      pendingPlayback = null;
-      return true;
-    };
-
-    const finalizePendingPlayback = () => {
-      pendingPlayback = null;
-    };
-
-    const preparePlaybackState = (source) => {
-      if (!source || !source.hash) return null;
-      if (pendingPlayback && pendingPlayback.hash === source.hash) return pendingPlayback.snapshot || null;
-      const original = state.all_torrents.find((t) => t.hash === source.hash) || source;
-      const snapshot = compactTorrentSnapshot(original);
-      if (!snapshot) return null;
-      beginPendingPlayback(source.hash, snapshot);
-      saveLastTorrentSnapshot(snapshot);
-      updateContinueWatchingPanel(snapshot);
-      if (original?.markAsLastPlayed) setTimeout(() => original.markAsLastPlayed(), 0);
-      return snapshot;
-    };
-
     const track = (id, signal) =>
       new Promise((resolve, reject) => {
         let active = true;
         let retries = 0;
-        const maxRetries = getTrackRetries();
-        const intervalMs = getTrackIntervalMs();
+        const maxRetries = Number(Store.get('torbox_track_retries', '24')) || 24; // default ~4 minutes
+        const intervalMs = Number(Store.get('torbox_track_interval_ms', CONST.TRACKING_POLL_INTERVAL_MS)) || CONST.TRACKING_POLL_INTERVAL_MS;
 
         const cancel = () => {
           if (!active) return;
@@ -1555,7 +1054,13 @@ try {
       }
 
       try {
-        preparePlaybackState(item);
+        const original = state.all_torrents.find((t) => t.hash === item.hash) || item;
+        const snapshot = compactTorrentSnapshot(original);
+        saveLastTorrentSnapshot(snapshot);
+        // Update continue panel immediately
+        updateContinueWatchingPanel(snapshot);
+        // Mark visually as last played (icon)
+        setTimeout(() => original.markAsLastPlayed?.(), 0);
       } catch (e) {
         LOG('History save error', e);
       }
@@ -1629,45 +1134,8 @@ try {
     const build = () => {
       buildFilter();
       if (cachedToggleBtn) updateCachedToggleVisual();
-      const filtered = applyFiltersSort();
-      if (Config.debug) {
-        const snapshotRaw = Store.get(lastTorrentStorageKey(), '') || '';
-        LOG('TorBox render stats', {
-          total: state.all_torrents.length,
-          filtered: filtered.length,
-          cachedOnly: state.show_only_cached,
-          snapshotBytes: snapshotRaw.length,
-          rawCache: rawTorrentByHash.size,
-        });
-      }
-      draw(filtered);
+      draw(applyFiltersSort());
     };
-
-    const Modules = Object.freeze({
-      utils: {
-        sanitizeExtensions,
-        setVideoExtensions,
-        getVideoExtensions,
-        generateSearchCombinations,
-      },
-      state: {
-        setTrackRetries,
-        getTrackRetries,
-        setTrackIntervalMs,
-        getTrackIntervalMs,
-      },
-      cache: {
-        storeRawTorrent,
-        getRawTorrentByHash,
-      },
-      ui: {
-        focusFirstListItem,
-        formatRefineTags,
-        updateContinueWatchingPanel,
-      },
-    });
-
-    this.modules = Modules;
 
     const applyFiltersSort = () => {
       // Apply filters
@@ -1705,10 +1173,23 @@ try {
       return list;
     };
 
+    const focusFirstListItem = () => {
+      if (!scroll || typeof scroll.render !== 'function') return;
+      const container = scroll.render();
+      if (!container?.length) return;
+      const prefer = container.find('.torbox-watched-item.selector').first();
+      const fallback = container.find('.torbox-item.selector').first();
+      const target = prefer.length ? prefer : fallback;
+      if (target && target.length) {
+        lastFocused = target[0];
+        const hashAttr = target.attr('data-hash');
+        if (hashAttr) state.last_hash = hashAttr;
+        Lampa.Controller.collectionFocus(target[0], scroll.render());
+      }
+    };
+
     const draw = (items) => {
       lastFocused = null;
-      focusState.zone = null;
-      focusState.index = 0;
       scroll.clear();
 
       // Playback progress (Lampa internal storage may be object or JSON string)
@@ -1729,7 +1210,7 @@ try {
       const lastSnapshot = loadLastTorrentSnapshot();
       let lastHash = lastSnapshot?.hash || null;
 
-      items.forEach((data, idx) => {
+      items.forEach((data) => {
         const lastPlayedIcon =
           lastHash && data.hash === lastHash
             ? `<span class="torbox-item__last-played-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5V7.5l5.25 3.5L11 16.5z" fill="currentColor"></path></svg></span>`
@@ -1739,8 +1220,6 @@ try {
           ...data,
           last_played_icon: lastPlayedIcon,
         });
-
-        item.data('torboxZone', FocusZones.LIST).data('torboxIndex', idx);
 
         // Playback progress (if present)
         if (viewDataForMovie && viewDataForMovie.total > 0 && viewDataForMovie.time >= 0) {
@@ -1772,11 +1251,9 @@ try {
 
         item
           .on('hover:focus', (e) => {
-            const target = $(e.currentTarget);
-            target.data('torboxIndex', idx);
-            updateFocusMetaFromElement(target);
-            scroll.update(target, true);
+            lastFocused = e.target;
             state.last_hash = data.hash;
+            scroll.update($(e.target), true);
           })
           .on('hover:enter', () => onTorrentClick(data))
           .on('hover:long', () => {
@@ -1796,16 +1273,16 @@ try {
         scroll.append(item);
       });
 
+      let focus = scroll.render().find('.selector').first();
+      if (state.last_hash) {
+        const saved = scroll.render().find(`[data-hash="${state.last_hash}"]`);
+        if (saved.length) focus = saved;
+      }
+      if (focus.length) lastFocused = focus[0];
       Lampa.Controller.enable('content');
 
       updateContinueWatchingPanel(lastSnapshot);
-
-      if (state.last_hash) {
-        const saved = scroll.render().find(`[data-hash="${state.last_hash}"]`).first();
-        if (saved.length && focusElement(saved)) return;
-      }
-
-      focusFirstListItem();
+      if (!lastFocused) focusFirstListItem();
     };
 
     const empty = (msg) => {
@@ -1813,14 +1290,11 @@ try {
       const el = Lampa.Template.get('torbox_empty', {
         message: msg || translate('torbox_empty_list'),
       });
+      el.addClass('selector');
       el
-        .addClass('selector')
-        .data('torboxZone', FocusZones.EMPTY)
-        .data('torboxIndex', 0)
         .on('hover:focus', (e) => {
-          const target = $(e.currentTarget);
-          updateFocusMetaFromElement(target);
-          scroll.update(target, true);
+          lastFocused = e.target;
+          scroll.update($(e.target), true);
         })
         .on('hover:enter', () =>
           Lampa.Noty.show(translate('torbox_no_results_prompt'))
@@ -2001,12 +1475,29 @@ try {
         toggle: () => {
           Lampa.Controller.collectionSet(filter.render(), scroll.render());
           Lampa.Controller.collectionFocus(lastFocused || false, scroll.render());
-          ensureFocusExists();
         },
-        up: () => handleDirectionalNavigation('up'),
-        down: () => handleDirectionalNavigation('down'),
-        left: () => handleDirectionalNavigation('left'),
-        right: () => handleDirectionalNavigation('right'),
+        up: () => {
+          const current = lastFocused ? $(lastFocused) : null;
+          const continueItem = scroll.render().find('.torbox-watched-item.selector').first();
+          if (continueItem.length && current && current.hasClass('torbox-item')) {
+            lastFocused = continueItem[0];
+            Lampa.Controller.collectionFocus(continueItem[0], scroll.render());
+            return;
+          }
+          if (Navigator.canmove('up')) Navigator.move('up');
+          else Lampa.Controller.toggle('head');
+        },
+        down: () => {
+          if (Navigator.canmove('down')) Navigator.move('down');
+        },
+        left: () => {
+          if (Navigator.canmove('left')) Navigator.move('left');
+          else Lampa.Controller.toggle('menu');
+        },
+        right: () => {
+          if (Navigator.canmove('right')) Navigator.move('right');
+          else filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+        },
         back: this.back.bind(this),
       });
 
@@ -2027,11 +1518,7 @@ try {
             }
             Lampa.Select.show({
               title: translate('torbox_refine_title'),
-              items: combos.map((combo) => ({
-                title: combo.label,
-                subtitle: formatRefineTags(combo.tags),
-                search_query: combo.query,
-              })),
+              items: combos.map((c) => ({ title: c, search_query: c })),
               onSelect: (sel) => {
                 search(true, sel.search_query);
                 Lampa.Controller.toggle('content');
@@ -2059,21 +1546,14 @@ try {
         <span class="torbox-cached-toggle__label"></span>
       `;
       cachedToggleBtn = $(`<div class="filter__item selector torbox-cached-toggle" role="button" aria-pressed="false">${toggleMarkup}</div>`);
-      cachedToggleBtn
-        .data('torboxZone', FocusZones.TOGGLE)
-        .data('torboxIndex', 0)
-        .on('hover:focus', (e) => {
-          updateFocusMetaFromElement($(e.currentTarget));
-        })
-        .on('hover:enter', () => {
-          state.show_only_cached = !state.show_only_cached;
-          Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
-          build();
-          cachedToggleBtn.removeClass('focus');
-          lastFocused = null;
-          focusState.zone = null;
-          focusState.index = 0;
-        });
+      cachedToggleBtn.on('hover:enter', () => {
+        state.show_only_cached = !state.show_only_cached;
+        Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
+        build();
+        cachedToggleBtn.removeClass('focus');
+        lastFocused = null;
+        focusFirstListItem();
+      });
       filter.render().find('.filter--sort').before(cachedToggleBtn);
       updateCachedToggleVisual();
 
@@ -2097,7 +1577,6 @@ try {
       if (state.view === 'episodes') {
         state.view = 'torrents';
         filter.render().show();
-        revertPendingPlayback();
         build();
       } else {
         cancelActiveTorrentFlow();
@@ -2260,11 +1739,6 @@ try {
         en: 'Failed to obtain file link',
         uk: 'Не вдалося отримати посилання на файл',
       },
-      torbox_error_player_cancelled: {
-        ru: 'Воспроизведение отменено',
-        en: 'Playback cancelled',
-        uk: 'Відтворення скасовано',
-      },
       torbox_last_torrent_fallback: {
         ru: 'Последний просмотренный торрент',
         en: 'Last viewed torrent',
@@ -2380,15 +1854,6 @@ try {
         uk: 'Недостатньо даних для уточнення запиту',
       },
       torbox_refine_title: { ru: 'Уточнить поиск', en: 'Refine search', uk: 'Уточнити пошук' },
-      torbox_refine_tag_original: { ru: 'Оригинал', en: 'Original', uk: 'Оригінал' },
-      torbox_refine_tag_translation: { ru: 'Перевод', en: 'Translation', uk: 'Переклад' },
-      torbox_refine_tag_alt: { ru: 'Альтернативное название', en: 'Alternate title', uk: 'Альтернативна назва' },
-      torbox_refine_tag_year: { ru: 'Год', en: 'Year', uk: 'Рік' },
-      torbox_refine_tag_season: { ru: 'Сезон', en: 'Season', uk: 'Сезон' },
-      torbox_refine_tag_episode: { ru: 'Эпизод', en: 'Episode', uk: 'Епізод' },
-      torbox_refine_tag_keyword: { ru: 'Ключевое слово', en: 'Keyword', uk: 'Ключове слово' },
-      torbox_refine_tag_id: { ru: 'Идентификатор', en: 'Identifier', uk: 'Ідентифікатор' },
-      torbox_refine_tag_mix: { ru: 'Комбинация', en: 'Combination', uk: 'Комбінація' },
       torbox_loading_initial: { ru: 'Загрузка...', en: 'Loading...', uk: 'Завантаження...' },
       torbox_manifest_description: {
         ru: 'Плагин для просмотра торрентов через TorBox',
@@ -2412,36 +1877,6 @@ try {
         ru: 'Подробные логи в консоль',
         en: 'Detailed logs in console',
         uk: 'Детальні логи у консолі',
-      },
-      torbox_settings_retries_name: {
-        ru: 'Повторы отслеживания',
-        en: 'Tracking retries',
-        uk: 'Повтори відстеження',
-      },
-      torbox_settings_retries_desc: {
-        ru: 'Сколько раз запрашивать статус торрента перед тайм-аутом (3–120 попыток).',
-        en: 'How many status polling attempts to perform before timing out (3–120 attempts).',
-        uk: 'Скільки разів опитувати статус торрента перед тайм-аутом (3–120 спроб).',
-      },
-      torbox_settings_interval_name: {
-        ru: 'Интервал отслеживания (мс)',
-        en: 'Tracking interval (ms)',
-        uk: 'Інтервал відстеження (мс)',
-      },
-      torbox_settings_interval_desc: {
-        ru: 'Задержка между запросами статуса торрента. Допустимо от 3000 до 60000 мс.',
-        en: 'Delay between status polling requests. Allowed range: 3000–60000 ms.',
-        uk: 'Затримка між запитами статусу торрента. Допустимий діапазон: 3000–60000 мс.',
-      },
-      torbox_settings_video_ext_name: {
-        ru: 'Видео-расширения',
-        en: 'Video extensions',
-        uk: 'Відеорозширення',
-      },
-      torbox_settings_video_ext_desc: {
-        ru: 'Список допустимых расширений через запятую. Пустое значение вернёт настройки по умолчанию.',
-        en: 'Comma-separated list of allowed extensions. Leave empty to restore defaults.',
-        uk: 'Список дозволених розширень через кому. Порожнє значення поверне налаштування за замовчуванням.',
       },
     });
 
@@ -2507,60 +1942,16 @@ try {
           get: () => Config.debug,
           set: (v) => (Config.debug = !!v),
         },
-        {
-          key: 'torbox_track_retries',
-          name: translate('torbox_settings_retries_name'),
-          desc: translate('torbox_settings_retries_desc'),
-          type: 'input',
-          inputmode: 'numeric',
-          get: () => String(getTrackRetries()),
-          set: (v) => String(setTrackRetries(v)),
-        },
-        {
-          key: 'torbox_track_interval_ms',
-          name: translate('torbox_settings_interval_name'),
-          desc: translate('torbox_settings_interval_desc'),
-          type: 'input',
-          inputmode: 'numeric',
-          get: () => String(getTrackIntervalMs()),
-          set: (v) => String(setTrackIntervalMs(v)),
-        },
-        {
-          key: 'torbox_video_extensions',
-          name: translate('torbox_settings_video_ext_name'),
-          desc: translate('torbox_settings_video_ext_desc'),
-          type: 'input',
-          placeholder: DEFAULT_VIDEO_EXTENSIONS,
-          get: () => getVideoExtensions().join(','),
-          set: (v) => setVideoExtensions(v).join(','),
-        },
       ];
 
       params.forEach((p) => {
-        let currentField = null;
         Lampa.SettingsApi.addParam({
           component: 'torbox_enh',
           param: { name: p.key, type: p.type, values: '', default: p.get() },
           field: { name: p.name, description: p.desc },
-          onChange: (v) => {
-            const value = typeof v === 'object' ? v.value : v;
-            const sanitized = p.set ? p.set(value) : value;
-            if (currentField && currentField.length) {
-              const input = currentField.find('input');
-              if (input.length) input.val(p.get());
-            }
-            return sanitized;
-          },
+          onChange: (v) => p.set(typeof v === 'object' ? v.value : v),
           onRender: (field) => {
-            currentField = field;
-            const input = field.find('input');
-            if (input.length) {
-              input.val(p.get());
-              if (p.mask) input.attr('type', 'password');
-              if (p.inputmode) input.attr('inputmode', p.inputmode);
-              if (p.placeholder) input.attr('placeholder', p.placeholder);
-            }
-            if (typeof p.render === 'function') p.render(field);
+            if (p.mask) field.find('input').attr('type', 'password');
           },
         });
       });
@@ -2657,17 +2048,3 @@ try {
     }
   })();
 })();
-} catch (torboxFatalError) {
-  try {
-    console.error('[TorBox] fatal boot error', torboxFatalError);
-  } catch {}
-  try {
-    const msg = torboxFatalError && torboxFatalError.stack ? torboxFatalError.stack : String(torboxFatalError);
-    localStorage.setItem('torbox_boot_error', msg);
-  } catch {}
-  try {
-    if (window.Lampa?.Noty) {
-      Lampa.Noty.show('TorBox boot error: ' + (torboxFatalError?.message || torboxFatalError), { type: 'error' });
-    }
-  } catch {}
-}
