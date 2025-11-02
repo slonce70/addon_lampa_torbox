@@ -12,7 +12,10 @@
  *  - Performance: minimal DOM thrash; style injected once; result caps & dedup
  *  - Compatibility: public surface (component id, templates, settings keys)
  * --------------------------------------------------------------------- */
-(function () {
+
+try {
+  console.log('[TorBox] boot strap', '51.1.2');
+  (function () {
   'use strict';
 
   // ───────────────────────────── Guard (idempotent load) ─────────────────────────────
@@ -21,7 +24,7 @@
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.1';
+  const VERSION = '51.1.2';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -2654,3 +2657,17 @@
     }
   })();
 })();
+} catch (torboxFatalError) {
+  try {
+    console.error('[TorBox] fatal boot error', torboxFatalError);
+  } catch {}
+  try {
+    const msg = torboxFatalError && torboxFatalError.stack ? torboxFatalError.stack : String(torboxFatalError);
+    localStorage.setItem('torbox_boot_error', msg);
+  } catch {}
+  try {
+    if (window.Lampa?.Noty) {
+      Lampa.Noty.show('TorBox boot error: ' + (torboxFatalError?.message || torboxFatalError), { type: 'error' });
+    }
+  } catch {}
+}
