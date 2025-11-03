@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.1.2');
+  console.log('[TorBox] boot strap', '51.1.3');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.2';
+  const VERSION = '51.1.3';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -802,7 +802,7 @@ try {
     const FocusZones = Object.freeze({
       CONTINUE: 'continue',
       LIST: 'list',
-      TOGGLE: 'toggle',
+      FILTER: 'filter',
       EPISODE: 'episode',
       EMPTY: 'empty',
     });
@@ -824,8 +824,8 @@ try {
           return root.find('.torbox-item.selector');
         case FocusZones.EMPTY:
           return root.find('.empty.selector');
-        case FocusZones.TOGGLE:
-          return cachedToggleBtn ? cachedToggleBtn : $();
+        case FocusZones.FILTER:
+          return filter.render().find('.filter__item.selector, .torbox-filter-focus');
         case FocusZones.EPISODE:
           return root.find('.torbox-file-item.selector');
         default:
@@ -837,7 +837,7 @@ try {
       if (!element || !element.length) return null;
       if (element.hasClass('torbox-item')) return FocusZones.LIST;
       if (element.hasClass('torbox-watched-item')) return FocusZones.CONTINUE;
-      if (element.hasClass('torbox-cached-toggle')) return FocusZones.TOGGLE;
+      if (element.hasClass('torbox-cached-toggle') || element.hasClass('filter__item')) return FocusZones.FILTER;
       if (element.hasClass('torbox-file-item')) return FocusZones.EPISODE;
       if (element.hasClass('empty')) return FocusZones.EMPTY;
       return null;
@@ -861,7 +861,7 @@ try {
       updateFocusMetaFromElement(element);
       if (scroll && typeof scroll.render === 'function') {
         Lampa.Controller.collectionFocus(element[0], scroll.render());
-        if (focusState.zone !== FocusZones.TOGGLE && typeof scroll.update === 'function') {
+        if (focusState.zone !== FocusZones.FILTER && typeof scroll.update === 'function') {
           scroll.update(element, true);
         }
       }
@@ -872,13 +872,13 @@ try {
       const collection = getFocusCollection(zone);
       if (!collection || !collection.length) return false;
       const clamped = Math.min(Math.max(index, 0), collection.length - 1);
-      const target = zone === FocusZones.TOGGLE ? collection : collection.eq(clamped);
+      const target = collection.eq(clamped);
       return focusElement(target);
     };
 
     const focusListByIndex = (index = 0) => focusZone(FocusZones.LIST, index);
     const focusContinueItem = () => focusZone(FocusZones.CONTINUE, 0);
-    const focusToggleButton = () => focusZone(FocusZones.TOGGLE, 0);
+    const focusFilterItem = (index = 0) => focusZone(FocusZones.FILTER, index);
     const focusEmptyMessage = () => focusZone(FocusZones.EMPTY, 0);
 
     const focusFirstListItem = () => {
@@ -900,6 +900,22 @@ try {
     const hasContinueItem = () => getFocusCollection(FocusZones.CONTINUE).length > 0;
 
     const openFilterPanel = () => filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+
+    const refreshFilterFocusBinding = () => {
+      if (!filter || typeof filter.render !== 'function') return;
+      const container = filter.render();
+      const items = container.find('.filter__item.selector');
+      items.each((idx, el) => {
+        const $el = $(el);
+        $el
+          .data('torboxZone', FocusZones.FILTER)
+          .data('torboxIndex', idx)
+          .addClass('torbox-filter-focus');
+      });
+      items.off('hover:focus.torboxNav').on('hover:focus.torboxNav', (e) => {
+        updateFocusMetaFromElement($(e.currentTarget));
+      });
+    };
 
     const formatRefineTags = (tags) => {
       if (!Array.isArray(tags) || !tags.length) return '';
@@ -925,6 +941,7 @@ try {
         up: () => {
           if (focusState.index > 0) return focusListByIndex(focusState.index - 1);
           if (hasContinueItem()) return focusContinueItem();
+          if (focusFilterItem(0)) return true;
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -934,7 +951,7 @@ try {
           return true;
         },
         right: () => {
-          if (cachedToggleBtn && focusToggleButton()) return true;
+          if (focusFilterItem(0)) return true;
           openFilterPanel();
           return true;
         },
@@ -950,21 +967,21 @@ try {
           return true;
         },
         right: () => {
-          if (cachedToggleBtn && focusToggleButton()) return true;
+          if (focusFilterItem(0)) return true;
           return focusListByIndex(0) || (openFilterPanel(), true);
         },
       },
-      [FocusZones.TOGGLE]: {
+      [FocusZones.FILTER]: {
         up: () => {
           Lampa.Controller.toggle('head');
           return true;
         },
-        down: () => focusListByIndex(0) || focusContinueItem() || true,
-        left: () => focusLastKnownListItem() || focusContinueItem() || true,
-        right: () => {
-          openFilterPanel();
-          return true;
+        down: () => focusListByIndex(0) || true,
+        left: () => {
+          if (focusState.index > 0) return focusFilterItem(focusState.index - 1);
+          return focusLastKnownListItem() || focusContinueItem() || true;
         },
+        right: () => focusFilterItem(focusState.index + 1) || focusFilterItem(focusState.index),
       },
       [FocusZones.EMPTY]: {
         up: () => {
@@ -988,6 +1005,7 @@ try {
       if (focusState.zone && lastFocused) return;
       if (focusLastKnownListItem()) return;
       if (hasContinueItem() && focusContinueItem()) return;
+      if (focusFilterItem(0)) return;
       if (!focusListByIndex(0)) focusEmptyMessage();
     };
 
@@ -1897,6 +1915,8 @@ try {
       }));
       filter.set('sort', sorts);
       filter.render().find('.filter--sort span').text(translate('torbox_sort_title'));
+
+      refreshFilterFocusBinding();
     };
 
     const search = (force = false, customTitle = null) => {
@@ -2063,13 +2083,7 @@ try {
         <span class="torbox-cached-toggle__label"></span>
       `;
       cachedToggleBtn = $(`<div class="filter__item selector torbox-cached-toggle" role="button" aria-pressed="false">${toggleMarkup}</div>`);
-      cachedToggleBtn
-        .data('torboxZone', FocusZones.TOGGLE)
-        .data('torboxIndex', 0)
-        .on('hover:focus', (e) => {
-          updateFocusMetaFromElement($(e.currentTarget));
-        })
-        .on('hover:enter', () => {
+      cachedToggleBtn.on('hover:enter', () => {
           state.show_only_cached = !state.show_only_cached;
           Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
           build();
