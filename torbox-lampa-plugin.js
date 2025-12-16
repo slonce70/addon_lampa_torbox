@@ -499,7 +499,7 @@ try {
     }
 
     async function searchPublicTrackers(movie, signal) {
-      // Try parsers sequentially until we get results
+      // Try parsers sequentially until we get results (Failover strategy)
       const queryBase = `${movie.title || ''} ${movie.year || ''}`.trim();
       const qsCommon = {
         Query: queryBase,
@@ -507,8 +507,20 @@ try {
         title_original: movie.original_title || '',
         Category: '2000,5000', // Movies + TV
       };
+
+      // Merge custom parsers
+      const customStr = Store.get('torbox_custom_parsers', '').trim();
+      const customParsers = customStr
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s && s.length > 3)
+        .map((url, i) => ({ name: `Custom ${i + 1}`, url: url.replace(/^https?:\/\//, '').replace(/\/+$/, ''), key: '' }));
+
+      const parsers = [...customParsers, ...PUBLIC_PARSERS];
       const out = [];
-      for (const p of PUBLIC_PARSERS) {
+
+      for (const p of parsers) {
+        if (signal.aborted) break;
         const qs = new URLSearchParams(qsCommon);
         if (p.key) qs.set('apikey', p.key);
         if (movie.year) qs.set('year', movie.year);
@@ -519,8 +531,11 @@ try {
           const json = await request(url, { method: 'GET', is_torbox_api: false }, signal);
           const list = Array.isArray(json?.Results) ? json.Results : [];
           LOG('Parser result:', p.name, list.length);
-          // Collect (do not early-return) to allow dedup across parsers
-          out.push(...list);
+          if (list.length > 0) {
+            out.push(...list);
+            // Smart Sequential: Stop after first successful hit
+            break;
+          }
         } catch (e) {
           LOG('Parser failed:', p.name, e.message || e);
         }
@@ -941,7 +956,12 @@ try {
         up: () => {
           if (focusState.index > 0) return focusListByIndex(focusState.index - 1);
           if (hasContinueItem()) return focusContinueItem();
+
+          // Try to focus filter; if failed, try to refresh bindings and retry
           if (focusFilterItem(0)) return true;
+          refreshFilterFocusBinding();
+          if (focusFilterItem(0)) return true;
+
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -951,6 +971,8 @@ try {
           return true;
         },
         right: () => {
+          if (focusFilterItem(0)) return true;
+          refreshFilterFocusBinding();
           if (focusFilterItem(0)) return true;
           openFilterPanel();
           return true;
@@ -1650,6 +1672,8 @@ try {
     // ───────────────────────────── Search/Build pipeline ─────────────────────────────
     const build = () => {
       buildFilter();
+      // Ensure filter is visible (in case we came back from episodes view)
+      if (filter && typeof filter.render === 'function') filter.render().show();
       if (cachedToggleBtn) updateCachedToggleVisual();
       const filtered = applyFiltersSort();
       if (Config.debug) {
@@ -1915,6 +1939,11 @@ try {
       }));
       filter.set('sort', sorts);
       filter.render().find('.filter--sort span').text(translate('torbox_sort_title'));
+
+      // Ensure cachedToggleBtn is present and bound
+      if (cachedToggleBtn && !filter.render().find('.torbox-cached-toggle').length) {
+        filter.render().find('.filter--sort').before(cachedToggleBtn);
+      }
 
       refreshFilterFocusBinding();
     };
@@ -2461,6 +2490,16 @@ try {
         en: 'Comma-separated list of allowed extensions. Leave empty to restore defaults.',
         uk: 'Список дозволених розширень через кому. Порожнє значення поверне налаштування за замовчуванням.',
       },
+      torbox_settings_custom_parsers_name: {
+        ru: 'Пользовательские парсеры',
+        en: 'Custom parsers',
+        uk: 'Користувацькі парсери',
+      },
+      torbox_settings_custom_parsers_desc: {
+        ru: 'Список доменов (через запятую) для поиска. Добавляются перед публичными.',
+        en: 'Comma-separated list of domains for search. Added before public ones.',
+        uk: 'Список доменів (через кому) для пошуку. Додаються перед публічними.',
+      },
     });
 
     // Templates used by the component
@@ -2551,6 +2590,15 @@ try {
           placeholder: DEFAULT_VIDEO_EXTENSIONS,
           get: () => getVideoExtensions().join(','),
           set: (v) => setVideoExtensions(v).join(','),
+        },
+        {
+          key: 'torbox_custom_parsers',
+          name: translate('torbox_settings_custom_parsers_name'),
+          desc: translate('torbox_settings_custom_parsers_desc'),
+          type: 'input',
+          placeholder: 'domain1.com, domain2.com',
+          get: () => Store.get('torbox_custom_parsers', ''),
+          set: (v) => Store.set('torbox_custom_parsers', String(v || '').trim()),
         },
       ];
 
