@@ -1182,12 +1182,13 @@ try {
         video_resolution: v ? `${v.width}x${v.height}` : null,
         audio_langs: [...new Set(a.map((s) => s?.tags?.language || s?.tags?.LANGUAGE).filter(Boolean))].map((x) => String(x).toUpperCase()),
         audio_codecs: [...new Set(a.map((s) => s?.codec_name).filter(Boolean))].map((x) => String(x).toUpperCase()),
-        has_hdr: /(^|\W)hdr(\W|$)/i.test(raw?.Title || '') || /hdr/i.test(raw?.info?.videotype || ''),
-        has_dv: /(dv|dolby\s*vision)/i.test(raw?.Title || '') || /(dovi|dolby\s*vision)/i.test(raw?.info?.videotype || ''),
+        has_hdr: REGEX.HDR.test(raw?.Title || '') || REGEX.HDR_SIMPLE.test(raw?.info?.videotype || ''),
+        has_dv: REGEX.DV.test(raw?.Title || '') || REGEX.DV_SIMPLE.test(raw?.info?.videotype || ''),
       };
 
       const isCached = cachedSet.has(hashHex.toLowerCase());
       const publishDate = raw?.PublishDate ? new Date(raw.PublishDate) : null;
+      const ageStr = publishDate ? Utils.formatAge(publishDate) : translate('torbox_not_available');
 
       const viewItem = {
         title: Utils.escapeHtml(raw?.Title || translate('torbox_no_title')),
@@ -1202,7 +1203,7 @@ try {
         cached: isCached,
         publish_date: raw?.PublishDate || '',
         publish_timestamp: publishDate && isFinite(publishDate) ? publishDate.getTime() : 0,
-        age: Utils.formatAge(raw?.PublishDate),
+        age: ageStr,
         quality: Utils.getQualityLabel(raw?.Title || '', raw),
         video_type: String(raw?.info?.videotype || '').toLowerCase() || 'unknown',
         voices: Array.isArray(raw?.info?.voices) ? raw.info.voices : [],
@@ -1217,7 +1218,7 @@ try {
           `${translate('torbox_info_trackers')}: ${
             String(raw?.Tracker || '').split(/,\s*/)[0] || translate('torbox_not_available')
           } ` +
-          `| ${translate('torbox_info_added')}: ${Utils.formatAge(raw?.PublishDate) || translate('torbox_not_available')}`,
+          `| ${translate('torbox_info_added')}: ${ageStr}`,
         tech_bar_html: this.buildTechBar(tech, raw),
       };
 
