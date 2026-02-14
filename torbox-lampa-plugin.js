@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.1.3');
+  console.log('[TorBox] boot strap', '51.1.4');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.3';
+  const VERSION = '51.1.4';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -829,6 +829,26 @@ try {
 
     const isTorrentsView = () => state.view === 'torrents';
 
+    const getFilterFocusItems = () => {
+      if (!filter || typeof filter.render !== 'function') return $();
+      const container = filter.render();
+
+      // Lampa's built-in filter bar uses `.filter--search/.filter--sort/.filter--filter` buttons.
+      // Some builds may use different class naming, so we keep a fallback.
+      let items = container.find(
+        '.torbox-cached-toggle.selector, .filter--search.selector, .filter--sort.selector, .filter--filter.selector'
+      );
+
+      if (!items || !items.length) {
+        items = container.find('.filter__item.selector, .selector');
+      }
+
+      // Do not allow the optional back button to steal our primary routes.
+      items = items.not('.filter--back');
+
+      return items;
+    };
+
     const getFocusCollection = (zone) => {
       if (!scroll || typeof scroll.render !== 'function') return $();
       const root = scroll.render();
@@ -840,7 +860,7 @@ try {
         case FocusZones.EMPTY:
           return root.find('.empty.selector');
         case FocusZones.FILTER:
-          return filter.render().find('.filter__item.selector, .torbox-filter-focus');
+          return getFilterFocusItems();
         case FocusZones.EPISODE:
           return root.find('.torbox-file-item.selector');
         default:
@@ -852,7 +872,17 @@ try {
       if (!element || !element.length) return null;
       if (element.hasClass('torbox-item')) return FocusZones.LIST;
       if (element.hasClass('torbox-watched-item')) return FocusZones.CONTINUE;
-      if (element.hasClass('torbox-cached-toggle') || element.hasClass('filter__item')) return FocusZones.FILTER;
+      if (
+        element.hasClass('torbox-cached-toggle') ||
+        element.hasClass('filter__item') ||
+        element.hasClass('filter--search') ||
+        element.hasClass('filter--sort') ||
+        element.hasClass('filter--filter') ||
+        element.hasClass('filter--back') ||
+        element.hasClass('simple-button--filter')
+      ) {
+        return FocusZones.FILTER;
+      }
       if (element.hasClass('torbox-file-item')) return FocusZones.EPISODE;
       if (element.hasClass('empty')) return FocusZones.EMPTY;
       return null;
@@ -875,7 +905,11 @@ try {
       if (!element || !element.length) return false;
       updateFocusMetaFromElement(element);
       if (scroll && typeof scroll.render === 'function') {
-        Lampa.Controller.collectionFocus(element[0], scroll.render());
+        const focusContainer =
+          focusState.zone === FocusZones.FILTER && filter && typeof filter.render === 'function'
+            ? filter.render()
+            : scroll.render();
+        Lampa.Controller.collectionFocus(element[0], focusContainer);
         if (focusState.zone !== FocusZones.FILTER && typeof scroll.update === 'function') {
           scroll.update(element, true);
         }
@@ -914,12 +948,28 @@ try {
 
     const hasContinueItem = () => getFocusCollection(FocusZones.CONTINUE).length > 0;
 
-    const openFilterPanel = () => filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+    const openFilterPanel = () => {
+      try {
+        const btn = filter && typeof filter.render === 'function' ? filter.render().find('.filter--filter') : null;
+        if (btn && btn.length) {
+          btn.trigger('hover:enter');
+          return true;
+        }
+      } catch (e) {
+        LOG('openFilterPanel trigger error', e);
+      }
+      try {
+        filter.show(Lampa.Lang.translate('title_filter'), 'filter');
+      } catch (e) {
+        LOG('openFilterPanel show error', e);
+      }
+      return true;
+    };
 
     const refreshFilterFocusBinding = () => {
       if (!filter || typeof filter.render !== 'function') return;
-      const container = filter.render();
-      const items = container.find('.filter__item.selector');
+      const items = getFilterFocusItems();
+      if (!items || !items.length) return;
       items.each((idx, el) => {
         const $el = $(el);
         $el
@@ -930,6 +980,19 @@ try {
       items.off('hover:focus.torboxNav').on('hover:focus.torboxNav', (e) => {
         updateFocusMetaFromElement($(e.currentTarget));
       });
+    };
+
+    const focusPrimaryFilterControl = () => {
+      if (!filter || typeof filter.render !== 'function') return false;
+      refreshFilterFocusBinding();
+      const container = filter.render();
+
+      // Prefer the actual "Filter" button: OK should open the filter list.
+      let primary = container.find('.filter--filter.selector').first();
+      if (!primary.length) primary = container.find('.filter--filter').first();
+      if (primary.length) return focusElement(primary);
+
+      return focusFilterItem(0);
     };
 
     const formatRefineTags = (tags) => {
@@ -971,9 +1034,9 @@ try {
           return true;
         },
         right: () => {
-          if (focusFilterItem(0)) return true;
+          if (focusPrimaryFilterControl()) return true;
           refreshFilterFocusBinding();
-          if (focusFilterItem(0)) return true;
+          if (focusPrimaryFilterControl()) return true;
           openFilterPanel();
           return true;
         },
@@ -989,7 +1052,7 @@ try {
           return true;
         },
         right: () => {
-          if (focusFilterItem(0)) return true;
+          if (focusPrimaryFilterControl()) return true;
           return focusListByIndex(0) || (openFilterPanel(), true);
         },
       },
@@ -1429,6 +1492,12 @@ try {
           panel.data('torboxSnapshot', snapshot);
           panel.data('torboxZone', FocusZones.CONTINUE);
           panel.data('torboxIndex', 0);
+          // Panel may be created outside a collection refresh; ensure it's navigable.
+          try {
+            if (Lampa.Controller && typeof Lampa.Controller.collectionAppend === 'function') {
+              Lampa.Controller.collectionAppend(panel);
+            }
+          } catch {}
         } else {
           const historyItem = Lampa.Template.get('torbox_watched_item', {
             title: translate('torbox_continue_watching'),
@@ -1449,9 +1518,20 @@ try {
               if (snap) onTorrentClick(snap);
             });
           scroll.body().prepend(historyItem);
+          try {
+            if (Lampa.Controller && typeof Lampa.Controller.collectionAppend === 'function') {
+              Lampa.Controller.collectionAppend(historyItem);
+            }
+          } catch {}
         }
       } else if (panel.length) {
+        const panelEl = panel[0];
         panel.remove();
+        try {
+          if (window.Navigator && typeof Navigator.remove === 'function' && panelEl) {
+            Navigator.remove(panelEl);
+          }
+        } catch {}
         if (focusState.zone === FocusZones.CONTINUE) {
           focusState.zone = null;
           focusState.index = 0;
@@ -2052,7 +2132,12 @@ try {
     this.initialize = function () {
       Lampa.Controller.add('content', {
         toggle: () => {
-          Lampa.Controller.collectionSet(filter.render(), scroll.render());
+          if (isTorrentsView()) {
+            Lampa.Controller.collectionSet(filter.render(), scroll.render());
+          } else {
+            // Episodes view: filter is hidden, keep navigation only within file list.
+            Lampa.Controller.collectionSet(scroll.render());
+          }
           Lampa.Controller.collectionFocus(lastFocused || false, scroll.render());
           ensureFocusExists();
         },
@@ -2109,9 +2194,11 @@ try {
       // Cached-only toggle button
       const toggleMarkup = `
         <span class="torbox-cached-toggle__icon">☁️</span>
-        <span class="torbox-cached-toggle__label"></span>
+        <div class="torbox-cached-toggle__label"></div>
       `;
-      cachedToggleBtn = $(`<div class="filter__item selector torbox-cached-toggle" role="button" aria-pressed="false">${toggleMarkup}</div>`);
+      cachedToggleBtn = $(
+        `<div class="simple-button simple-button--filter selector torbox-cached-toggle" role="button" aria-pressed="false">${toggleMarkup}</div>`
+      );
       cachedToggleBtn.on('hover:enter', () => {
           state.show_only_cached = !state.show_only_cached;
           Store.set('torbox_show_only_cached', state.show_only_cached ? '1' : '0');
@@ -2182,7 +2269,7 @@ try {
       iconEl.text(icon);
       labelEl.text(labelText);
       cachedToggleBtn
-        .toggleClass('filter__item--active', on)
+        .toggleClass('torbox-cached-toggle--active', on)
         .attr('title', hintText)
         .attr('aria-label', hintText)
         .attr('aria-pressed', String(on));
@@ -2690,7 +2777,7 @@ try {
           .torbox-cached-toggle { display:inline-flex; align-items:center; justify-content:center; border:2px solid transparent; transition:.2s; gap:.5em; padding:0 .8em; min-height:2.5em; }
           .torbox-cached-toggle__icon { font-size:1.5em; line-height:1; }
           .torbox-cached-toggle__label { font-size:.85em; font-weight:500; white-space:nowrap; }
-          .torbox-cached-toggle.filter__item--active, .torbox-cached-toggle.focus, .torbox-cached-toggle:hover {
+          .torbox-cached-toggle.torbox-cached-toggle--active, .torbox-cached-toggle.focus, .torbox-cached-toggle:hover {
             background:var(--color-primary); color:var(--color-background); border-color:rgba(255,255,255,.28);
           }
           .torbox-file-item { display:flex; justify-content:space-between; align-items:center; padding:1em 1.2em; margin-bottom:1em; border-radius:.8em; background:var(--color-background-light); transition:.25s; border:2px solid transparent; }
