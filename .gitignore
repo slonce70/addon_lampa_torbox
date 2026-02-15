@@ -44,3 +44,4 @@ out/
 # Тестовые файлы
 test-results/
 coverage/
+plan.md

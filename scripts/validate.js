@@ -20,7 +20,6 @@ function readText(p) {
 const root = path.resolve(__dirname, '..');
 const pluginPath = path.join(root, 'torbox-lampa-plugin.js');
 const readmePath = path.join(root, 'README.md');
-const planPath = path.join(root, 'plan.md');
 const unitTestPath = path.join(root, 'tests', 'unit', 'torbox-pure.test.js');
 const e2eTestPath = path.join(root, 'tests', 'e2e', 'focus-smoke.spec.js');
 
@@ -59,11 +58,9 @@ if (!readme.includes(`### ${version}`)) {
   fail(`README.md changelog is missing heading "### ${version}"`);
 }
 
-// 4) Plan: must exist and include the TV checklist marker (manual QA baseline).
-if (!fs.existsSync(planPath)) fail('plan.md is missing');
-const plan = readText(planPath);
-if (!/Ручной чек-лист\s*\(TV\)/.test(plan)) {
-  fail('plan.md does not contain "Ручной чек-лист (TV)" section');
+// 4) README should include TV checklist section (manual QA baseline).
+if (!/Ручной чек-лист на TV/.test(readme)) {
+  fail('README.md does not contain "Ручной чек-лист на TV" section');
 }
 
 // 5) Sanity: TV filter focus integration must exist.
