@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.1.5');
+  console.log('[TorBox] boot strap', '51.1.6');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.5';
+  const VERSION = '51.1.6';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -1029,8 +1029,11 @@ try {
       [FocusZones.LIST]: {
         up: () => {
           if (focusState.index > 0) return focusListByIndex(focusState.index - 1);
-          if (focusSearchControl()) return true;
+          // Visual order in UI: Filter bar (search/sort/filter) -> Continue -> List.
+          // So when user is at the first list item, Up should go to Continue first (if present),
+          // and only then to the filter/search controls above it.
           if (hasContinueItem()) return focusContinueItem();
+          if (focusSearchControl()) return true;
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -1040,9 +1043,8 @@ try {
           return true;
         },
         right: () => {
-          if (focusPrimaryFilterControl()) return true;
-          refreshFilterFocusBinding();
-          if (focusPrimaryFilterControl()) return true;
+          // UX for TV: Right from the list should immediately open the filter list
+          // (not just move focus to the top filter button).
           openFilterPanel();
           return true;
         },
@@ -1059,8 +1061,9 @@ try {
           return true;
         },
         right: () => {
-          if (focusPrimaryFilterControl()) return true;
-          return focusListByIndex(0) || (openFilterPanel(), true);
+          // Match list behavior: Right opens filter list immediately.
+          openFilterPanel();
+          return true;
         },
       },
       [FocusZones.FILTER]: {
@@ -1367,6 +1370,15 @@ try {
           })
           .on('hover:enter', () => {
             play(torrentData, file, {
+              onStart: ({ changed }) => {
+                // Some Lampa builds may not reliably fire Player.callback on exit.
+                // Mark the episode as watched as soon as playback successfully starts,
+                // so the UI/state is consistent when returning later.
+                if (!watchedSet.has(fileIdStr) && changed) {
+                  watchedSet.add(fileIdStr);
+                  item.addClass('torbox-file-item--watched');
+                }
+              },
               onSuccess: ({ changed }) => {
                 if (!watchedSet.has(fileIdStr) && changed) {
                   watchedSet.add(fileIdStr);
@@ -1466,7 +1478,16 @@ try {
         }
 
         if (pendingPlayback) pendingPlayback.started = true;
-        if (typeof onStart === 'function') onStart();
+
+        // Mark watched as early as possible after successful player start.
+        // We still also mark on Player.callback; this early mark improves UX robustness.
+        let changedAtStart = false;
+        try {
+          changedAtStart = _markWatched(torrentData.hash || torrentData.id, file.id);
+        } catch (e) {
+          LOG('Mark watched onStart error', e);
+        }
+        if (typeof onStart === 'function') onStart({ torrentData, file, changed: changedAtStart });
 
         Lampa.Player.callback(() => {
           if (finished) return;
@@ -2309,6 +2330,10 @@ try {
       torbox_time_hours_short: { ru: '{value}ч', en: '{value}h', uk: '{value}год' },
       torbox_time_minutes_short: { ru: '{value}м', en: '{value}m', uk: '{value}хв' },
       torbox_time_seconds_short: { ru: '{value}с', en: '{value}s', uk: '{value}с' },
+      torbox_age_seconds: { ru: '{value}с назад', en: '{value}s ago', uk: '{value}с тому' },
+      torbox_age_minutes: { ru: '{value}м назад', en: '{value}m ago', uk: '{value}хв тому' },
+      torbox_age_hours: { ru: '{value}ч назад', en: '{value}h ago', uk: '{value}год тому' },
+      torbox_age_days: { ru: '{value}д назад', en: '{value}d ago', uk: '{value}д тому' },
       torbox_not_available: { ru: 'н/д', en: 'n/a', uk: 'н/д' },
       torbox_error_cors_missing: {
         ru: 'CORS‑прокси не задан. Укажите URL в настройках TorBox.',
