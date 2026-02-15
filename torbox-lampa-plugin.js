@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.1.4');
+  console.log('[TorBox] boot strap', '51.1.5');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.4';
+  const VERSION = '51.1.5';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -933,7 +933,6 @@ try {
     const focusFirstListItem = () => {
       if (!scroll || typeof scroll.render !== 'function') return;
       if (!isTorrentsView()) return;
-      if (hasContinueItem() && focusContinueItem()) return;
       if (!focusListByIndex(0)) focusEmptyMessage();
     };
 
@@ -995,6 +994,18 @@ try {
       return focusFilterItem(0);
     };
 
+    const focusSearchControl = () => {
+      if (!filter || typeof filter.render !== 'function') return false;
+      refreshFilterFocusBinding();
+      const container = filter.render();
+
+      let searchBtn = container.find('.filter--search.selector').first();
+      if (!searchBtn.length) searchBtn = container.find('.filter--search').first();
+      if (searchBtn.length) return focusElement(searchBtn);
+
+      return focusFilterItem(0);
+    };
+
     const formatRefineTags = (tags) => {
       if (!Array.isArray(tags) || !tags.length) return '';
       const dictionary = {
@@ -1018,13 +1029,8 @@ try {
       [FocusZones.LIST]: {
         up: () => {
           if (focusState.index > 0) return focusListByIndex(focusState.index - 1);
+          if (focusSearchControl()) return true;
           if (hasContinueItem()) return focusContinueItem();
-
-          // Try to focus filter; if failed, try to refresh bindings and retry
-          if (focusFilterItem(0)) return true;
-          refreshFilterFocusBinding();
-          if (focusFilterItem(0)) return true;
-
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -1043,6 +1049,7 @@ try {
       },
       [FocusZones.CONTINUE]: {
         up: () => {
+          if (focusSearchControl()) return true;
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -1061,7 +1068,7 @@ try {
           Lampa.Controller.toggle('head');
           return true;
         },
-        down: () => focusListByIndex(0) || true,
+        down: () => (hasContinueItem() ? focusContinueItem() : focusLastKnownListItem() || focusListByIndex(0) || true),
         left: () => {
           if (focusState.index > 0) return focusFilterItem(focusState.index - 1);
           return focusLastKnownListItem() || focusContinueItem() || true;
@@ -1070,6 +1077,7 @@ try {
       },
       [FocusZones.EMPTY]: {
         up: () => {
+          if (focusSearchControl()) return true;
           Lampa.Controller.toggle('head');
           return true;
         },
@@ -1089,8 +1097,9 @@ try {
       if (!isTorrentsView()) return;
       if (focusState.zone && lastFocused) return;
       if (focusLastKnownListItem()) return;
+      if (focusListByIndex(0)) return;
       if (hasContinueItem() && focusContinueItem()) return;
-      if (focusFilterItem(0)) return;
+      if (focusSearchControl()) return;
       if (!focusListByIndex(0)) focusEmptyMessage();
     };
 
