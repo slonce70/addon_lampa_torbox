@@ -2,7 +2,7 @@
 
 Плагин для [Lampa](https://lampa.mx), который добавляет просмотр торрентов через [TorBox.app](https://torbox.app) прямо из карточки фильма/сериала.
 
-Текущая версия: **51.1.6**
+Текущая версия: **51.2.0**
 
 ## Установка
 1. Откройте Lampa: `Настройки` → `Плагины` → `Добавить плагин`.
@@ -21,18 +21,25 @@
 Дополнительно:
 - `Tracking retries` (3–120) и `Tracking interval` (3000–60000 ms): опрос статуса торрента.
 - `Video extensions`: список расширений для отбора файлов серий.
+- `Default: cached only`, `Quality priority`, `Preferred audio languages`, `Preferred video codecs`, `Exclude trackers`.
+- `Prefer permanent link`: пробует `requestdl&redirect=true` с автоматическим fallback.
+- `Auto-pick file (movies)`: выбор лучшего файла для фильмов (крупнейший, без sample/trailer).
+- `Debug overlay` и `Export diagnostics`.
 
 ## Управление с пульта (TV)
 - Навигация построена на стандартных правилах Lampa: элементы с `.selector` и события `hover:focus/hover:enter`.
-- `Right` из списка торрентов переводит фокус на кнопку фильтра (`filter--filter`), чтобы `OK` открывал фильтры.
+- `Right` из списка торрентов сразу открывает фильтры.
 - Переключатель `⚡/☁️` встроен в панель фильтров и не должен ломать фокус.
 
 ## Тестирование
-Автотесты в этом репозитории минимальные и проверяют корректность сборки/версий.
+Есть `validate`, `unit` и минимальный `e2e smoke` (Playwright, Chromium).
 
 ### Быстрые проверки (локально)
 ```bash
 node scripts/validate.js
+node --test tests/unit/torbox-pure.test.js
+npx --yes playwright install chromium
+npx --yes playwright test tests/e2e/focus-smoke.spec.js --project=chromium
 ```
 
 ### Ручной чек-лист на TV
@@ -43,6 +50,16 @@ node scripts/validate.js
 - Если на ТВ “фильтр не открывается”, почти всегда причина в фокусе (не на той кнопке) или в том, что элемент не попал в коллекцию навигации.
 
 ## Changelog
+
+### 51.2.0
+- P0 security hardening: закрыты критичные HTML-инъекции (`Tracker`, `file.name`, `filter.chosen`, пустые состояния и related paths).
+- Ошибки API теперь сохраняют `detail/message` для 4xx/5xx, чтобы диагностика была предметной.
+- P1 compatibility: регистрация плагина переведена на корректный `Manifest.plugins = manifest` (+ fallback), добавлен запуск из меню плагинов (`onContextMenu/onContextLauch`).
+- `requestdl` стратегия: опция `Prefer permanent link` (`redirect=true`) с безопасным fallback на классический режим.
+- Добавлены пользовательские предпочтения: дефолт cached-only, приоритет качества/аудио/кодека, исключение трекеров.
+- Улучшен выбор файла: запоминание выбранного файла по торренту, авто-эвристика для фильмов (largest + ignore sample/trailer).
+- Наблюдаемость: `Debug overlay`, телеметрия последних ошибок/логов, экспорт JSON-диагностики в буфер.
+- Тесты: unit (pure helpers + security guards) и e2e smoke (focus navigation in real browser).
 
 ### 51.1.6
 - `Right` из списка торрентов теперь сразу открывает фильтры (без промежуточного наведения на кнопку).

@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.1.6');
+  console.log('[TorBox] boot strap', '51.2.0');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.1.6';
+  const VERSION = '51.2.0';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -91,6 +91,44 @@ try {
     },
   };
 
+  const DebugTelemetry = {
+    logs: [],
+    lastError: null,
+  };
+
+  const pushDebugLog = (level, args) => {
+    try {
+      const msg = args
+        .map((a) => {
+          if (typeof a === 'string') return a;
+          try {
+            return JSON.stringify(a);
+          } catch {
+            return String(a);
+          }
+        })
+        .join(' ');
+      DebugTelemetry.logs.push({
+        ts: new Date().toISOString(),
+        level,
+        msg,
+      });
+      if (DebugTelemetry.logs.length > 50) {
+        DebugTelemetry.logs = DebugTelemetry.logs.slice(-50);
+      }
+    } catch {
+      /* ignore telemetry errors */
+    }
+  };
+
+  const parseBoolean = (value, fallback = false) => {
+    if (value === true || value === false) return value;
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (['1', 'true', 'on', 'yes'].includes(normalized)) return true;
+    if (['0', 'false', 'off', 'no'].includes(normalized)) return false;
+    return fallback;
+  };
+
   const Config = {
     get debug() {
       return Store.get('torbox_debug', '0') === '1';
@@ -131,7 +169,10 @@ try {
       else Store.set('torbox_api_key_b64', btoa(normalized));
     },
   };
-  const LOG = (...args) => Config.debug && console.log('[TorBox]', ...args);
+  const LOG = (...args) => {
+    pushDebugLog('log', args);
+    if (Config.debug) console.log('[TorBox]', ...args);
+  };
 
   const translate = (key) => {
     try {
@@ -193,7 +234,10 @@ try {
       return translateWithParams('torbox_age_days', { value: days });
     },
     getQualityLabel(title = '', raw) {
-      if (raw?.info?.quality) return `${raw.info.quality}p`;
+      if (raw?.info?.quality) {
+        const normalized = String(raw.info.quality).replace(/[^0-9a-z.+-]/gi, '');
+        if (normalized) return `${normalized}p`;
+      }
       if (/2160p|4k|uhd/i.test(title)) return '4K';
       if (/1080p|fhd/i.test(title)) return 'FHD';
       if (/720p|hd/i.test(title)) return 'HD';
@@ -224,6 +268,24 @@ try {
       if (!isFinite(n) || n < 0) return 0;
       if (n <= 1) return Utils.clamp(n * 100, 0, 100);
       return Utils.clamp(n, 0, 100);
+    },
+    sanitizeTokenList(value, { uppercase = false } = {}) {
+      const items = String(Array.isArray(value) ? value.join(',') : value || '')
+        .split(',')
+        .map((item) => String(item || '').replace(/[\r\n]+/g, '').trim())
+        .filter(Boolean)
+        .map((item) => (uppercase ? item.toUpperCase() : item));
+      return Array.from(new Set(items));
+    },
+    safeClassSelector(str = '') {
+      return String(str || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 4)
+        .map((part) => part.replace(/[^\w-]/g, ''))
+        .filter(Boolean)
+        .map((part) => `.${part}`)
+        .join('');
     },
 
     // ─── BTIH helpers ─────────────────────────────────────────────────
@@ -336,6 +398,58 @@ try {
 
   const getTrackIntervalMs = () => setTrackIntervalMs(Store.get('torbox_track_interval_ms', CONST.TRACKING_POLL_INTERVAL_MS));
 
+  const setStoredBool = (key, value) => {
+    const bool = parseBoolean(value, false);
+    Store.set(key, bool ? '1' : '0');
+    return bool;
+  };
+  const getStoredBool = (key, fallback = false) => parseBoolean(Store.get(key, fallback ? '1' : '0'), fallback);
+
+  const setDefaultCachedOnly = (value) => setStoredBool('torbox_default_cached_only', value);
+  const getDefaultCachedOnly = () => getStoredBool('torbox_default_cached_only', false);
+
+  const setPreferPermanentLink = (value) => setStoredBool('torbox_requestdl_permanent', value);
+  const getPreferPermanentLink = () => getStoredBool('torbox_requestdl_permanent', false);
+
+  const setDebugOverlayEnabled = (value) => setStoredBool('torbox_debug_overlay', value);
+  const getDebugOverlayEnabled = () => getStoredBool('torbox_debug_overlay', false);
+
+  const setAutoPickMovieFile = (value) => setStoredBool('torbox_auto_pick_movie_file', value);
+  const getAutoPickMovieFile = () => getStoredBool('torbox_auto_pick_movie_file', true);
+
+  const normalizeQualityOrder = (value) => {
+    const allowed = ['4K', 'FHD', 'HD', 'SD'];
+    const items = Utils.sanitizeTokenList(value, { uppercase: true }).filter((item) => allowed.includes(item));
+    return items.length ? items : allowed;
+  };
+  const setQualityOrder = (value) => {
+    const order = normalizeQualityOrder(value);
+    Store.set('torbox_pref_quality_order', order.join(','));
+    return order;
+  };
+  const getQualityOrder = () => setQualityOrder(Store.get('torbox_pref_quality_order', '4K,FHD,HD,SD'));
+
+  const setPreferredAudioLangs = (value) => {
+    const langs = Utils.sanitizeTokenList(value, { uppercase: true });
+    Store.set('torbox_pref_audio_langs', langs.join(','));
+    return langs;
+  };
+  const getPreferredAudioLangs = () => setPreferredAudioLangs(Store.get('torbox_pref_audio_langs', ''));
+
+  const setPreferredVideoCodecs = (value) => {
+    const codecs = Utils.sanitizeTokenList(value, { uppercase: true });
+    Store.set('torbox_pref_video_codecs', codecs.join(','));
+    return codecs;
+  };
+  const getPreferredVideoCodecs = () => setPreferredVideoCodecs(Store.get('torbox_pref_video_codecs', ''));
+
+  const setExcludedTrackers = (value) => {
+    const trackers = Utils.sanitizeTokenList(value, { uppercase: false });
+    Store.set('torbox_excluded_trackers', trackers.join(','));
+    return trackers;
+  };
+  const getExcludedTrackers = () => setExcludedTrackers(Store.get('torbox_excluded_trackers', ''));
+
   const isCachedFlagTrue = (flag) => {
     if (flag === true || flag === 'true') return true;
     if (flag === false || flag === 'false') return false;
@@ -412,6 +526,22 @@ try {
       }
     }
 
+    function extractApiDetail(json, text) {
+      const direct =
+        json?.detail ||
+        json?.message ||
+        json?.error ||
+        json?.data?.detail ||
+        json?.data?.message ||
+        '';
+      const normalized = String(direct || '').trim();
+      if (normalized) return normalized;
+
+      const plain = String(text || '').trim();
+      if (plain && plain.length <= 180 && !/^</.test(plain)) return plain;
+      return '';
+    }
+
     function buildProxyUrl(base, target) {
       const raw = String(base || '').trim();
       if (!raw) return raw;
@@ -459,19 +589,21 @@ try {
         const res = await fetch(proxied, { ...opt, headers, signal: controller.signal });
         const status = res.status;
         const text = await res.text();
+        const json = parseJsonSafe(text);
+        const detail = extractApiDetail(json, text);
+        const withDetail = (base) => (detail ? `${base}: ${detail}` : base);
 
         // Common error mapping
-        if (status === 401) throw { type: 'auth', message: translate('torbox_error_401') };
-        if (status === 403) throw { type: 'auth', message: translate('torbox_error_403') };
-        if (status === 404) throw { type: 'api', message: translate('torbox_error_404') };
-        if (status === 429) throw { type: 'network', message: translate('torbox_error_429') };
-        if (status >= 500) throw { type: 'network', message: translateWithParams('torbox_error_server', { status }) };
-        if (status >= 400) throw { type: 'network', message: translateWithParams('torbox_error_request', { status }) };
+        if (status === 401) throw { type: 'auth', message: withDetail(translate('torbox_error_401')) };
+        if (status === 403) throw { type: 'auth', message: withDetail(translate('torbox_error_403')) };
+        if (status === 404) throw { type: 'api', message: withDetail(translate('torbox_error_404')) };
+        if (status === 429) throw { type: 'network', message: withDetail(translate('torbox_error_429')) };
+        if (status >= 500) throw { type: 'network', message: withDetail(translateWithParams('torbox_error_server', { status })) };
+        if (status >= 400) throw { type: 'network', message: withDetail(translateWithParams('torbox_error_request', { status })) };
 
         // Direct URL (some TorBox endpoints may return a plain link)
         if (text.startsWith('http')) return { success: true, url: text };
 
-        const json = parseJsonSafe(text);
         if (!json) throw { type: 'api', message: translate('torbox_error_bad_json') };
 
         if (json.success === false) {
@@ -579,10 +711,21 @@ try {
       return json;
     }
 
-    function requestDl(tid, fid, signal) {
-      // TorBox API expects token query parameter alongside X-Api-Key header
-      const url = `${TB_MAIN}/torrents/requestdl?torrent_id=${encodeURIComponent(tid)}&file_id=${encodeURIComponent(fid)}&token=${encodeURIComponent(Config.apiKey)}`;
-      return request(url, { method: 'GET' }, signal);
+    async function requestDl(tid, fid, signal) {
+      // TorBox API expects token query parameter alongside X-Api-Key header.
+      // Optional permanent-link mode can be enabled; if it fails, we fallback to classic request.
+      const base = `${TB_MAIN}/torrents/requestdl?torrent_id=${encodeURIComponent(tid)}&file_id=${encodeURIComponent(fid)}&token=${encodeURIComponent(Config.apiKey)}`;
+      if (!getPreferPermanentLink()) return request(base, { method: 'GET' }, signal);
+
+      try {
+        const preferred = await request(`${base}&redirect=true`, { method: 'GET' }, signal);
+        const preferredUrl = preferred?.url || preferred?.data;
+        if (typeof preferredUrl === 'string' && /^https?:\/\//i.test(preferredUrl)) return preferred;
+      } catch (e) {
+        LOG('Permanent requestdl failed, fallback to classic', e?.message || e);
+      }
+
+      return request(base, { method: 'GET' }, signal);
     }
 
     return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
@@ -593,6 +736,11 @@ try {
     show(kind, err) {
       const t = kind || err?.type || 'error';
       const msg = err?.message || translate('torbox_error_unknown');
+      DebugTelemetry.lastError = {
+        ts: new Date().toISOString(),
+        type: t,
+        message: String(msg),
+      };
       const prefix =
         t === 'auth' ? translate('torbox_error_prefix_auth') :
         t === 'validation' ? translate('torbox_error_prefix_validation') :
@@ -759,6 +907,7 @@ try {
     let pendingPlayback = null;
 
     this.activity = object.activity;
+    window.__torbox_active_component = this;
 
     /** Sorting */
     const sortVariants = [
@@ -787,6 +936,12 @@ try {
       }
     };
 
+    const loadCachedOnly = () => {
+      const stored = Store.get('torbox_show_only_cached', null);
+      if (stored === null || stored === '') return getDefaultCachedOnly();
+      return parseBoolean(stored, false);
+    };
+
     const state = {
       all_torrents: [],
       sort: Store.get('torbox_sort_method', 'seeders'),
@@ -795,11 +950,26 @@ try {
       view: 'torrents', // 'torrents' | 'episodes'
       current_torrent_data: null,
       search_query: null,
-      show_only_cached: Store.get('torbox_show_only_cached', '0') === '1',
+      show_only_cached: loadCachedOnly(),
+    };
+
+    const readPreferenceState = () => ({
+      qualityOrder: getQualityOrder(),
+      audioLangs: getPreferredAudioLangs(),
+      videoCodecs: getPreferredVideoCodecs(),
+      excludedTrackers: getExcludedTrackers(),
+    });
+
+    const isTrackerExcluded = (torrentTrackers, excludedSet) => {
+      if (!excludedSet || !excludedSet.size) return false;
+      return (Array.isArray(torrentTrackers) ? torrentTrackers : []).some((tracker) =>
+        excludedSet.has(String(tracker || '').toLowerCase())
+      );
     };
 
     const rawTorrentByView = new WeakMap();
     const rawTorrentByHash = new Map();
+    let debugOverlayEl = null;
 
     const storeRawTorrent = (hash, raw, viewItem) => {
       if (viewItem && raw) rawTorrentByView.set(viewItem, raw);
@@ -826,6 +996,84 @@ try {
       zone: null,
       index: 0,
     };
+
+    const describeElementForDebug = (element) => {
+      if (!element || !element.length) return '-';
+      const classes = Utils.safeClassSelector(element.attr('class') || '') || element.prop('tagName') || '-';
+      const hash = element.attr('data-hash') || '';
+      return hash ? `${classes}[data-hash="${hash}"]` : classes;
+    };
+
+    const ensureDebugOverlay = () => {
+      const shouldShow = Config.debug && getDebugOverlayEnabled();
+      if (!shouldShow) {
+        if (debugOverlayEl) {
+          debugOverlayEl.remove();
+          debugOverlayEl = null;
+        }
+        return;
+      }
+      if (debugOverlayEl && debugOverlayEl.length) return;
+
+      debugOverlayEl = $('<div class="torbox-debug-overlay" aria-live="polite"></div>');
+      debugOverlayEl.css({
+        position: 'fixed',
+        right: '1em',
+        bottom: '1em',
+        zIndex: 99999,
+        maxWidth: '36em',
+        padding: '.7em .9em',
+        borderRadius: '.6em',
+        background: 'rgba(0,0,0,.78)',
+        color: '#fff',
+        fontSize: '.85em',
+        lineHeight: '1.35',
+        pointerEvents: 'none',
+        whiteSpace: 'pre-line',
+      });
+      $('body').append(debugOverlayEl);
+    };
+
+    const updateDebugOverlay = (element) => {
+      ensureDebugOverlay();
+      if (!debugOverlayEl || !debugOverlayEl.length) return;
+
+      const lines = [
+        `TorBox ${VERSION}`,
+        `view: ${state.view}`,
+        `zone/index: ${focusState.zone || '-'} / ${focusState.index}`,
+        `element: ${describeElementForDebug(element)}`,
+      ];
+      debugOverlayEl.text(lines.join('\n'));
+    };
+
+    const buildDiagnosticsReport = () => ({
+      generated_at: new Date().toISOString(),
+      version: VERSION,
+      settings: {
+        proxy_url: Config.proxyUrl || '',
+        debug: !!Config.debug,
+        debug_overlay: getDebugOverlayEnabled(),
+        prefer_permanent_link: getPreferPermanentLink(),
+        default_cached_only: getDefaultCachedOnly(),
+        auto_pick_movie_file: getAutoPickMovieFile(),
+        quality_order: getQualityOrder(),
+        preferred_audio_langs: getPreferredAudioLangs(),
+        preferred_video_codecs: getPreferredVideoCodecs(),
+        excluded_trackers: getExcludedTrackers(),
+        video_extensions: getVideoExtensions(),
+      },
+      state: {
+        view: state.view,
+        sort: state.sort,
+        show_only_cached: state.show_only_cached,
+        focus_zone: focusState.zone,
+        focus_index: focusState.index,
+        items_total: state.all_torrents.length,
+      },
+      last_error: DebugTelemetry.lastError,
+      logs_tail: DebugTelemetry.logs.slice(-50),
+    });
 
     const isTorrentsView = () => state.view === 'torrents';
 
@@ -899,6 +1147,7 @@ try {
         const hashAttr = element.attr('data-hash');
         if (hashAttr) state.last_hash = hashAttr;
       }
+      updateDebugOverlay(element);
     };
 
     const focusElement = (element) => {
@@ -1194,7 +1443,7 @@ try {
       const icon = snapshot.icon || (snapshot.cached ? '⚡' : '☁️');
       const titleParts = [];
       if (snapshot.quality) titleParts.push(`[${snapshot.quality}]`);
-      titleParts.push(snapshot.title || translate('torbox_no_title'));
+      titleParts.push(Utils.escapeHtml(snapshot.title || translate('torbox_no_title')));
       const sizeText = snapshot.size ? Utils.formatBytes(snapshot.size) : translate('torbox_not_available');
       const seeders = snapshot.last_known_seeders ?? 0;
       return translateWithParams('torbox_continue_info_template', {
@@ -1251,6 +1500,11 @@ try {
     const toViewItem = (raw, hashHex, cachedSet) => {
       const v = Array.isArray(raw?.ffprobe) ? raw.ffprobe.find((s) => s.codec_type === 'video') : null;
       const a = Array.isArray(raw?.ffprobe) ? raw.ffprobe.filter((s) => s.codec_type === 'audio') : [];
+      const trackers = String(raw?.Tracker || '')
+        .split(/,\s*/)
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+      const primaryTracker = trackers[0] || translate('torbox_not_available');
 
       const tech = {
         video_codec: v?.codec_name || null,
@@ -1272,7 +1526,7 @@ try {
         hash: hashHex,
         last_known_seeders: Number(raw?.Seeders) || 0,
         last_known_peers: Number(raw?.Peers || raw?.Leechers) || 0,
-        trackers: String(raw?.Tracker || '').split(/,\s*/).filter(Boolean),
+        trackers,
         icon: isCached ? '⚡' : '☁️',
         cached: isCached,
         publish_date: raw?.PublishDate || '',
@@ -1289,9 +1543,7 @@ try {
           `| 🟢<span style="color:var(--color-good);">${Number(raw?.Seeders) || 0}</span>` +
           ` / 🔴<span style="color:var(--color-bad);">${Number(raw?.Peers || raw?.Leechers) || 0}</span>`,
         meta_formated:
-          `${translate('torbox_info_trackers')}: ${
-            String(raw?.Tracker || '').split(/,\s*/)[0] || translate('torbox_not_available')
-          } ` +
+          `${translate('torbox_info_trackers')}: ${Utils.escapeHtml(primaryTracker)} ` +
           `| ${translate('torbox_info_added')}: ${Utils.formatAge(raw?.PublishDate) || translate('torbox_not_available')}`,
         tech_bar_html: this.buildTechBar(tech, raw),
       };
@@ -1347,7 +1599,7 @@ try {
       vids.forEach((file) => {
         const clean = (file.name || '').split('/').pop();
         let item = Lampa.Template.get('torbox_episode_item', {
-          title: clean || file.name || translate('torbox_no_title'),
+          title: Utils.escapeHtml(clean || file.name || translate('torbox_no_title')),
           size: Utils.formatBytes(file.size || 0),
           file_id: file.id,
         });
@@ -1369,6 +1621,7 @@ try {
             scroll.update(target, true);
           })
           .on('hover:enter', () => {
+            rememberPreferredFile(torrentData, file);
             play(torrentData, file, {
               onStart: ({ changed }) => {
                 // Some Lampa builds may not reliably fire Player.callback on exit.
@@ -1396,6 +1649,7 @@ try {
 
       if (focusEl) focusElement(focusEl);
       Lampa.Controller.enable('content');
+      updateDebugOverlay(focusEl || null);
     };
 
     const _getPlayerConfig = (url, file, movie) => {
@@ -1453,6 +1707,51 @@ try {
       Store.set(key, JSON.stringify(normalized));
       if (fileKey) Store.set(`torbox_last_played_file_${mid}`, fileKey);
       return changed;
+    };
+
+    const preferredFileStorageKey = (torrentData) => {
+      const mid = object.movie.imdb_id || object.movie.id || 'unknown';
+      const torrentKey = torrentData?.hash || torrentData?.id || 'unknown';
+      return `torbox_preferred_file_${mid}_${torrentKey}`;
+    };
+
+    const rememberPreferredFile = (torrentData, file) => {
+      const fid = file?.id;
+      if (fid === undefined || fid === null) return;
+      Store.set(preferredFileStorageKey(torrentData), String(fid));
+    };
+
+    const getRememberedFile = (torrentData, files) => {
+      const remembered = Store.get(preferredFileStorageKey(torrentData), '');
+      if (!remembered) return null;
+      const list = Array.isArray(files) ? files : [];
+      return list.find((file) => String(file?.id) === String(remembered)) || null;
+    };
+
+    const isSeriesContent = () => {
+      const movie = object?.movie || {};
+      return !!(movie.name || movie.original_name || movie.first_air_date || movie.season_number);
+    };
+
+    const pickBestVideoFile = (files) => {
+      const list = Array.isArray(files) ? files : [];
+      if (!list.length) return null;
+
+      // Prefer real content files over extras/samples/trailers.
+      const sampleRe = /(sample|trailer|тизер|teaser|featurette|extras?|behind[ ._-]?the[ ._-]?scenes)/i;
+      const candidates = list.filter((file) => !sampleRe.test(String(file?.name || '').split('/').pop() || ''));
+      const base = candidates.length ? candidates : list;
+
+      return base
+        .slice()
+        .sort((a, b) => {
+          const sizeA = Number(a?.size) || 0;
+          const sizeB = Number(b?.size) || 0;
+          if (sizeA !== sizeB) return sizeB - sizeA;
+          const nameA = String(a?.name || '');
+          const nameB = String(b?.name || '');
+          return nameA.localeCompare(nameB);
+        })[0] || null;
     };
 
     const play = async (torrentData, file, callbacks = {}) => {
@@ -1587,13 +1886,32 @@ try {
         ErrorHandler.show('validation', { message: translate('torbox_error_no_video_files') });
         return;
       }
-      if (vids.length === 1) {
-        play(torrentData, vids[0]);
-      } else {
-        state.view = 'episodes';
-        state.current_torrent_data = torrentData;
-        drawEpisodes(torrentData);
+
+      const remembered = getRememberedFile(torrentData, vids);
+      if (remembered) {
+        rememberPreferredFile(torrentData, remembered);
+        play(torrentData, remembered);
+        return;
       }
+
+      if (vids.length === 1) {
+        rememberPreferredFile(torrentData, vids[0]);
+        play(torrentData, vids[0]);
+        return;
+      }
+
+      if (!isSeriesContent() && getAutoPickMovieFile()) {
+        const best = pickBestVideoFile(vids);
+        if (best) {
+          rememberPreferredFile(torrentData, best);
+          play(torrentData, best);
+          return;
+        }
+      }
+
+      state.view = 'episodes';
+      state.current_torrent_data = torrentData;
+      drawEpisodes(torrentData);
     };
 
     const beginPendingPlayback = (hash, snapshot) => {
@@ -1797,6 +2115,7 @@ try {
         });
       }
       draw(filtered);
+      updateDebugOverlay(lastFocused ? $(lastFocused) : null);
     };
 
     const Modules = Object.freeze({
@@ -1821,14 +2140,43 @@ try {
         formatRefineTags,
         updateContinueWatchingPanel,
       },
+      diagnostics: {
+        buildReport: buildDiagnosticsReport,
+      },
     });
 
     this.modules = Modules;
 
     const applyFiltersSort = () => {
+      const prefs = readPreferenceState();
+      const excludedTrackersSet = new Set(
+        (prefs.excludedTrackers || []).map((item) => String(item || '').toLowerCase())
+      );
+      const qualityRank = new Map((prefs.qualityOrder || []).map((quality, idx) => [quality, idx]));
+      const audioRank = new Map((prefs.audioLangs || []).map((lang, idx) => [lang, idx]));
+      const codecRank = new Map((prefs.videoCodecs || []).map((codec, idx) => [codec, idx]));
+
+      const preferenceScore = (torrent) => {
+        const quality = String(torrent?.quality || '').toUpperCase();
+        const qualityScore = qualityRank.has(quality) ? qualityRank.get(quality) : qualityRank.size + 1;
+
+        const langs = Array.isArray(torrent?.audio_langs)
+          ? torrent.audio_langs.map((lang) => String(lang || '').toUpperCase())
+          : [];
+        const audioScore = langs.length
+          ? langs.reduce((best, lang) => Math.min(best, audioRank.has(lang) ? audioRank.get(lang) : audioRank.size + 1), audioRank.size + 1)
+          : audioRank.size + 1;
+
+        const codec = String(torrent?.video_codec || '').toUpperCase();
+        const codecScore = codecRank.has(codec) ? codecRank.get(codec) : codecRank.size + 1;
+
+        return qualityScore * 100 + audioScore * 10 + codecScore;
+      };
+
       // Apply filters
       const rules = [
         (t) => !state.show_only_cached || !!t.cached,
+        (t) => !isTrackerExcluded(t.trackers, excludedTrackersSet),
         (t) => state.filters.quality === 'all' || t.quality === state.filters.quality,
         (t) => state.filters.video_type === 'all' || t.video_type === state.filters.video_type,
         (t) => state.filters.translation === 'all' || (Array.isArray(t.voices) && t.voices.includes(state.filters.translation)),
@@ -1849,6 +2197,11 @@ try {
           const b = B.x[sort.field] ?? 0;
           if (a < b) return -1;
           if (a > b) return 1;
+
+          const prefA = preferenceScore(A.x);
+          const prefB = preferenceScore(B.x);
+          if (prefA !== prefB) return prefA - prefB;
+
           return A.i - B.i; // stable
         })
         .map((q) => q.x);
@@ -1967,7 +2320,7 @@ try {
     const empty = (msg) => {
       scroll.clear();
       const el = Lampa.Template.get('torbox_empty', {
-        message: msg || translate('torbox_empty_list'),
+        message: Utils.escapeHtml(msg || translate('torbox_empty_list')),
       });
       el
         .addClass('selector')
@@ -1983,6 +2336,7 @@ try {
         );
       scroll.append(el);
       Lampa.Controller.enable('content');
+      updateDebugOverlay(el);
     };
 
     const reset = () => {
@@ -2009,12 +2363,13 @@ try {
             selected: state.filters[key] === 'all',
           },
           ...uni.map((v) => ({
-            title: v.toUpperCase(),
+            title: Utils.escapeHtml(v.toUpperCase()),
             value: v,
             selected: state.filters[key] === v,
           })),
         ];
-        const sub = state.filters[key] === 'all' ? translate('torbox_filter_all') : state.filters[key].toUpperCase();
+        const subRaw = state.filters[key] === 'all' ? translate('torbox_filter_all') : state.filters[key].toUpperCase();
+        const sub = Utils.escapeHtml(subRaw);
         return { title: translate(titleKey), subtitle: sub, items, stype: key };
       };
 
@@ -2037,7 +2392,7 @@ try {
 
       const chosen = baseItems
         .filter((f) => f.stype && state.filters[f.stype] !== 'all')
-        .map((f) => `${f.title}: ${state.filters[f.stype]}`);
+        .map((f) => Utils.escapeHtml(`${f.title}: ${state.filters[f.stype]}`));
       filter.chosen('filter', chosen);
 
       const sorts = sortVariants.map((s) => ({
@@ -2084,7 +2439,7 @@ try {
 
       empty(
         customTitle
-          ? translateWithParams('torbox_search_custom', { query: customTitle })
+          ? translateWithParams('torbox_search_custom', { query: Utils.escapeHtml(customTitle) })
           : translate('torbox_search_fetching')
       );
 
@@ -2196,8 +2551,8 @@ try {
             Lampa.Select.show({
               title: translate('torbox_refine_title'),
               items: combos.map((combo) => ({
-                title: combo.label,
-                subtitle: formatRefineTags(combo.tags),
+                title: Utils.escapeHtml(combo.label),
+                subtitle: Utils.escapeHtml(formatRefineTags(combo.tags)),
                 search_query: combo.query,
               })),
               onSelect: (sel) => {
@@ -2279,6 +2634,13 @@ try {
         if (files) files.destroy();
         if (filter) filter.destroy();
       } catch {}
+      if (debugOverlayEl) {
+        debugOverlayEl.remove();
+        debugOverlayEl = null;
+      }
+      if (window.__torbox_active_component === this) {
+        window.__torbox_active_component = null;
+      }
       scroll = files = filter = lastFocused = null;
     };
 
@@ -2310,12 +2672,23 @@ try {
   (function integrate() {
     let fullListener = null;
 
+    const launchTorBox = (movieData = {}) => {
+      const title = movieData.title || movieData.name || '';
+      Lampa.Activity.push({
+        component: 'torbox_main',
+        title: `${Lampa.Lang.translate('title_torbox')} - ${title}`,
+        movie: movieData,
+      });
+    };
+
     const manifest = {
       type: 'video',
       version: VERSION,
       name: 'TorBox',
       description: translate('torbox_manifest_description'),
       component: 'torbox_main',
+      onContextMenu: () => true,
+      onContextLauch: (card) => launchTorBox(card || {}),
     };
 
     // i18n
@@ -2621,6 +2994,106 @@ try {
         en: 'Comma-separated list of domains for search. Added before public ones.',
         uk: 'Список доменів (через кому) для пошуку. Додаються перед публічними.',
       },
+      torbox_settings_default_cached_name: {
+        ru: 'По умолчанию: только кеш',
+        en: 'Default: cached only',
+        uk: 'За замовчуванням: лише кеш',
+      },
+      torbox_settings_default_cached_desc: {
+        ru: 'Если включено, новый экран TorBox стартует в режиме только кешированных торрентов.',
+        en: 'If enabled, TorBox starts with cached-only mode on.',
+        uk: 'Якщо увімкнено, TorBox стартує у режимі лише кешованих торрентів.',
+      },
+      torbox_settings_permanent_link_name: {
+        ru: 'Предпочитать permanent link',
+        en: 'Prefer permanent link',
+        uk: 'Надавати перевагу permanent link',
+      },
+      torbox_settings_permanent_link_desc: {
+        ru: 'Пробовать requestdl с redirect=true и откатываться на обычный режим при ошибке.',
+        en: 'Try requestdl with redirect=true and fallback to classic mode on failure.',
+        uk: 'Пробувати requestdl з redirect=true і відкотитись на класичний режим при помилці.',
+      },
+      torbox_settings_auto_pick_name: {
+        ru: 'Автовыбор файла (фильмы)',
+        en: 'Auto-pick file (movies)',
+        uk: 'Автовибір файла (фільми)',
+      },
+      torbox_settings_auto_pick_desc: {
+        ru: 'Для фильмов выбирать лучший видеофайл автоматически (крупнейший, без sample/trailer).',
+        en: 'For movies, auto-select the best video file (largest, excluding sample/trailer).',
+        uk: 'Для фільмів автообирати найкращий відеофайл (найбільший, без sample/trailer).',
+      },
+      torbox_settings_quality_order_name: {
+        ru: 'Приоритет качества',
+        en: 'Quality priority',
+        uk: 'Пріоритет якості',
+      },
+      torbox_settings_quality_order_desc: {
+        ru: 'Порядок через запятую: 4K,FHD,HD,SD. Используется как tie-break при сортировке.',
+        en: 'Comma-separated order: 4K,FHD,HD,SD. Used as tie-break during sorting.',
+        uk: 'Порядок через кому: 4K,FHD,HD,SD. Використовується як tie-break під час сортування.',
+      },
+      torbox_settings_audio_langs_name: {
+        ru: 'Предпочтительные языки аудио',
+        en: 'Preferred audio languages',
+        uk: 'Бажані мови аудіо',
+      },
+      torbox_settings_audio_langs_desc: {
+        ru: 'Список кодов через запятую (например: RU,EN,UK).',
+        en: 'Comma-separated language codes (for example: RU,EN,UK).',
+        uk: 'Список кодів через кому (наприклад: RU,EN,UK).',
+      },
+      torbox_settings_video_codecs_name: {
+        ru: 'Предпочтительные видео кодеки',
+        en: 'Preferred video codecs',
+        uk: 'Бажані відеокодеки',
+      },
+      torbox_settings_video_codecs_desc: {
+        ru: 'Список кодеков через запятую (например: HEVC,AV1,H264).',
+        en: 'Comma-separated codecs (for example: HEVC,AV1,H264).',
+        uk: 'Список кодеків через кому (наприклад: HEVC,AV1,H264).',
+      },
+      torbox_settings_excluded_trackers_name: {
+        ru: 'Исключить трекеры',
+        en: 'Exclude trackers',
+        uk: 'Виключити трекери',
+      },
+      torbox_settings_excluded_trackers_desc: {
+        ru: 'Трекеры через запятую будут исключены из результатов.',
+        en: 'Comma-separated trackers will be excluded from results.',
+        uk: 'Трекери через кому будуть виключені з результатів.',
+      },
+      torbox_settings_debug_overlay_name: {
+        ru: 'Debug overlay',
+        en: 'Debug overlay',
+        uk: 'Debug overlay',
+      },
+      torbox_settings_debug_overlay_desc: {
+        ru: 'Показывать на экране текущую зону/индекс фокуса и selector.',
+        en: 'Show current focus zone/index and selector on screen.',
+        uk: 'Показувати на екрані поточну зону/індекс фокуса та selector.',
+      },
+      torbox_settings_export_diag_name: {
+        ru: 'Экспорт диагностики',
+        en: 'Export diagnostics',
+        uk: 'Експорт діагностики',
+      },
+      torbox_settings_export_diag_desc: {
+        ru: 'Скопировать JSON-отчет (версия, настройки без ключа, последний error, последние логи).',
+        en: 'Copy JSON report (version, settings without key, last error, recent logs).',
+        uk: 'Скопіювати JSON-звіт (версія, налаштування без ключа, остання помилка, останні логи).',
+      },
+      torbox_diag_copied: {
+        ru: 'Диагностика скопирована в буфер обмена',
+        en: 'Diagnostics copied to clipboard',
+        uk: 'Діагностику скопійовано у буфер обміну',
+      },
+      torbox_diag_copy_failed: {
+        ru: 'Не удалось скопировать диагностику',
+        en: 'Failed to copy diagnostics',
+        uk: 'Не вдалося скопіювати діагностику',
+      },
     });
 
     // Templates used by the component
@@ -2686,6 +3159,74 @@ try {
           set: (v) => (Config.debug = !!v),
         },
         {
+          key: 'torbox_debug_overlay',
+          name: translate('torbox_settings_debug_overlay_name'),
+          desc: translate('torbox_settings_debug_overlay_desc'),
+          type: 'trigger',
+          get: () => getDebugOverlayEnabled(),
+          set: (v) => setDebugOverlayEnabled(!!v),
+        },
+        {
+          key: 'torbox_default_cached_only',
+          name: translate('torbox_settings_default_cached_name'),
+          desc: translate('torbox_settings_default_cached_desc'),
+          type: 'trigger',
+          get: () => getDefaultCachedOnly(),
+          set: (v) => setDefaultCachedOnly(!!v),
+        },
+        {
+          key: 'torbox_requestdl_permanent',
+          name: translate('torbox_settings_permanent_link_name'),
+          desc: translate('torbox_settings_permanent_link_desc'),
+          type: 'trigger',
+          get: () => getPreferPermanentLink(),
+          set: (v) => setPreferPermanentLink(!!v),
+        },
+        {
+          key: 'torbox_auto_pick_movie_file',
+          name: translate('torbox_settings_auto_pick_name'),
+          desc: translate('torbox_settings_auto_pick_desc'),
+          type: 'trigger',
+          get: () => getAutoPickMovieFile(),
+          set: (v) => setAutoPickMovieFile(!!v),
+        },
+        {
+          key: 'torbox_pref_quality_order',
+          name: translate('torbox_settings_quality_order_name'),
+          desc: translate('torbox_settings_quality_order_desc'),
+          type: 'input',
+          placeholder: '4K,FHD,HD,SD',
+          get: () => getQualityOrder().join(','),
+          set: (v) => setQualityOrder(v).join(','),
+        },
+        {
+          key: 'torbox_pref_audio_langs',
+          name: translate('torbox_settings_audio_langs_name'),
+          desc: translate('torbox_settings_audio_langs_desc'),
+          type: 'input',
+          placeholder: 'RU,EN,UK',
+          get: () => getPreferredAudioLangs().join(','),
+          set: (v) => setPreferredAudioLangs(v).join(','),
+        },
+        {
+          key: 'torbox_pref_video_codecs',
+          name: translate('torbox_settings_video_codecs_name'),
+          desc: translate('torbox_settings_video_codecs_desc'),
+          type: 'input',
+          placeholder: 'HEVC,AV1,H264',
+          get: () => getPreferredVideoCodecs().join(','),
+          set: (v) => setPreferredVideoCodecs(v).join(','),
+        },
+        {
+          key: 'torbox_excluded_trackers',
+          name: translate('torbox_settings_excluded_trackers_name'),
+          desc: translate('torbox_settings_excluded_trackers_desc'),
+          type: 'input',
+          placeholder: 'tracker1,tracker2',
+          get: () => getExcludedTrackers().join(','),
+          set: (v) => setExcludedTrackers(v).join(','),
+        },
+        {
           key: 'torbox_track_retries',
           name: translate('torbox_settings_retries_name'),
           desc: translate('torbox_settings_retries_desc'),
@@ -2720,6 +3261,47 @@ try {
           placeholder: 'domain1.com, domain2.com',
           get: () => Store.get('torbox_custom_parsers', ''),
           set: (v) => Store.set('torbox_custom_parsers', String(v || '').trim()),
+        },
+        {
+          key: 'torbox_export_diagnostics',
+          name: translate('torbox_settings_export_diag_name'),
+          desc: translate('torbox_settings_export_diag_desc'),
+          type: 'trigger',
+          get: () => false,
+          set: () => {
+            const activeComponent = window.__torbox_active_component;
+            const report =
+              activeComponent?.modules?.diagnostics?.buildReport?.() || {
+                generated_at: new Date().toISOString(),
+                version: VERSION,
+                settings: {
+                  proxy_url: Config.proxyUrl || '',
+                  debug: !!Config.debug,
+                  debug_overlay: getDebugOverlayEnabled(),
+                  prefer_permanent_link: getPreferPermanentLink(),
+                  default_cached_only: getDefaultCachedOnly(),
+                  auto_pick_movie_file: getAutoPickMovieFile(),
+                  quality_order: getQualityOrder(),
+                  preferred_audio_langs: getPreferredAudioLangs(),
+                  preferred_video_codecs: getPreferredVideoCodecs(),
+                  excluded_trackers: getExcludedTrackers(),
+                  video_extensions: getVideoExtensions(),
+                },
+                last_error: DebugTelemetry.lastError,
+                logs_tail: DebugTelemetry.logs.slice(-50),
+              };
+
+            try {
+              const payload = JSON.stringify(report, null, 2);
+              Lampa.Utils.copyTextToClipboard(payload, () => {
+                Lampa.Noty.show(translate('torbox_diag_copied'));
+              });
+            } catch (err) {
+              LOG('Diagnostics export failed', err);
+              Lampa.Noty.show(translate('torbox_diag_copy_failed'), { type: 'error' });
+            }
+            return false;
+          },
         },
       ];
 
@@ -2767,13 +3349,7 @@ try {
         const btn = $(
           `<div class="full-start__button selector view--torbox" data-subtitle="TorBox">${ICON}<span>TorBox</span></div>`
         );
-        btn.on('hover:enter', () =>
-          Lampa.Activity.push({
-            component: 'torbox_main',
-            title: `${Lampa.Lang.translate('title_torbox')} - ${e.data.movie.title || e.data.movie.name || ''}`,
-            movie: e.data.movie,
-          })
-        );
+        btn.on('hover:enter', () => launchTorBox(e.data.movie || {}));
 
         const torrentBtn = root.find('.view--torrent');
         torrentBtn.length ? torrentBtn.after(btn) : root.find('.full-start__play').after(btn);
@@ -2828,7 +3404,21 @@ try {
         document.head.appendChild(css);
       }
 
-      Lampa.Manifest.plugins[manifest.name] = manifest;
+      try {
+        const plugins = Lampa?.Manifest?.plugins;
+        const alreadyRegistered = Array.isArray(plugins)
+          ? plugins.some((plugin) => plugin && plugin.name === manifest.name)
+          : false;
+        if (!alreadyRegistered) {
+          Lampa.Manifest.plugins = manifest;
+        }
+      } catch (e) {
+        // Fallback for non-standard builds where plugins setter is unavailable.
+        LOG('Manifest registration fallback', e?.message || e);
+        try {
+          Lampa.Manifest.plugins[manifest.name] = manifest;
+        } catch {}
+      }
       LOG('TorBox plugin ready', manifest.version);
     }
 

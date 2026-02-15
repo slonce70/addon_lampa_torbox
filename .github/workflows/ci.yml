@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  validate:
+  validate-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,6 +17,17 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Validate plugin and docs
-        run: node scripts/validate.js
+      - name: Install dependencies
+        run: npm ci
 
+      - name: Validate plugin and docs
+        run: npm run validate
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (focus navigation)
+        run: npm run test:e2e
