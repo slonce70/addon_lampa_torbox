@@ -21,6 +21,8 @@ const root = path.resolve(__dirname, '..');
 const pluginPath = path.join(root, 'torbox-lampa-plugin.js');
 const readmePath = path.join(root, 'README.md');
 const planPath = path.join(root, 'plan.md');
+const unitTestPath = path.join(root, 'tests', 'unit', 'torbox-pure.test.js');
+const e2eTestPath = path.join(root, 'tests', 'e2e', 'focus-smoke.spec.js');
 
 const plugin = readText(pluginPath);
 
@@ -69,5 +71,22 @@ if (!plugin.includes('.filter--filter')) {
   fail('Expected torbox-lampa-plugin.js to reference ".filter--filter" (TV filter focus integration)');
 }
 
-console.log('[validate] OK:', { version });
+// 6) Security/compatibility regressions.
+if (!/Utils\.escapeHtml\(primaryTracker\)/.test(plugin)) {
+  fail('Expected tracker field to be escaped (Utils.escapeHtml(primaryTracker))');
+}
+if (!/title:\s*Utils\.escapeHtml\(clean \|\| file\.name \|\| translate\('torbox_no_title'\)\)/.test(plugin)) {
+  fail('Expected episode title to be escaped with Utils.escapeHtml(...)');
+}
+if (!/Lampa\.Manifest\.plugins\s*=\s*manifest/.test(plugin)) {
+  fail('Expected manifest registration via setter push: Lampa.Manifest.plugins = manifest');
+}
+if (!/for \(const p of parsers\)/.test(plugin) || !/if \(list\.length > 0\)\s*{[\s\S]*?break;/.test(plugin)) {
+  fail('Expected sequential parser failover loop with break on first success');
+}
 
+// 7) Test files should exist.
+if (!fs.existsSync(unitTestPath)) fail('Unit test file is missing: tests/unit/torbox-pure.test.js');
+if (!fs.existsSync(e2eTestPath)) fail('E2E smoke file is missing: tests/e2e/focus-smoke.spec.js');
+
+console.log('[validate] OK:', { version });
