@@ -1,0 +1,15 @@
+{
+  "name": "addon_lampa_torbox",
+  "private": true,
+  "version": "51.2.0",
+  "description": "TorBox plugin for Lampa",
+  "scripts": {
+    "validate": "node scripts/validate.js",
+    "test:unit": "node --test tests/unit/torbox-pure.test.js",
+    "test:e2e": "playwright test tests/e2e/focus-smoke.spec.js --project=chromium --reporter=line",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2"
+  }
+}
