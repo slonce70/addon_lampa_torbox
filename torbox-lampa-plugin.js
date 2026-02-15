@@ -235,8 +235,15 @@ try {
     },
     getQualityLabel(title = '', raw) {
       if (raw?.info?.quality) {
-        const normalized = String(raw.info.quality).replace(/[^0-9a-z.+-]/gi, '');
-        if (normalized) return `${normalized}p`;
+        const normalized = String(raw.info.quality)
+          .replace(/[^0-9a-z.+-]/gi, '')
+          .toUpperCase();
+        if (normalized) {
+          if (normalized === 'UHD' || normalized === '4K') return '4K';
+          if (/^\d{3,4}P$/.test(normalized)) return normalized;
+          if (/^\d{3,4}$/.test(normalized)) return `${normalized}P`;
+          if (['FHD', 'HD', 'SD'].includes(normalized)) return normalized;
+        }
       }
       if (/2160p|4k|uhd/i.test(title)) return '4K';
       if (/1080p|fhd/i.test(title)) return 'FHD';
@@ -534,11 +541,11 @@ try {
         json?.data?.detail ||
         json?.data?.message ||
         '';
-      const normalized = String(direct || '').trim();
-      if (normalized) return normalized;
+      const normalized = String(direct || '').replace(/\s+/g, ' ').trim();
+      if (normalized) return Utils.escapeHtml(normalized);
 
       const plain = String(text || '').trim();
-      if (plain && plain.length <= 180 && !/^</.test(plain)) return plain;
+      if (plain && plain.length <= 180 && !/^</.test(plain)) return Utils.escapeHtml(plain);
       return '';
     }
 
