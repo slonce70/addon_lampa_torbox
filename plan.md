@@ -3,6 +3,17 @@
 Дата: 2026-02-14  
 Цель: стабильная работа на ТВ с пульта (фокус/Enter/Back), предсказуемые фильтры и отсутствие "пропусков" фокуса.
 
+## Статус 51.2.0 (hardening)
+- [x] Закрыты критичные HTML-инъекции (Tracker, file.name, filter chosen, empty message).
+- [x] Добавлены отсутствующие i18n ключи `torbox_age_seconds/minutes/hours/days`.
+- [x] Ошибки API сохраняют `detail/message` для 4xx/5xx.
+- [x] Регистрация manifest через `Manifest.plugins = manifest` (с fallback), добавлен context launch.
+- [x] Добавлена опция `Prefer permanent link` для `requestdl` c fallback.
+- [x] Добавлены предпочтения пользователя (cached-only default, quality/audio/codec priorities, exclude trackers).
+- [x] Улучшен выбор файла (эвристика + ignore sample/trailer + запоминание выбора).
+- [x] Добавлены debug-overlay и экспорт диагностического отчета.
+- [x] Добавлены unit + e2e smoke тесты и запуск в CI.
+
 ## Контекст: как устроена навигация в Lampa (коротко)
 - Навигация завязана на элементы с классом `.selector`.
 - Фокус/Enter работают через события `hover:focus`, `hover:enter`, `hover:long`.
