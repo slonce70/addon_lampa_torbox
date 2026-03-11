@@ -974,12 +974,10 @@ try {
       );
     };
 
-    const rawTorrentByView = new WeakMap();
     const rawTorrentByHash = new Map();
     let debugOverlayEl = null;
 
-    const storeRawTorrent = (hash, raw, viewItem) => {
-      if (viewItem && raw) rawTorrentByView.set(viewItem, raw);
+    const storeRawTorrent = (hash, raw) => {
       if (!hash || !raw) return;
       rawTorrentByHash.delete(hash);
       rawTorrentByHash.set(hash, raw);
@@ -1555,7 +1553,7 @@ try {
         tech_bar_html: this.buildTechBar(tech, raw),
       };
 
-      storeRawTorrent(hashHex, raw, viewItem);
+      storeRawTorrent(hashHex, raw);
       return viewItem;
     };
 
