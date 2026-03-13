@@ -78,8 +78,14 @@ if (!/title:\s*Utils\.escapeHtml\(clean \|\| file\.name \|\| translate\('torbox_
 if (!/Lampa\.Manifest\.plugins\s*=\s*manifest/.test(plugin)) {
   fail('Expected manifest registration via setter push: Lampa.Manifest.plugins = manifest');
 }
-if (!/for \(const p of parsers\)/.test(plugin) || !/if \(list\.length > 0\)\s*{[\s\S]*?break;/.test(plugin)) {
-  fail('Expected sequential parser failover loop with break on first success');
+if (!/for \(const p of passParsers\)/.test(plugin) || !/if \(normalized\.validCount > 0\)\s*{[\s\S]*?return\s*{/.test(plugin)) {
+  fail('Expected parser failover loop to stop only on the first valid normalized result');
+}
+if (!/PUBLIC_PARSER_TIMEOUT_MS:\s*5\s*\*\s*1000/.test(plugin) || !/TORBOX_API_TIMEOUT_MS:\s*20\s*\*\s*1000/.test(plugin)) {
+  fail('Expected separate timeout constants for public parsers and TorBox API');
+}
+if (!/ParserHealth\.markFailure/.test(plugin) || !/cooldown_skip/.test(plugin)) {
+  fail('Expected parser cooldown handling and diagnostics trail');
 }
 
 // 7) Test files should exist.
