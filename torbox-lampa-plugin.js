@@ -29,7 +29,9 @@ try {
   const CONST = {
     CACHE_LIMIT: 128,
     CACHE_TTL_MS: 10 * 60 * 1000, // 10 minutes
-    REQUEST_TIMEOUT_MS: 20 * 1000, // 20 seconds
+    TORBOX_API_TIMEOUT_MS: 20 * 1000, // 20 seconds
+    PUBLIC_PARSER_TIMEOUT_MS: 5 * 1000, // 5 seconds
+    PARSER_COOLDOWN_MS: 15 * 60 * 1000, // 15 minutes
     TRACKING_POLL_INTERVAL_MS: 10 * 1000, // 10 seconds
     MAX_DRAW_ITEMS: 300, // Guard against very large result sets
     RAW_CACHE_HASH_LIMIT: 64,
@@ -94,6 +96,8 @@ try {
   const DebugTelemetry = {
     logs: [],
     lastError: null,
+    parserAttempts: [],
+    selectedParser: null,
   };
 
   const pushDebugLog = (level, args) => {
@@ -418,6 +422,76 @@ try {
   const setPreferPermanentLink = (value) => setStoredBool('torbox_requestdl_permanent', value);
   const getPreferPermanentLink = () => getStoredBool('torbox_requestdl_permanent', false);
 
+  const ParserHealth = (() => {
+    const STORAGE_KEY = 'torbox_parser_health_v1';
+    let cache = null;
+
+    const load = () => {
+      if (cache) return cache;
+      try {
+        const parsed = JSON.parse(Store.get(STORAGE_KEY, '{}'));
+        cache = parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        cache = {};
+      }
+      return cache;
+    };
+
+    const save = () => {
+      try {
+        Store.set(STORAGE_KEY, JSON.stringify(load()));
+      } catch {
+        /* ignore storage errors */
+      }
+    };
+
+    const normalizeDomain = (domain) => String(domain || '').trim().toLowerCase();
+
+    const getEntry = (domain) => {
+      const key = normalizeDomain(domain);
+      if (!key) return {};
+      const entry = load()[key];
+      return entry && typeof entry === 'object' ? entry : {};
+    };
+
+    const updateEntry = (domain, patch) => {
+      const key = normalizeDomain(domain);
+      if (!key) return {};
+      const next = Object.assign({}, getEntry(key), patch || {});
+      load()[key] = next;
+      save();
+      return next;
+    };
+
+    const getCooldownUntil = (domain) => {
+      const raw = Number(getEntry(domain).cooldownUntil) || 0;
+      if (raw > Date.now()) return raw;
+      if (raw) updateEntry(domain, { cooldownUntil: 0 });
+      return 0;
+    };
+
+    return {
+      getCooldownUntil,
+      isCoolingDown(domain) {
+        return getCooldownUntil(domain) > Date.now();
+      },
+      markFailure(domain, kind) {
+        const now = Date.now();
+        return updateEntry(domain, {
+          lastFailureAt: now,
+          lastFailureKind: String(kind || 'failure'),
+          cooldownUntil: now + CONST.PARSER_COOLDOWN_MS,
+        });
+      },
+      markSuccess(domain) {
+        return updateEntry(domain, {
+          lastSuccessAt: Date.now(),
+          cooldownUntil: 0,
+        });
+      },
+    };
+  })();
+
   const setDebugOverlayEnabled = (value) => setStoredBool('torbox_debug_overlay', value);
   const getDebugOverlayEnabled = () => getStoredBool('torbox_debug_overlay', false);
 
@@ -578,14 +652,16 @@ try {
     async function request(url, opt = {}, outerSignal) {
       requireProxy();
 
-      const isTorBox = opt.is_torbox_api !== false; // default true (only TorBox gets X-Api-Key)
+      const { timeoutMs: optTimeoutMs, is_torbox_api: isTorBoxApiFlag, ...fetchOptions } = opt;
+      const isTorBox = isTorBoxApiFlag !== false; // default true (only TorBox gets X-Api-Key)
       if (isTorBox) requireApiKey();
 
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), CONST.REQUEST_TIMEOUT_MS);
+      const timeoutMs = Math.max(1, Number(optTimeoutMs) || CONST.TORBOX_API_TIMEOUT_MS);
+      const t = setTimeout(() => controller.abort(), timeoutMs);
       if (outerSignal) outerSignal.addEventListener('abort', () => controller.abort());
 
-      const headers = Object.assign({}, opt.headers || {});
+      const headers = Object.assign({}, fetchOptions.headers || {});
       delete headers.Authorization; // never forward auth headers through proxy
       if (isTorBox) headers['X-Api-Key'] = Config.apiKey;
 
@@ -593,7 +669,7 @@ try {
       const proxied = buildProxyUrl(Config.proxyUrl, url);
 
       try {
-        const res = await fetch(proxied, { ...opt, headers, signal: controller.signal });
+        const res = await fetch(proxied, { ...fetchOptions, headers, signal: controller.signal });
         const status = res.status;
         const text = await res.text();
         const json = parseJsonSafe(text);
@@ -601,12 +677,12 @@ try {
         const withDetail = (base) => (detail ? `${base}: ${detail}` : base);
 
         // Common error mapping
-        if (status === 401) throw { type: 'auth', message: withDetail(translate('torbox_error_401')) };
-        if (status === 403) throw { type: 'auth', message: withDetail(translate('torbox_error_403')) };
-        if (status === 404) throw { type: 'api', message: withDetail(translate('torbox_error_404')) };
-        if (status === 429) throw { type: 'network', message: withDetail(translate('torbox_error_429')) };
-        if (status >= 500) throw { type: 'network', message: withDetail(translateWithParams('torbox_error_server', { status })) };
-        if (status >= 400) throw { type: 'network', message: withDetail(translateWithParams('torbox_error_request', { status })) };
+        if (status === 401) throw { type: 'auth', status, message: withDetail(translate('torbox_error_401')) };
+        if (status === 403) throw { type: 'auth', status, message: withDetail(translate('torbox_error_403')) };
+        if (status === 404) throw { type: 'api', status, message: withDetail(translate('torbox_error_404')) };
+        if (status === 429) throw { type: 'network', status, message: withDetail(translate('torbox_error_429')) };
+        if (status >= 500) throw { type: 'network', status, message: withDetail(translateWithParams('torbox_error_server', { status })) };
+        if (status >= 400) throw { type: 'network', status, message: withDetail(translateWithParams('torbox_error_request', { status })) };
 
         // Direct URL (some TorBox endpoints may return a plain link)
         if (text.startsWith('http')) return { success: true, url: text };
@@ -624,8 +700,9 @@ try {
             throw {
               type: 'network',
               message: translateWithParams('torbox_error_timeout', {
-                seconds: CONST.REQUEST_TIMEOUT_MS / 1000,
+                seconds: timeoutMs / 1000,
               }),
+              timeoutMs,
             };
           }
           throw e; // external abort
@@ -637,8 +714,52 @@ try {
       }
     }
 
+    function normalizeParserResults(rawResults = []) {
+      const items = Array.isArray(rawResults) ? rawResults : [];
+      const entriesByHash = new Map();
+      let invalidCount = 0;
+
+      items.forEach((item) => {
+        const hash = Utils.btihFromMagnetOrFields(item);
+        if (!hash) {
+          invalidCount += 1;
+          return;
+        }
+        if (!entriesByHash.has(hash)) entriesByHash.set(hash, item);
+      });
+
+      return {
+        rawCount: items.length,
+        validCount: entriesByHash.size,
+        invalidCount,
+        entriesByHash,
+      };
+    }
+
+    function classifyParserFailure(err = {}) {
+      const statusCode = Number(err?.status) || 0;
+      const message = String(err?.message || '');
+      const lower = message.toLowerCase();
+
+      if (Number(err?.timeoutMs) > 0 || /timeout|timed out|time out/i.test(message)) {
+        return { status: 'timeout', cooldown: true, reason: message || 'timeout', statusCode };
+      }
+      if (statusCode >= 500) {
+        return { status: 'http_error', cooldown: true, reason: `http_${statusCode}`, statusCode };
+      }
+      if (statusCode >= 400) {
+        return { status: 'http_error', cooldown: false, reason: `http_${statusCode}`, statusCode };
+      }
+      if (
+        /err_connection_closed|ssl|tls|handshake|fetch failed|network|econnreset|connection closed|connection reset/.test(lower)
+      ) {
+        return { status: 'network', cooldown: true, reason: message || 'network', statusCode };
+      }
+      return { status: 'network', cooldown: true, reason: message || 'network', statusCode };
+    }
+
     async function searchPublicTrackers(movie, signal) {
-      // Try parsers sequentially until we get results (Failover strategy)
+      // Try parsers sequentially until we get valid results (Failover strategy)
       const queryBase = `${movie.title || ''} ${movie.year || ''}`.trim();
       const qsCommon = {
         Query: queryBase,
@@ -656,33 +777,130 @@ try {
         .map((url, i) => ({ name: `Custom ${i + 1}`, url: url.replace(/^https?:\/\//, '').replace(/\/+$/, ''), key: '' }));
 
       const parsers = [...customParsers, ...PUBLIC_PARSERS];
-      const out = [];
+      const parserAttempts = [];
+      let selectedParser = null;
 
-      for (const p of parsers) {
+      const setParserTelemetry = (attempts, parserMeta) => {
+        DebugTelemetry.parserAttempts = attempts.slice(-20);
+        DebugTelemetry.selectedParser = parserMeta
+          ? {
+              name: parserMeta.name,
+              domain: parserMeta.domain,
+              valid_count: parserMeta.valid_count,
+              raw_count: parserMeta.raw_count,
+            }
+          : null;
+      };
+
+      const activeParsers = parsers.filter((parser) => !ParserHealth.isCoolingDown(parser.url));
+      const useCooldownAwarePass = activeParsers.length > 0;
+      const passParsers = useCooldownAwarePass ? activeParsers : parsers;
+
+      if (useCooldownAwarePass) {
+        parsers
+          .filter((parser) => ParserHealth.isCoolingDown(parser.url))
+          .forEach((parser) => {
+            const cooldownUntil = ParserHealth.getCooldownUntil(parser.url);
+            parserAttempts.push({
+              name: parser.name,
+              domain: parser.url,
+              elapsed_ms: 0,
+              status: 'cooldown_skip',
+              raw_count: 0,
+              valid_count: 0,
+              invalid_count: 0,
+              cooldown_until: cooldownUntil ? new Date(cooldownUntil).toISOString() : null,
+              reason: 'cooldown_active',
+            });
+          });
+      }
+
+      for (const p of passParsers) {
         if (signal.aborted) break;
         const qs = new URLSearchParams(qsCommon);
         if (p.key) qs.set('apikey', p.key);
         if (movie.year) qs.set('year', movie.year);
         const url = `https://${p.url}/api/v2.0/indexers/all/results?${qs.toString()}`;
+        const startedAt = Date.now();
 
         try {
           LOG('Parser try:', p.name, url);
-          const json = await request(url, { method: 'GET', is_torbox_api: false }, signal);
+          const json = await request(
+            url,
+            { method: 'GET', is_torbox_api: false, timeoutMs: CONST.PUBLIC_PARSER_TIMEOUT_MS },
+            signal
+          );
           const list = Array.isArray(json?.Results) ? json.Results : [];
-          LOG('Parser result:', p.name, list.length);
-          if (list.length > 0) {
-            out.push(...list);
-            // Smart Sequential: Stop after first successful hit
-            break;
+          const normalized = normalizeParserResults(list);
+          const attempt = {
+            name: p.name,
+            domain: p.url,
+            elapsed_ms: Date.now() - startedAt,
+            status: normalized.validCount > 0 ? 'success' : normalized.rawCount > 0 ? 'invalid_payload' : 'empty',
+            raw_count: normalized.rawCount,
+            valid_count: normalized.validCount,
+            invalid_count: normalized.invalidCount,
+            cooldown_until: null,
+            reason: normalized.validCount > 0 ? 'valid_hashes' : normalized.rawCount > 0 ? 'no_valid_hashes' : 'no_results',
+          };
+          parserAttempts.push(attempt);
+          LOG('Parser result:', p.name, {
+            raw: normalized.rawCount,
+            valid: normalized.validCount,
+            invalid: normalized.invalidCount,
+            status: attempt.status,
+          });
+
+          if (normalized.validCount > 0) {
+            ParserHealth.markSuccess(p.url);
+            selectedParser = {
+              name: p.name,
+              domain: p.url,
+              valid_count: normalized.validCount,
+              raw_count: normalized.rawCount,
+            };
+            setParserTelemetry(parserAttempts, selectedParser);
+            return {
+              parser: selectedParser,
+              entriesByHash: normalized.entriesByHash,
+              diagnostics: parserAttempts.slice(),
+            };
+          }
+
+          if (attempt.status === 'invalid_payload') {
+            const health = ParserHealth.markFailure(p.url, attempt.status);
+            attempt.cooldown_until = health?.cooldownUntil ? new Date(health.cooldownUntil).toISOString() : null;
           }
         } catch (e) {
+          const failure = classifyParserFailure(e);
+          const attempt = {
+            name: p.name,
+            domain: p.url,
+            elapsed_ms: Date.now() - startedAt,
+            status: failure.status,
+            raw_count: 0,
+            valid_count: 0,
+            invalid_count: 0,
+            cooldown_until: null,
+            reason: failure.reason,
+            status_code: failure.statusCode || null,
+          };
+          if (failure.cooldown) {
+            const health = ParserHealth.markFailure(p.url, failure.status);
+            attempt.cooldown_until = health?.cooldownUntil ? new Date(health.cooldownUntil).toISOString() : null;
+          }
+          parserAttempts.push(attempt);
           LOG('Parser failed:', p.name, e.message || e);
+        } finally {
+          setParserTelemetry(parserAttempts, selectedParser);
         }
       }
-      if (!out.length) {
-        throw { type: 'api', message: translate('torbox_error_public_parsers_empty') };
-      }
-      return out;
+
+      const hadInvalidPayload = parserAttempts.some((attempt) => attempt.status === 'invalid_payload');
+      setParserTelemetry(parserAttempts, selectedParser);
+      throw hadInvalidPayload
+        ? { type: 'api', message: translate('torbox_error_public_parsers_invalid') }
+        : { type: 'api', message: translate('torbox_error_public_parsers_empty') };
     }
 
     async function checkCached(hashes, signal) {
@@ -696,7 +914,11 @@ try {
         qs.set('format', 'object');
         qs.set('list_files', 'false');
         try {
-          const r = await request(`${TB_MAIN}/torrents/checkcached?${qs.toString()}`, { method: 'GET' }, signal);
+          const r = await request(
+            `${TB_MAIN}/torrents/checkcached?${qs.toString()}`,
+            { method: 'GET', timeoutMs: CONST.TORBOX_API_TIMEOUT_MS },
+            signal
+          );
           if (r?.data) Object.assign(acc, r.data);
         } catch (e) {
           LOG('checkCached error:', e.message || e);
@@ -709,11 +931,19 @@ try {
       const fd = new FormData();
       fd.append('magnet', magnet);
       fd.append('seed', '3');
-      return request(`${TB_MAIN}/torrents/createtorrent`, { method: 'POST', body: fd }, signal);
+      return request(
+        `${TB_MAIN}/torrents/createtorrent`,
+        { method: 'POST', body: fd, timeoutMs: CONST.TORBOX_API_TIMEOUT_MS },
+        signal
+      );
     }
 
     async function myList(id, signal) {
-      const json = await request(`${TB_MAIN}/torrents/mylist?id=${encodeURIComponent(id)}&bypass_cache=true`, { method: 'GET' }, signal);
+      const json = await request(
+        `${TB_MAIN}/torrents/mylist?id=${encodeURIComponent(id)}&bypass_cache=true`,
+        { method: 'GET', timeoutMs: CONST.TORBOX_API_TIMEOUT_MS },
+        signal
+      );
       if (json && json.data && !Array.isArray(json.data)) json.data = [json.data];
       return json;
     }
@@ -722,17 +952,23 @@ try {
       // TorBox API expects token query parameter alongside X-Api-Key header.
       // Optional permanent-link mode can be enabled; if it fails, we fallback to classic request.
       const base = `${TB_MAIN}/torrents/requestdl?torrent_id=${encodeURIComponent(tid)}&file_id=${encodeURIComponent(fid)}&token=${encodeURIComponent(Config.apiKey)}`;
-      if (!getPreferPermanentLink()) return request(base, { method: 'GET' }, signal);
+      if (!getPreferPermanentLink()) {
+        return request(base, { method: 'GET', timeoutMs: CONST.TORBOX_API_TIMEOUT_MS }, signal);
+      }
 
       try {
-        const preferred = await request(`${base}&redirect=true`, { method: 'GET' }, signal);
+        const preferred = await request(
+          `${base}&redirect=true`,
+          { method: 'GET', timeoutMs: CONST.TORBOX_API_TIMEOUT_MS },
+          signal
+        );
         const preferredUrl = preferred?.url || preferred?.data;
         if (typeof preferredUrl === 'string' && /^https?:\/\//i.test(preferredUrl)) return preferred;
       } catch (e) {
         LOG('Permanent requestdl failed, fallback to classic', e?.message || e);
       }
 
-      return request(base, { method: 'GET' }, signal);
+      return request(base, { method: 'GET', timeoutMs: CONST.TORBOX_API_TIMEOUT_MS }, signal);
     }
 
     return { searchPublicTrackers, checkCached, addMagnet, myList, requestDl };
@@ -1051,6 +1287,9 @@ try {
         `zone/index: ${focusState.zone || '-'} / ${focusState.index}`,
         `element: ${describeElementForDebug(element)}`,
       ];
+      if (DebugTelemetry.selectedParser?.name) {
+        lines.push(`parser: ${DebugTelemetry.selectedParser.name} (${DebugTelemetry.selectedParser.valid_count || 0})`);
+      }
       debugOverlayEl.text(lines.join('\n'));
     };
 
@@ -1079,6 +1318,8 @@ try {
         items_total: state.all_torrents.length,
       },
       last_error: DebugTelemetry.lastError,
+      selected_parser: DebugTelemetry.selectedParser,
+      parser_attempts: DebugTelemetry.parserAttempts.slice(-20),
       logs_tail: DebugTelemetry.logs.slice(-50),
     });
 
@@ -2425,6 +2666,8 @@ try {
       abort.abort();
       abort = new AbortController();
       const signal = abort.signal;
+      DebugTelemetry.parserAttempts = [];
+      DebugTelemetry.selectedParser = null;
 
       this.activity.loader(true);
       reset();
@@ -2451,25 +2694,11 @@ try {
       );
 
       Api.searchPublicTrackers(movieForSearch, signal)
-        .then((rawList) => {
+        .then((parserPayload) => {
           if (signal.aborted) return;
-          if (!Array.isArray(rawList) || !rawList.length) {
+          const mapByHash = parserPayload?.entriesByHash;
+          if (!(mapByHash instanceof Map) || !mapByHash.size) {
             return empty(translate('torbox_search_parser_empty'));
-          }
-
-          // Normalize items with valid BTIH hex, dedup by hash
-          const mapByHash = new Map();
-          rawList.forEach((r) => {
-            const hex = Utils.btihFromMagnetOrFields(r);
-            if (!hex) return; // skip invalid
-            if (!mapByHash.has(hex)) mapByHash.set(hex, r);
-          });
-
-          if (!mapByHash.size) {
-            ErrorHandler.show('validation', {
-              message: translate('torbox_search_no_valid_hashes'),
-            });
-            return empty(translate('torbox_search_no_valid_results'));
           }
 
           const hashes = Array.from(mapByHash.keys());
@@ -2784,6 +3013,11 @@ try {
         ru: 'Публичные парсеры недоступны или вернули пустой список',
         en: 'Public parsers unavailable or returned no results',
         uk: 'Публічні парсери недоступні або повернули порожній список',
+      },
+      torbox_error_public_parsers_invalid: {
+        ru: 'Публичные парсеры ответили невалидными данными',
+        en: 'Public parsers returned invalid data',
+        uk: 'Публічні парсери повернули невалідні дані',
       },
       torbox_error_unknown: {
         ru: 'Неизвестная ошибка',
