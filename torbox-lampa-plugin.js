@@ -46,7 +46,7 @@ try {
   const PUBLIC_PARSERS = [
     // These are TorBox-compatible tracker indexer gateways frequently used by Lampa plugins.
     // If one is down, the next will be tried.
-    { name: 'Viewbox', url: 'jacred.viewbox.dev', key: 'viewbox' },
+    { name: 'MaxVol', url: 'jr.maxvol.pro', key: '' },
     { name: 'Jacred', url: 'jacred.xyz', key: '' },
   ];
 
