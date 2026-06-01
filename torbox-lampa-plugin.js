@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.0');
+  console.log('[TorBox] boot strap', '51.2.1');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.0';
+  const VERSION = '51.2.1';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -1841,14 +1841,16 @@ try {
       }
 
       let focusEl = null;
+      let firstEpisodeEl = null;
 
-      vids.forEach((file) => {
+      vids.forEach((file, idx) => {
         const clean = (file.name || '').split('/').pop();
         let item = Lampa.Template.get('torbox_episode_item', {
           title: Utils.escapeHtml(clean || file.name || translate('torbox_no_title')),
           size: Utils.formatBytes(file.size || 0),
           file_id: file.id,
         });
+        if (!firstEpisodeEl) firstEpisodeEl = item;
 
         const fileIdStr = String(file.id);
         const isWatched = watchedSet.has(fileIdStr);
@@ -1860,7 +1862,7 @@ try {
 
         item
           .data('torboxZone', FocusZones.EPISODE)
-          .data('torboxIndex', file.__idx)
+          .data('torboxIndex', idx)
           .on('hover:focus', (e) => {
             const target = $(e.currentTarget);
             updateFocusMetaFromElement(target);
@@ -1893,9 +1895,9 @@ try {
         scroll.append(item);
       });
 
-      if (focusEl) focusElement(focusEl);
+      if (focusEl || firstEpisodeEl) focusElement(focusEl || firstEpisodeEl);
       Lampa.Controller.enable('content');
-      updateDebugOverlay(focusEl || null);
+      updateDebugOverlay(focusEl || firstEpisodeEl || null);
     };
 
     const _getPlayerConfig = (url, file, movie) => {
@@ -2130,6 +2132,14 @@ try {
       );
       if (!vids.length) {
         ErrorHandler.show('validation', { message: translate('torbox_error_no_video_files') });
+        return;
+      }
+
+      const seriesNeedsEpisodeList = isSeriesContent() && vids.length > 1;
+      if (seriesNeedsEpisodeList) {
+        state.view = 'episodes';
+        state.current_torrent_data = torrentData;
+        drawEpisodes(torrentData);
         return;
       }
 

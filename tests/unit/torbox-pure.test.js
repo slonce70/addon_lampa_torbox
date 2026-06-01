@@ -482,6 +482,48 @@ test('all parser failures surface a diagnostics trail', async () => {
   );
 });
 
+test('series packs open episode list before remembered episode autoplay', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  const selectStart = plugin.indexOf('const selectFile = (torrentData) => {');
+  assert.notEqual(selectStart, -1, 'selectFile function should exist');
+
+  const selectEnd = plugin.indexOf('const beginPendingPlayback =', selectStart);
+  assert.notEqual(selectEnd, -1, 'selectFile block should end before pending playback helpers');
+
+  const selectFileBlock = plugin.slice(selectStart, selectEnd);
+  const seriesGuard = selectFileBlock.indexOf('const seriesNeedsEpisodeList = isSeriesContent() && vids.length > 1;');
+  const rememberedLookup = selectFileBlock.indexOf('const remembered = getRememberedFile(torrentData, vids);');
+
+  assert.notEqual(seriesGuard, -1, 'series packs need an explicit episode-list guard');
+  assert.notEqual(rememberedLookup, -1, 'remembered file lookup should remain for movie/file resume behavior');
+  assert.ok(
+    seriesGuard < rememberedLookup,
+    'series pack guard must run before remembered file lookup so Lampa shows episodes instead of replaying one file'
+  );
+  assert.match(
+    selectFileBlock.slice(seriesGuard, rememberedLookup),
+    /state\.view\s*=\s*'episodes';[\s\S]*state\.current_torrent_data\s*=\s*torrentData;[\s\S]*drawEpisodes\(torrentData\);[\s\S]*return;/
+  );
+});
+
+test('episode list explicitly focuses last played or first episode item', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData) => {');
+  assert.notEqual(drawStart, -1, 'drawEpisodes function should exist');
+
+  const drawEnd = plugin.indexOf('const _getPlayerConfig =', drawStart);
+  assert.notEqual(drawEnd, -1, 'drawEpisodes block should end before player config helper');
+
+  const drawEpisodesBlock = plugin.slice(drawStart, drawEnd);
+  assert.match(drawEpisodesBlock, /let focusEl = null;[\s\S]*let firstEpisodeEl = null;/);
+  assert.match(drawEpisodesBlock, /if \(!firstEpisodeEl\) firstEpisodeEl = item;/);
+  assert.match(drawEpisodesBlock, /if \(focusEl \|\| firstEpisodeEl\) focusElement\(focusEl \|\| firstEpisodeEl\);/);
+});
+
 test('security and failover guards are present in plugin source', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
