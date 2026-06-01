@@ -46,10 +46,46 @@ function btihFromMagnetOrFields(obj = {}) {
 
   const q = magnet.split('?')[1] || '';
   const params = new URLSearchParams(q);
-  const xt = params.get('xt') || '';
-  const val = decodeURIComponent(xt.replace(/^urn:btih:/i, ''));
+  const xt = (params.getAll('xt') || []).find((v) => /^urn:btih:/i.test(v)) || '';
+  const raw = xt.replace(/^urn:btih:/i, '');
+  let val;
+  try {
+    val = decodeURIComponent(raw);
+  } catch {
+    val = raw;
+  }
   normalized = normalize(val);
   return normalized;
+}
+
+function buildSearchQuery(movie = {}) {
+  const searchTitle = (movie.title || movie.name || '').trim();
+  const searchOriginal = (movie.original_title || movie.original_name || '').trim();
+  const yearRaw = (movie.year || movie.release_date || movie.first_air_date || '').toString();
+  const searchYear = yearRaw ? yearRaw.slice(0, 4) : '';
+  return {
+    Query: `${searchTitle} ${searchYear}`.trim(),
+    title: searchTitle,
+    title_original: searchOriginal,
+    year: searchYear,
+  };
+}
+
+function normalizeCustomParsers(customStr = '') {
+  return String(customStr)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && s.length > 3)
+    .map((entry, i) => {
+      try {
+        const u = new URL(/^https?:\/\//i.test(entry) ? entry : `https://${entry}`);
+        const host = `${u.host}${u.pathname.replace(/\/+$/, '')}`;
+        return host ? { name: `Custom ${i + 1}`, url: host, key: '' } : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 function buildProxyUrl(base, target) {
@@ -246,6 +282,65 @@ test('base32/hex BTIH parsing works', () => {
   assert.equal(
     btihFromMagnetOrFields({ MagnetUri: 'magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
     '0000000000000000000000000000000000000000'
+  );
+});
+
+test('btih is extracted from hybrid magnets regardless of xt order', () => {
+  // btmh listed first must not shadow the btih (URLSearchParams.get would return btmh)
+  assert.equal(
+    btihFromMagnetOrFields({
+      MagnetUri:
+        'magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b8e0d0c1e2f3a4b5c6d7e8f9&xt=urn:btih:0123456789abcdef0123456789abcdef01234567',
+    }),
+    '0123456789abcdef0123456789abcdef01234567'
+  );
+  // btih first still works
+  assert.equal(
+    btihFromMagnetOrFields({
+      MagnetUri: 'magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98&xt=urn:btmh:1220ab',
+    }),
+    'fedcba9876543210fedcba9876543210fedcba98'
+  );
+});
+
+test('malformed percent-encoding in magnet does not throw or discard siblings', () => {
+  // A stray % survives URLSearchParams decoding; a second decodeURIComponent would throw.
+  assert.doesNotThrow(() => btihFromMagnetOrFields({ MagnetUri: 'magnet:?xt=urn:btih:%' }));
+  const normalized = normalizeParserResults([
+    { Title: 'broken', MagnetUri: 'magnet:?xt=urn:btih:%ZZ' },
+    { Title: 'good', Hash: '0123456789abcdef0123456789abcdef01234567' },
+  ]);
+  // the good sibling is still kept rather than the whole batch being lost
+  assert.equal(normalized.validCount, 1);
+  assert.equal(normalized.entriesByHash.size, 1);
+});
+
+test('search query falls back to series name/first_air_date fields', () => {
+  // Movie card: title/year present
+  const movie = buildSearchQuery({ title: 'Dune', original_title: 'Dune', year: '2021' });
+  assert.equal(movie.Query, 'Dune 2021');
+  assert.equal(movie.title, 'Dune');
+  assert.equal(movie.year, '2021');
+
+  // Series card: only name/original_name/first_air_date present (no title/year)
+  const series = buildSearchQuery({
+    name: 'Severance',
+    original_name: 'Severance',
+    first_air_date: '2022-02-18',
+  });
+  assert.equal(series.Query, 'Severance 2022');
+  assert.equal(series.title, 'Severance');
+  assert.equal(series.title_original, 'Severance');
+  assert.equal(series.year, '2022');
+});
+
+test('custom parser URLs are normalized to host (+path), dropping junk and invalid entries', () => {
+  // full URL keeps host+path but drops query/fragment; bare domain keeps host;
+  // a host with whitespace is invalid and dropped; empty/short entries are filtered.
+  const parsers = normalizeCustomParsers('https://good.example/api/?x=1#frag, bad host.example, plain.example/, , a');
+  assert.deepEqual(
+    parsers.map((p) => p.url),
+    ['good.example/api', 'plain.example']
   );
 });
 
@@ -535,4 +630,32 @@ test('security and failover guards are present in plugin source', () => {
   assert.match(plugin, /ParserHealth\.markFailure/);
   assert.match(plugin, /PUBLIC_PARSER_TIMEOUT_MS: 5 \* 1000/);
   assert.match(plugin, /TORBOX_API_TIMEOUT_MS: 20 \* 1000/);
+});
+
+test('audit hardening fixes are present in plugin source', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  // Series-aware parser query (falls back to .name / first_air_date)
+  assert.match(plugin, /const searchTitle = \(movie\.title \|\| movie\.name \|\| ''\)\.trim\(\);/);
+  assert.match(plugin, /movie\.original_title \|\| movie\.original_name/);
+  assert.match(plugin, /movie\.year \|\| movie\.release_date \|\| movie\.first_air_date/);
+
+  // Hybrid magnet btih extraction + safe decode
+  assert.match(plugin, /params\.getAll\('xt'\)[\s\S]*find\(\(v\) => \/\^urn:btih:\/i\.test\(v\)\)/);
+  assert.match(plugin, /val = decodeURIComponent\(raw\);/);
+
+  // Escaping of previously-unescaped dynamic fields
+  assert.match(plugin, /file_id: Utils\.escapeHtml\(String\(file\.id\)\)/);
+  assert.match(plugin, /const apiDetail = Utils\.escapeHtml\(String\(json\.detail \|\| json\.message \|\| ''\)\)/);
+  assert.match(plugin, /titleParts\.push\(`\[\$\{Utils\.escapeHtml\(String\(snapshot\.quality\)\)\}\]`\)/);
+
+  // Last-played key scoped per torrent (file ids are per-torrent)
+  assert.match(plugin, /torbox_last_played_file_\$\{mid\}_\$\{torrentKey\}/);
+  assert.match(plugin, /torbox_last_played_file_\$\{mid\}_\$\{torrentHashOrId\}/);
+
+  // Abort hygiene: removable listener, checkCached break, cleared poll timer
+  assert.match(plugin, /outerSignal\.removeEventListener\('abort', onOuterAbort\)/);
+  assert.match(plugin, /if \(signal\?\.aborted\) break;/);
+  assert.match(plugin, /if \(pollTimer\) clearTimeout\(pollTimer\);/);
 });
