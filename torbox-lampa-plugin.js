@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.1');
+  console.log('[TorBox] boot strap', '51.2.2');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.1';
+  const VERSION = '51.2.2';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -348,11 +348,22 @@ try {
       const magnet = obj.MagnetUri || obj.magnet || obj.magnetUri || '';
       if (!magnet || typeof magnet !== 'string') return null;
 
-      // Extract xt=urn:btih:VALUE (VALUE may be hex or base32)
+      // Extract xt=urn:btih:VALUE (VALUE may be hex or base32).
+      // Hybrid/v2 magnets carry multiple xt params (urn:btih + urn:btmh) in any
+      // order, so pick the btih-bearing one explicitly instead of trusting position.
       const q = magnet.split('?')[1] || '';
       const params = new URLSearchParams(q);
-      const xt = params.get('xt') || '';
-      const val = decodeURIComponent(xt.replace(/^urn:btih:/i, ''));
+      const xt = (params.getAll('xt') || []).find((v) => /^urn:btih:/i.test(v)) || '';
+      const raw = xt.replace(/^urn:btih:/i, '');
+      // URLSearchParams already decodes once; a second decode of a malformed
+      // sequence (e.g. a stray %) throws URIError and would discard the whole
+      // parser response, so fall back to the undecoded value.
+      let val;
+      try {
+        val = decodeURIComponent(raw);
+      } catch {
+        val = raw;
+      }
 
       normalized = tryNormalize(val);
       return normalized;
@@ -659,7 +670,8 @@ try {
       const controller = new AbortController();
       const timeoutMs = Math.max(1, Number(optTimeoutMs) || CONST.TORBOX_API_TIMEOUT_MS);
       const t = setTimeout(() => controller.abort(), timeoutMs);
-      if (outerSignal) outerSignal.addEventListener('abort', () => controller.abort());
+      const onOuterAbort = () => controller.abort();
+      if (outerSignal) outerSignal.addEventListener('abort', onOuterAbort, { once: true });
 
       const headers = Object.assign({}, fetchOptions.headers || {});
       delete headers.Authorization; // never forward auth headers through proxy
@@ -690,7 +702,10 @@ try {
         if (!json) throw { type: 'api', message: translate('torbox_error_bad_json') };
 
         if (json.success === false) {
-          throw { type: 'api', message: json.detail || json.message || translate('torbox_error_api') };
+          // Escape the server/proxy-supplied detail like every other error path
+          // (extractApiDetail) — it ends up rendered by Lampa.Noty.
+          const apiDetail = Utils.escapeHtml(String(json.detail || json.message || ''));
+          throw { type: 'api', message: apiDetail || translate('torbox_error_api') };
         }
         return json;
       } catch (e) {
@@ -711,6 +726,7 @@ try {
         throw { type: 'network', message: e && e.message ? e.message : translate('torbox_error_network') };
       } finally {
         clearTimeout(t);
+        if (outerSignal) outerSignal.removeEventListener('abort', onOuterAbort);
       }
     }
 
@@ -759,12 +775,19 @@ try {
     }
 
     async function searchPublicTrackers(movie, signal) {
-      // Try parsers sequentially until we get valid results (Failover strategy)
-      const queryBase = `${movie.title || ''} ${movie.year || ''}`.trim();
+      // Try parsers sequentially until we get valid results (Failover strategy).
+      // TMDB TV cards carry the title in .name/.original_name and the date in
+      // .first_air_date, not .title/.year — mirror generateSearchCombinations so
+      // series searches are not degraded to a year-only/empty query.
+      const searchTitle = (movie.title || movie.name || '').trim();
+      const searchOriginal = (movie.original_title || movie.original_name || '').trim();
+      const yearRaw = (movie.year || movie.release_date || movie.first_air_date || '').toString();
+      const searchYear = yearRaw ? yearRaw.slice(0, 4) : '';
+      const queryBase = `${searchTitle} ${searchYear}`.trim();
       const qsCommon = {
         Query: queryBase,
-        title: movie.title || '',
-        title_original: movie.original_title || '',
+        title: searchTitle,
+        title_original: searchOriginal,
         Category: '2000,5000', // Movies + TV
       };
 
@@ -774,7 +797,18 @@ try {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s && s.length > 3)
-        .map((url, i) => ({ name: `Custom ${i + 1}`, url: url.replace(/^https?:\/\//, '').replace(/\/+$/, ''), key: '' }));
+        .map((entry, i) => {
+          // Normalize through URL() so a pasted full URL (path/query/fragment) or
+          // an invalid host does not produce a garbled request URL.
+          try {
+            const u = new URL(/^https?:\/\//i.test(entry) ? entry : `https://${entry}`);
+            const host = `${u.host}${u.pathname.replace(/\/+$/, '')}`;
+            return host ? { name: `Custom ${i + 1}`, url: host, key: '' } : null;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
 
       const parsers = [...customParsers, ...PUBLIC_PARSERS];
       const parserAttempts = [];
@@ -819,7 +853,7 @@ try {
         if (signal.aborted) break;
         const qs = new URLSearchParams(qsCommon);
         if (p.key) qs.set('apikey', p.key);
-        if (movie.year) qs.set('year', movie.year);
+        if (searchYear) qs.set('year', searchYear);
         const url = `https://${p.url}/api/v2.0/indexers/all/results?${qs.toString()}`;
         const startedAt = Date.now();
 
@@ -908,6 +942,7 @@ try {
       if (!Array.isArray(hashes) || !hashes.length) return {};
       const acc = {};
       for (let i = 0; i < hashes.length; i += 100) {
+        if (signal?.aborted) break; // stop issuing chunk requests once cancelled
         const chunk = hashes.slice(i, i + 100);
         const qs = new URLSearchParams();
         chunk.forEach((h) => qs.append('hash', h));
@@ -1688,7 +1723,7 @@ try {
       if (!snapshot) return translate('torbox_last_torrent_fallback');
       const icon = snapshot.icon || (snapshot.cached ? '⚡' : '☁️');
       const titleParts = [];
-      if (snapshot.quality) titleParts.push(`[${snapshot.quality}]`);
+      if (snapshot.quality) titleParts.push(`[${Utils.escapeHtml(String(snapshot.quality))}]`);
       titleParts.push(Utils.escapeHtml(snapshot.title || translate('torbox_no_title')));
       const sizeText = snapshot.size ? Utils.formatBytes(snapshot.size) : translate('torbox_not_available');
       const seeders = snapshot.last_known_seeders ?? 0;
@@ -1822,7 +1857,9 @@ try {
         watchedSet = new Set();
         Store.set(`torbox_watched_episodes_${mid}_${torrentKey}`, '[]');
       }
-      const lastPlayedId = Store.get(`torbox_last_played_file_${mid}`, null);
+      // Scope by torrent: TorBox file ids are per-torrent, so a movie-only key
+      // would highlight/focus an unrelated file in a different release.
+      const lastPlayedId = Store.get(`torbox_last_played_file_${mid}_${torrentKey}`, null);
 
       const videoExtensions = getVideoExtensions();
       const videoRegex = new RegExp(
@@ -1848,7 +1885,7 @@ try {
         let item = Lampa.Template.get('torbox_episode_item', {
           title: Utils.escapeHtml(clean || file.name || translate('torbox_no_title')),
           size: Utils.formatBytes(file.size || 0),
-          file_id: file.id,
+          file_id: Utils.escapeHtml(String(file.id)),
         });
         if (!firstEpisodeEl) firstEpisodeEl = item;
 
@@ -1953,7 +1990,8 @@ try {
       }
 
       Store.set(key, JSON.stringify(normalized));
-      if (fileKey) Store.set(`torbox_last_played_file_${mid}`, fileKey);
+      // Match drawEpisodes' torrent-scoped read (file ids are per-torrent).
+      if (fileKey) Store.set(`torbox_last_played_file_${mid}_${torrentHashOrId}`, fileKey);
       return changed;
     };
 
@@ -1978,7 +2016,15 @@ try {
 
     const isSeriesContent = () => {
       const movie = object?.movie || {};
-      return !!(movie.name || movie.original_name || movie.first_air_date || movie.season_number);
+      return !!(
+        movie.name ||
+        movie.original_name ||
+        movie.first_air_date ||
+        movie.season_number ||
+        movie.number_of_seasons ||
+        (Array.isArray(movie.seasons) && movie.seasons.length) ||
+        movie.media_type === 'tv'
+      );
     };
 
     const pickBestVideoFile = (files) => {
@@ -2211,12 +2257,17 @@ try {
       new Promise((resolve, reject) => {
         let active = true;
         let retries = 0;
+        let pollTimer = null;
         const maxRetries = getTrackRetries();
         const intervalMs = getTrackIntervalMs();
+        const scheduleNext = () => {
+          pollTimer = setTimeout(loop, intervalMs);
+        };
 
         const cancel = () => {
           if (!active) return;
           active = false;
+          if (pollTimer) clearTimeout(pollTimer);
           signal.removeEventListener('abort', cancel);
           Lampa.Loading.stop();
           reject({ name: 'AbortError', message: translate('torbox_error_aborted') });
@@ -2236,7 +2287,7 @@ try {
             const arr = (await Api.myList(id, signal))?.data || [];
             const d = arr[0];
             if (!d) {
-              setTimeout(loop, intervalMs);
+              scheduleNext();
               return;
             }
 
@@ -2262,7 +2313,7 @@ try {
               signal.removeEventListener('abort', cancel);
               resolve(d);
             } else {
-              setTimeout(loop, intervalMs);
+              scheduleNext();
             }
           } catch (e) {
             active = false;
@@ -2644,7 +2695,10 @@ try {
 
       filter.set('filter', baseItems);
       filter.render().find('.filter--filter span').text(translate('torbox_filter_title'));
-      filter.render().find('.filter--search input').attr('placeholder', state.search_query || object.movie.title);
+      filter
+        .render()
+        .find('.filter--search input')
+        .attr('placeholder', state.search_query || object.movie.title || object.movie.name);
 
       const chosen = baseItems
         .filter((f) => f.stype && state.filters[f.stype] !== 'all')
