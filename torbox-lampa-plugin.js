@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.3');
+  console.log('[TorBox] boot strap', '51.2.4');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.3';
+  const VERSION = '51.2.4';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -284,6 +284,24 @@ try {
       if (!isFinite(n) || n < 0) return 0;
       if (n <= 1) return Utils.clamp(n * 100, 0, 100);
       return Utils.clamp(n, 0, 100);
+    },
+    // Classify a TorBox torrent record into a UI phase:
+    //  - 'ready'       : finished AND has files -> can start playback
+    //  - 'finalizing'  : downloaded but not yet playable (TorBox is caching/
+    //                    preparing files) -> show a "preparing" message, NOT a
+    //                    stale download ETA/speed
+    //  - 'downloading' : still downloading -> show progress + ETA
+    downloadPhase(d) {
+      if (!d || typeof d !== 'object') return 'downloading';
+      const finished =
+        d.download_state === 'completed' ||
+        d.download_state === 'uploading' ||
+        !!d.download_finished;
+      const hasFiles = Array.isArray(d.files) && d.files.length > 0;
+      if (finished && hasFiles) return 'ready';
+      const downloadDone =
+        finished || Utils.normalizeProgress(d.progress) >= 100 || d.download_state === 'cached';
+      return downloadDone ? 'finalizing' : 'downloading';
     },
     sanitizeTokenList(value, { uppercase = false } = {}) {
       const items = String(Array.isArray(value) ? value.join(',') : value || '')
@@ -2296,30 +2314,38 @@ try {
               return;
             }
 
-            const finished = d.download_state === 'completed' || d.download_state === 'uploading' || !!d.download_finished;
-            const progress = Utils.normalizeProgress(d.progress);
-            const speedTxt = Utils.formatBytes(d.download_speed, true);
-            const etaTxt = Utils.formatTime(d.eta);
-            const seeds = Number(d.seeds) || 0;
-            const peers = Number(d.peers) || 0;
+            const phase = Utils.downloadPhase(d);
 
-            $('.loading-layer .loading-layer__text').text(
-              translateWithParams('torbox_loading_progress', {
-                progress: progress.toFixed(2),
-                speed: speedTxt,
-                seeds,
-                peers,
-                eta: etaTxt,
-              })
-            );
-
-            if (finished && Array.isArray(d.files) && d.files.length) {
+            if (phase === 'ready') {
               active = false;
               signal.removeEventListener('abort', cancel);
               resolve(d);
-            } else {
-              scheduleNext();
+              return;
             }
+
+            const loadingText = $('.loading-layer .loading-layer__text');
+            if (phase === 'finalizing') {
+              // Downloaded but TorBox is still caching/preparing files — a download
+              // ETA/speed here is stale (shows nonsense like "24h"), so reassure the
+              // user that it is being prepared rather than still downloading.
+              loadingText.text(translate('torbox_loading_finalizing'));
+            } else {
+              const progress = Utils.normalizeProgress(d.progress);
+              const speedTxt = Utils.formatBytes(d.download_speed, true);
+              const etaTxt = Utils.formatTime(d.eta);
+              const seeds = Number(d.seeds) || 0;
+              const peers = Number(d.peers) || 0;
+              loadingText.text(
+                translateWithParams('torbox_loading_progress', {
+                  progress: progress.toFixed(2),
+                  speed: speedTxt,
+                  seeds,
+                  peers,
+                  eta: etaTxt,
+                })
+              );
+            }
+            scheduleNext();
           } catch (e) {
             active = false;
             signal.removeEventListener('abort', cancel);
@@ -3165,6 +3191,11 @@ try {
         en: 'TorBox: Waiting for download...',
         uk: 'TorBox: Очікування завантаження...',
       },
+      torbox_loading_finalizing: {
+        ru: 'TorBox: Загрузка завершена, готовим к запуску…',
+        en: 'TorBox: Download complete, preparing to play…',
+        uk: 'TorBox: Завантаження завершено, готуємо до запуску…',
+      },
       torbox_empty_filters: {
         ru: 'Ничего не найдено по заданным фильтрам',
         en: 'No results for the selected filters',
@@ -3552,8 +3583,13 @@ try {
           .torbox-cached-toggle { display:inline-flex; align-items:center; justify-content:center; border:2px solid transparent; transition:.2s; gap:.5em; padding:0 .8em; min-height:2.5em; }
           .torbox-cached-toggle__icon { font-size:1.5em; line-height:1; }
           .torbox-cached-toggle__label { font-size:.85em; font-weight:500; white-space:nowrap; }
-          .torbox-cached-toggle.torbox-cached-toggle--active, .torbox-cached-toggle.focus, .torbox-cached-toggle:hover {
+          .torbox-cached-toggle.focus, .torbox-cached-toggle:hover {
             background:var(--color-primary); color:var(--color-background); border-color:rgba(255,255,255,.28);
+          }
+          /* "Cached only" engaged: subtle accent border, NOT the selection fill, so it
+             is not mistaken for keyboard focus (the ⚡ icon + label already show state). */
+          .torbox-cached-toggle.torbox-cached-toggle--active:not(.focus):not(:hover) {
+            border-color:var(--color-second);
           }
           .torbox-file-item { display:flex; justify-content:space-between; align-items:center; padding:1em 1.2em; margin-bottom:1em; border-radius:.8em; background:var(--color-background-light); transition:.25s; border:2px solid transparent; }
           .torbox-file-item__title { font-weight:600; }
