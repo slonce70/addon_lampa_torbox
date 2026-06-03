@@ -88,6 +88,24 @@ function normalizeCustomParsers(customStr = '') {
     .filter(Boolean);
 }
 
+function normalizeProgress(p) {
+  const n = Number(p);
+  if (!isFinite(n) || n < 0) return 0;
+  if (n <= 1) return Math.max(0, Math.min(100, n * 100));
+  return Math.max(0, Math.min(100, n));
+}
+
+function downloadPhase(d) {
+  if (!d || typeof d !== 'object') return 'downloading';
+  const finished =
+    d.download_state === 'completed' || d.download_state === 'uploading' || !!d.download_finished;
+  const hasFiles = Array.isArray(d.files) && d.files.length > 0;
+  if (finished && hasFiles) return 'ready';
+  const downloadDone =
+    finished || normalizeProgress(d.progress) >= 100 || d.download_state === 'cached';
+  return downloadDone ? 'finalizing' : 'downloading';
+}
+
 function buildProxyUrl(base, target) {
   const raw = String(base || '').trim();
   if (!raw) return raw;
@@ -342,6 +360,25 @@ test('custom parser URLs are normalized to host (+path), dropping junk and inval
     parsers.map((p) => p.url),
     ['good.example/api', 'plain.example']
   );
+});
+
+test('downloadPhase distinguishes downloading / finalizing / ready', () => {
+  // Still downloading: progress < 100, not finished, no files
+  assert.equal(downloadPhase({ download_state: 'downloading', progress: 0.45, files: [] }), 'downloading');
+  // Downloaded to 100% but files not ready yet (caching) -> finalizing, not a stale ETA
+  assert.equal(downloadPhase({ download_state: 'downloading', progress: 1, files: [] }), 'finalizing');
+  assert.equal(downloadPhase({ download_state: 'downloading', progress: 100, files: [] }), 'finalizing');
+  // download_finished flag set but files not listed yet -> finalizing
+  assert.equal(downloadPhase({ download_state: 'downloading', progress: 0.99, download_finished: true, files: [] }), 'finalizing');
+  // explicit cached state without files yet -> finalizing
+  assert.equal(downloadPhase({ download_state: 'cached', progress: 0.8, files: [] }), 'finalizing');
+  // Ready: finished AND has files
+  assert.equal(downloadPhase({ download_state: 'completed', progress: 1, files: [{ id: 0, name: 'a.mkv' }] }), 'ready');
+  assert.equal(downloadPhase({ download_state: 'uploading', progress: 1, files: [{ id: 0, name: 'a.mkv' }] }), 'ready');
+  // finished but no files -> still finalizing (not ready), so we never resolve early
+  assert.equal(downloadPhase({ download_state: 'completed', progress: 1, files: [] }), 'finalizing');
+  // garbage input degrades to downloading
+  assert.equal(downloadPhase(null), 'downloading');
 });
 
 test('proxy URL builder covers URL, placeholder and query modes', () => {
@@ -658,4 +695,24 @@ test('audit hardening fixes are present in plugin source', () => {
   assert.match(plugin, /outerSignal\.removeEventListener\('abort', onOuterAbort\)/);
   assert.match(plugin, /if \(signal\?\.aborted\) break;/);
   assert.match(plugin, /if \(pollTimer\) clearTimeout\(pollTimer\);/);
+});
+
+test('UI fixes (cached-toggle active style + finalizing state) are present in plugin source', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  // Cached-only "active" no longer shares the focus fill: focus/hover rule must NOT
+  // include the --active selector, and --active gets its own non-focus style.
+  assert.doesNotMatch(
+    plugin,
+    /\.torbox-cached-toggle\.torbox-cached-toggle--active, \.torbox-cached-toggle\.focus/
+  );
+  assert.match(plugin, /\.torbox-cached-toggle\.torbox-cached-toggle--active:not\(\.focus\):not\(:hover\)/);
+
+  // "Finalizing" download phase + message wired into the tracker
+  assert.match(plugin, /downloadPhase\(d\)\s*{[\s\S]*return downloadDone \? 'finalizing' : 'downloading';/);
+  assert.match(plugin, /const phase = Utils\.downloadPhase\(d\);/);
+  assert.match(plugin, /if \(phase === 'finalizing'\)/);
+  assert.match(plugin, /translate\('torbox_loading_finalizing'\)/);
+  assert.match(plugin, /torbox_loading_finalizing:\s*{/);
 });
