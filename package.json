@@ -1,7 +1,7 @@
 {
   "name": "addon_lampa_torbox",
   "private": true,
-  "version": "51.2.4",
+  "version": "51.2.5",
   "description": "TorBox plugin for Lampa",
   "scripts": {
     "validate": "node scripts/validate.js",
