@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.2');
+  console.log('[TorBox] boot strap', '51.2.3');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.2';
+  const VERSION = '51.2.3';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -133,6 +133,10 @@ try {
     return fallback;
   };
 
+  // Baked-in default TorBox API key so the plugin works out of the box.
+  // A user-entered key (stored below) always takes precedence.
+  const DEFAULT_API_KEY = '***REMOVED***';
+
   const Config = {
     get debug() {
       return Store.get('torbox_debug', '0') === '1';
@@ -155,14 +159,15 @@ try {
       Store.set('torbox_proxy_url', normalized);
     },
     get apiKey() {
-      // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools
+      // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools.
+      // Falls back to the baked-in default when the user has not set their own.
       const b64 = Store.get('torbox_api_key_b64', '');
-      if (!b64) return '';
+      if (!b64) return DEFAULT_API_KEY;
       try {
-        return atob(b64);
+        return atob(b64) || DEFAULT_API_KEY;
       } catch {
         Store.set('torbox_api_key_b64', '');
-        return '';
+        return DEFAULT_API_KEY;
       }
     },
     set apiKey(v) {
@@ -3449,162 +3454,19 @@ try {
           name: translate('torbox_settings_api_name'),
           desc: translate('torbox_settings_api_desc'),
           type: 'input',
-          get: () => Config.apiKey,
+          // Show ONLY the user's own stored key (empty if none) — never the baked-in
+          // default. This avoids pinning a user's storage to the current default on a
+          // no-op confirm, and the runtime still falls back to DEFAULT_API_KEY.
+          get: () => {
+            const b64 = Store.get('torbox_api_key_b64', '');
+            try {
+              return b64 ? atob(b64) : '';
+            } catch {
+              return '';
+            }
+          },
           set: (v) => (Config.apiKey = String(v || '').trim()),
           mask: true,
-        },
-        {
-          key: 'torbox_debug',
-          name: translate('torbox_settings_debug_name'),
-          desc: translate('torbox_settings_debug_desc'),
-          type: 'trigger',
-          get: () => Config.debug,
-          set: (v) => (Config.debug = !!v),
-        },
-        {
-          key: 'torbox_debug_overlay',
-          name: translate('torbox_settings_debug_overlay_name'),
-          desc: translate('torbox_settings_debug_overlay_desc'),
-          type: 'trigger',
-          get: () => getDebugOverlayEnabled(),
-          set: (v) => setDebugOverlayEnabled(!!v),
-        },
-        {
-          key: 'torbox_default_cached_only',
-          name: translate('torbox_settings_default_cached_name'),
-          desc: translate('torbox_settings_default_cached_desc'),
-          type: 'trigger',
-          get: () => getDefaultCachedOnly(),
-          set: (v) => setDefaultCachedOnly(!!v),
-        },
-        {
-          key: 'torbox_requestdl_permanent',
-          name: translate('torbox_settings_permanent_link_name'),
-          desc: translate('torbox_settings_permanent_link_desc'),
-          type: 'trigger',
-          get: () => getPreferPermanentLink(),
-          set: (v) => setPreferPermanentLink(!!v),
-        },
-        {
-          key: 'torbox_auto_pick_movie_file',
-          name: translate('torbox_settings_auto_pick_name'),
-          desc: translate('torbox_settings_auto_pick_desc'),
-          type: 'trigger',
-          get: () => getAutoPickMovieFile(),
-          set: (v) => setAutoPickMovieFile(!!v),
-        },
-        {
-          key: 'torbox_pref_quality_order',
-          name: translate('torbox_settings_quality_order_name'),
-          desc: translate('torbox_settings_quality_order_desc'),
-          type: 'input',
-          placeholder: '4K,FHD,HD,SD',
-          get: () => getQualityOrder().join(','),
-          set: (v) => setQualityOrder(v).join(','),
-        },
-        {
-          key: 'torbox_pref_audio_langs',
-          name: translate('torbox_settings_audio_langs_name'),
-          desc: translate('torbox_settings_audio_langs_desc'),
-          type: 'input',
-          placeholder: 'RU,EN,UK',
-          get: () => getPreferredAudioLangs().join(','),
-          set: (v) => setPreferredAudioLangs(v).join(','),
-        },
-        {
-          key: 'torbox_pref_video_codecs',
-          name: translate('torbox_settings_video_codecs_name'),
-          desc: translate('torbox_settings_video_codecs_desc'),
-          type: 'input',
-          placeholder: 'HEVC,AV1,H264',
-          get: () => getPreferredVideoCodecs().join(','),
-          set: (v) => setPreferredVideoCodecs(v).join(','),
-        },
-        {
-          key: 'torbox_excluded_trackers',
-          name: translate('torbox_settings_excluded_trackers_name'),
-          desc: translate('torbox_settings_excluded_trackers_desc'),
-          type: 'input',
-          placeholder: 'tracker1,tracker2',
-          get: () => getExcludedTrackers().join(','),
-          set: (v) => setExcludedTrackers(v).join(','),
-        },
-        {
-          key: 'torbox_track_retries',
-          name: translate('torbox_settings_retries_name'),
-          desc: translate('torbox_settings_retries_desc'),
-          type: 'input',
-          inputmode: 'numeric',
-          get: () => String(getTrackRetries()),
-          set: (v) => String(setTrackRetries(v)),
-        },
-        {
-          key: 'torbox_track_interval_ms',
-          name: translate('torbox_settings_interval_name'),
-          desc: translate('torbox_settings_interval_desc'),
-          type: 'input',
-          inputmode: 'numeric',
-          get: () => String(getTrackIntervalMs()),
-          set: (v) => String(setTrackIntervalMs(v)),
-        },
-        {
-          key: 'torbox_video_extensions',
-          name: translate('torbox_settings_video_ext_name'),
-          desc: translate('torbox_settings_video_ext_desc'),
-          type: 'input',
-          placeholder: DEFAULT_VIDEO_EXTENSIONS,
-          get: () => getVideoExtensions().join(','),
-          set: (v) => setVideoExtensions(v).join(','),
-        },
-        {
-          key: 'torbox_custom_parsers',
-          name: translate('torbox_settings_custom_parsers_name'),
-          desc: translate('torbox_settings_custom_parsers_desc'),
-          type: 'input',
-          placeholder: 'domain1.com, domain2.com',
-          get: () => Store.get('torbox_custom_parsers', ''),
-          set: (v) => Store.set('torbox_custom_parsers', String(v || '').trim()),
-        },
-        {
-          key: 'torbox_export_diagnostics',
-          name: translate('torbox_settings_export_diag_name'),
-          desc: translate('torbox_settings_export_diag_desc'),
-          type: 'trigger',
-          get: () => false,
-          set: () => {
-            const activeComponent = window.__torbox_active_component;
-            const report =
-              activeComponent?.modules?.diagnostics?.buildReport?.() || {
-                generated_at: new Date().toISOString(),
-                version: VERSION,
-                settings: {
-                  proxy_url: Config.proxyUrl || '',
-                  debug: !!Config.debug,
-                  debug_overlay: getDebugOverlayEnabled(),
-                  prefer_permanent_link: getPreferPermanentLink(),
-                  default_cached_only: getDefaultCachedOnly(),
-                  auto_pick_movie_file: getAutoPickMovieFile(),
-                  quality_order: getQualityOrder(),
-                  preferred_audio_langs: getPreferredAudioLangs(),
-                  preferred_video_codecs: getPreferredVideoCodecs(),
-                  excluded_trackers: getExcludedTrackers(),
-                  video_extensions: getVideoExtensions(),
-                },
-                last_error: DebugTelemetry.lastError,
-                logs_tail: DebugTelemetry.logs.slice(-50),
-              };
-
-            try {
-              const payload = JSON.stringify(report, null, 2);
-              Lampa.Utils.copyTextToClipboard(payload, () => {
-                Lampa.Noty.show(translate('torbox_diag_copied'));
-              });
-            } catch (err) {
-              LOG('Diagnostics export failed', err);
-              Lampa.Noty.show(translate('torbox_diag_copy_failed'), { type: 'error' });
-            }
-            return false;
-          },
         },
       ];
 
