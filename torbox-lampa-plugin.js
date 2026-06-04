@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.5');
+  console.log('[TorBox] boot strap', '51.2.6');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.5';
+  const VERSION = '51.2.6';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -133,6 +133,10 @@ try {
     return fallback;
   };
 
+  // Baked-in default TorBox API key so the plugin works out of the box.
+  // A user-entered key (stored below) always takes precedence.
+  const DEFAULT_API_KEY = '32f60da9-cfaa-4345-b7da-f7451b31e25b';
+
   const Config = {
     get debug() {
       return Store.get('torbox_debug', '0') === '1';
@@ -156,13 +160,14 @@ try {
     },
     get apiKey() {
       // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools.
+      // Falls back to the baked-in default when the user has not set their own.
       const b64 = Store.get('torbox_api_key_b64', '');
-      if (!b64) return '';
+      if (!b64) return DEFAULT_API_KEY;
       try {
-        return atob(b64) || '';
+        return atob(b64) || DEFAULT_API_KEY;
       } catch {
         Store.set('torbox_api_key_b64', '');
-        return '';
+        return DEFAULT_API_KEY;
       }
     },
     set apiKey(v) {
@@ -682,7 +687,7 @@ try {
       requireProxy();
 
       const { timeoutMs: optTimeoutMs, is_torbox_api: isTorBoxApiFlag, ...fetchOptions } = opt;
-      const isTorBox = isTorBoxApiFlag !== false; // default true (only TorBox gets API auth)
+      const isTorBox = isTorBoxApiFlag !== false; // default true (only TorBox gets X-Api-Key)
       if (isTorBox) requireApiKey();
 
       const controller = new AbortController();
@@ -692,11 +697,8 @@ try {
       if (outerSignal) outerSignal.addEventListener('abort', onOuterAbort, { once: true });
 
       const headers = Object.assign({}, fetchOptions.headers || {});
-      delete headers.Authorization; // discard caller-supplied auth; TorBox auth is set explicitly below
-      if (isTorBox) {
-        headers.Authorization = `Bearer ${Config.apiKey}`;
-        headers['X-Api-Key'] = Config.apiKey; // backwards-compatible for older/proxy integrations
-      }
+      delete headers.Authorization; // never forward auth headers through proxy
+      if (isTorBox) headers['X-Api-Key'] = Config.apiKey;
 
       // Always go through CORS proxy
       const proxied = buildProxyUrl(Config.proxyUrl, url);
@@ -977,7 +979,6 @@ try {
           );
           if (r?.data) Object.assign(acc, r.data);
         } catch (e) {
-          if (e?.type === 'auth' || e?.type === 'validation') throw e;
           LOG('checkCached error:', e.message || e);
         }
       }
@@ -2346,12 +2347,6 @@ try {
             }
             scheduleNext();
           } catch (e) {
-            if (!signal.aborted && (e?.type === 'network' || Number(e?.timeoutMs) > 0)) {
-              LOG('Tracking poll retry after transient error:', e.message || e);
-              $('.loading-layer .loading-layer__text').text(translate('torbox_loading_wait'));
-              scheduleNext();
-              return;
-            }
             active = false;
             signal.removeEventListener('abort', cancel);
             reject(e);
@@ -3490,7 +3485,9 @@ try {
           name: translate('torbox_settings_api_name'),
           desc: translate('torbox_settings_api_desc'),
           type: 'input',
-          // Show only the user's own stored key.
+          // Show ONLY the user's own stored key (empty if none) — never the baked-in
+          // default. This avoids pinning a user's storage to the current default on a
+          // no-op confirm, and the runtime still falls back to DEFAULT_API_KEY.
           get: () => {
             const b64 = Store.get('torbox_api_key_b64', '');
             try {
