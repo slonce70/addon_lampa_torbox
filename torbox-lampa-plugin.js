@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.7');
+  console.log('[TorBox] boot strap', '51.2.8');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.7';
+  const VERSION = '51.2.8';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -2124,10 +2124,133 @@ try {
       return link;
     };
 
+    const getEpisodeDownloadFilename = (file) => {
+      const clean = String(file?.name || '').split('/').pop().trim();
+      const fallback = `torbox-file-${file?.id ?? 'download'}.mp4`;
+      const filename = (clean || fallback)
+        .replace(/[\x00-\x1F\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+      return filename || fallback;
+    };
+
+    const getAndroidBridgeVersion = () => {
+      try {
+        if (typeof AndroidJS === 'undefined' || typeof AndroidJS.appVersion !== 'function') return 0;
+        const parts = String(AndroidJS.appVersion() || '').split('-');
+        const raw = parts.pop();
+        const version = parseInt(raw, 10);
+        return Number.isFinite(version) ? version : 0;
+      } catch (_) {
+        return 0;
+      }
+    };
+
+    const canUseAndroidBrowser = () => {
+      try {
+        if (typeof AndroidJS !== 'undefined' && typeof AndroidJS.openBrowser === 'function') return true;
+        return !!(
+          typeof Lampa !== 'undefined' &&
+          Lampa?.Platform?.is &&
+          Lampa.Platform.is('android') &&
+          Lampa?.Android?.openBrowser &&
+          getAndroidBridgeVersion() >= 484
+        );
+      } catch (_) {
+        return false;
+      }
+    };
+
+    const tryAndroidDownloadOpen = (link) => {
+      try {
+        if (typeof AndroidJS !== 'undefined' && typeof AndroidJS.openBrowser === 'function') {
+          AndroidJS.openBrowser(link);
+          return true;
+        }
+      } catch (e) {
+        LOG('AndroidJS download open failed', e?.message || e);
+      }
+
+      try {
+        if (canUseAndroidBrowser()) {
+          Lampa.Android.openBrowser(link);
+          return true;
+        }
+      } catch (e) {
+        LOG('Android download open failed', e?.message || e);
+      }
+
+      return false;
+    };
+
+    const closePreparedDownloadOpen = (opener) => {
+      try {
+        if (opener && !opener.closed && typeof opener.close === 'function') opener.close();
+      } catch (_) {
+        /* ignore cross-window close failures */
+      }
+    };
+
+    const prepareEpisodeDownloadOpen = (file) => {
+      if (canUseAndroidBrowser()) return null;
+
+      try {
+        if (typeof window.open !== 'function') return null;
+        const opener = window.open('', '_blank');
+        if (!opener) return null;
+
+        try {
+          opener.opener = null;
+          if (opener.document) {
+            opener.document.title = getEpisodeDownloadFilename(file);
+            if (opener.document.body) {
+              opener.document.body.style.font = '16px sans-serif';
+              opener.document.body.style.padding = '24px';
+              opener.document.body.textContent = translate('torbox_download_preparing');
+            }
+          }
+        } catch (_) {
+          /* Some WebViews expose an opener object but not its document. */
+        }
+
+        return opener;
+      } catch (e) {
+        LOG('Download target prepare failed', e?.message || e);
+        return null;
+      }
+    };
+
+    const clickAnchorDownload = (link, file) => {
+      try {
+        if (typeof document === 'undefined' || !document.body) return false;
+        const filename = getEpisodeDownloadFilename(file);
+        const anchor = document.createElement('a');
+        anchor.href = link;
+        anchor.setAttribute('download', filename);
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener');
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        setTimeout(() => {
+          try {
+            anchor.remove();
+          } catch (_) {
+            /* ignore DOM cleanup failures */
+          }
+        }, 0);
+        return true;
+      } catch (e) {
+        LOG('Anchor download failed', e?.message || e);
+        return false;
+      }
+    };
+
     const tryOpenDownloadLink = (link) => {
       try {
         if (typeof window.open === 'function') {
-          const opened = window.open(link, '_blank');
+          const opened = window.open(link, '_blank', 'noopener');
           if (opened) return true;
         }
       } catch (e) {
@@ -2136,9 +2259,27 @@ try {
       return false;
     };
 
+    const startEpisodeDownload = (link, file, opener) => {
+      if (tryAndroidDownloadOpen(link)) return 'system';
+
+      try {
+        if (opener && !opener.closed) {
+          opener.location.href = link;
+          return 'system';
+        }
+      } catch (e) {
+        LOG('Prepared download open failed', e?.message || e);
+        closePreparedDownloadOpen(opener);
+      }
+
+      if (clickAnchorDownload(link, file) || tryOpenDownloadLink(link)) return 'attempted';
+      return 'copy_only';
+    };
+
     const downloadEpisodeLink = async (torrentData, file, button) => {
       const btn = button && button.length ? button : null;
       if (btn && btn.data('torboxDownloading')) return;
+      let opener = null;
 
       try {
         if (btn) {
@@ -2146,14 +2287,29 @@ try {
           btn.addClass('torbox-file-download--loading');
         }
 
+        opener = prepareEpisodeDownloadOpen(file);
         const link = await resolveEpisodeDownloadLink(torrentData, file);
-        const opened = tryOpenDownloadLink(link);
+        const downloadState = startEpisodeDownload(link, file, opener);
+        opener = null;
         Lampa.Utils.copyTextToClipboard(link, () => {
-          Lampa.Noty.show(
-            opened ? translate('torbox_download_link_opened') : translate('torbox_download_link_copied')
-          );
+          const message =
+            downloadState === 'system'
+              ? translate('torbox_download_started')
+              : downloadState === 'attempted'
+                ? translate('torbox_download_attempted')
+                : translate('torbox_download_link_copied');
+          Lampa.Noty.show(message);
+        }, () => {
+          const message =
+            downloadState === 'system'
+              ? translate('torbox_download_started_no_copy')
+              : downloadState === 'attempted'
+                ? translate('torbox_download_attempted_no_copy')
+                : translate('torbox_download_link_copy_failed');
+          Lampa.Noty.show(message);
         });
       } catch (e) {
+        closePreparedDownloadOpen(opener);
         ErrorHandler.show(e?.type || 'error', e);
       } finally {
         if (btn) {
@@ -3236,10 +3392,40 @@ try {
         en: 'Download link copied',
         uk: 'Посилання для завантаження скопійовано',
       },
+      torbox_download_link_copy_failed: {
+        ru: 'Ссылка получена, но не скопирована',
+        en: 'Download link obtained, but not copied',
+        uk: 'Посилання отримано, але не скопійовано',
+      },
       torbox_download_link_opened: {
         ru: 'Ссылка открыта и скопирована',
         en: 'Download link opened and copied',
         uk: 'Посилання відкрито та скопійовано',
+      },
+      torbox_download_preparing: {
+        ru: 'TorBox готовит ссылку для загрузки...',
+        en: 'TorBox is preparing the download link...',
+        uk: 'TorBox готує посилання для завантаження...',
+      },
+      torbox_download_attempted: {
+        ru: 'Попробовали открыть загрузку, ссылка скопирована',
+        en: 'Tried to open the download, link copied',
+        uk: 'Спробували відкрити завантаження, посилання скопійовано',
+      },
+      torbox_download_attempted_no_copy: {
+        ru: 'Попробовали открыть загрузку',
+        en: 'Tried to open the download',
+        uk: 'Спробували відкрити завантаження',
+      },
+      torbox_download_started: {
+        ru: 'Загрузка передана системе, ссылка скопирована',
+        en: 'Download sent to the system, link copied',
+        uk: 'Завантаження передано системі, посилання скопійовано',
+      },
+      torbox_download_started_no_copy: {
+        ru: 'Загрузка передана системе',
+        en: 'Download sent to the system',
+        uk: 'Завантаження передано системі',
       },
       torbox_error_player_cancelled: {
         ru: 'Воспроизведение отменено',
