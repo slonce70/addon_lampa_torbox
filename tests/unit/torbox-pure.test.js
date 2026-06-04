@@ -656,6 +656,34 @@ test('episode list explicitly focuses last played or first episode item', () => 
   assert.match(drawEpisodesBlock, /if \(focusEl \|\| firstEpisodeEl\) focusElement\(focusEl \|\| firstEpisodeEl\);/);
 });
 
+test('episode download action is separate from playback', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  assert.match(plugin, /EPISODE_DOWNLOAD:\s*'episode_download'/);
+  assert.match(plugin, /root\.find\('\.torbox-file-download\.selector'\)/);
+  assert.match(plugin, /if \(element\.hasClass\('torbox-file-download'\)\) return FocusZones\.EPISODE_DOWNLOAD;/);
+  assert.match(plugin, /torbox-file-download selector/);
+  assert.match(plugin, /const link = await resolveEpisodeDownloadLink\(torrentData, file\);/);
+
+  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData) => {');
+  const drawEnd = plugin.indexOf('const _getPlayerConfig =', drawStart);
+  const drawEpisodesBlock = plugin.slice(drawStart, drawEnd);
+  assert.match(drawEpisodesBlock, /\.on\('hover:enter', \(\) => \{[\s\S]*play\(torrentData, file,/);
+  assert.match(drawEpisodesBlock, /downloadBtn[\s\S]*e\.stopPropagation\(\);[\s\S]*downloadEpisodeLink\(torrentData, file, downloadBtn\);/);
+
+  const downloadStart = plugin.indexOf('const downloadEpisodeLink = async');
+  const downloadEnd = plugin.indexOf('const play = async', downloadStart);
+  const downloadBlock = plugin.slice(downloadStart, downloadEnd);
+  assert.match(downloadBlock, /resolveEpisodeDownloadLink\(torrentData, file\)/);
+  assert.match(downloadBlock, /Lampa\.Utils\.copyTextToClipboard\(link/);
+  assert.doesNotMatch(downloadBlock, /play\(torrentData, file/);
+  assert.doesNotMatch(downloadBlock, /_markWatched/);
+  assert.doesNotMatch(downloadBlock, /Favorite\.add/);
+  assert.doesNotMatch(downloadBlock, /Store\.set/);
+  assert.doesNotMatch(downloadBlock, /LOG\([^)]*link/);
+});
+
 test('security and failover guards are present in plugin source', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
