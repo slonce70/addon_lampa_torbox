@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.6');
+  console.log('[TorBox] boot strap', '51.2.7');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.6';
+  const VERSION = '51.2.7';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -1288,6 +1288,7 @@ try {
       LIST: 'list',
       FILTER: 'filter',
       EPISODE: 'episode',
+      EPISODE_DOWNLOAD: 'episode_download',
       EMPTY: 'empty',
     });
 
@@ -1415,6 +1416,8 @@ try {
           return getFilterFocusItems();
         case FocusZones.EPISODE:
           return root.find('.torbox-file-item.selector');
+        case FocusZones.EPISODE_DOWNLOAD:
+          return root.find('.torbox-file-download.selector');
         default:
           return $();
       }
@@ -1435,6 +1438,7 @@ try {
       ) {
         return FocusZones.FILTER;
       }
+      if (element.hasClass('torbox-file-download')) return FocusZones.EPISODE_DOWNLOAD;
       if (element.hasClass('torbox-file-item')) return FocusZones.EPISODE;
       if (element.hasClass('empty')) return FocusZones.EMPTY;
       return null;
@@ -1482,6 +1486,8 @@ try {
     const focusContinueItem = () => focusZone(FocusZones.CONTINUE, 0);
     const focusFilterItem = (index = 0) => focusZone(FocusZones.FILTER, index);
     const focusEmptyMessage = () => focusZone(FocusZones.EMPTY, 0);
+    const focusEpisodeItem = (index = 0) => focusZone(FocusZones.EPISODE, index);
+    const focusEpisodeDownload = (index = 0) => focusZone(FocusZones.EPISODE_DOWNLOAD, index);
 
     const focusFirstListItem = () => {
       if (!scroll || typeof scroll.render !== 'function') return;
@@ -1647,6 +1653,21 @@ try {
           return true;
         },
       },
+      [FocusZones.EPISODE]: {
+        up: () => focusEpisodeItem(focusState.index - 1) || focusEpisodeItem(focusState.index),
+        down: () => focusEpisodeItem(focusState.index + 1) || focusEpisodeItem(focusState.index),
+        left: () => {
+          Lampa.Controller.toggle('menu');
+          return true;
+        },
+        right: () => focusEpisodeDownload(focusState.index) || true,
+      },
+      [FocusZones.EPISODE_DOWNLOAD]: {
+        up: () => focusEpisodeDownload(focusState.index - 1) || focusEpisodeDownload(focusState.index),
+        down: () => focusEpisodeDownload(focusState.index + 1) || focusEpisodeDownload(focusState.index),
+        left: () => focusEpisodeItem(focusState.index) || true,
+        right: () => true,
+      },
     };
 
     const ensureFocusExists = () => {
@@ -1660,6 +1681,14 @@ try {
     };
 
     const handleDirectionalNavigation = (direction) => {
+      if (state.view === 'episodes') {
+        const zone = focusState.zone || FocusZones.EPISODE;
+        const handler = focusRoutes[zone]?.[direction];
+        if (typeof handler === 'function' && handler()) return;
+        if (Navigator.canmove(direction)) Navigator.move(direction);
+        return;
+      }
+
       if (!isTorrentsView()) {
         if (Navigator.canmove(direction)) Navigator.move(direction);
         return;
@@ -1909,11 +1938,13 @@ try {
           title: Utils.escapeHtml(clean || file.name || translate('torbox_no_title')),
           size: Utils.formatBytes(file.size || 0),
           file_id: Utils.escapeHtml(String(file.id)),
+          download_label: Utils.escapeHtml(translate('torbox_episode_download')),
         });
         if (!firstEpisodeEl) firstEpisodeEl = item;
 
         const fileIdStr = String(file.id);
         const isWatched = watchedSet.has(fileIdStr);
+        const downloadBtn = item.find('.torbox-file-download');
         if (isWatched) item.addClass('torbox-file-item--watched');
         if (String(file.id) === String(lastPlayedId)) {
           item.addClass('torbox-file-item--last-played');
@@ -1950,6 +1981,21 @@ try {
               },
               onFail: () => Lampa.Controller.toggle('content'),
             });
+          });
+
+        downloadBtn
+          .data('torboxZone', FocusZones.EPISODE_DOWNLOAD)
+          .data('torboxIndex', idx)
+          .attr('title', translate('torbox_episode_download'))
+          .on('hover:focus', (e) => {
+            const target = $(e.currentTarget);
+            updateFocusMetaFromElement(target);
+            scroll.update(item, true);
+          })
+          .on('hover:enter', (e) => {
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            downloadEpisodeLink(torrentData, file, downloadBtn);
           });
 
         scroll.append(item);
@@ -2071,6 +2117,53 @@ try {
         })[0] || null;
     };
 
+    const resolveEpisodeDownloadLink = async (torrentData, file) => {
+      const dl = await Api.requestDl(torrentData.id, file.id);
+      const link = dl?.url || dl?.data;
+      if (!link || typeof link !== 'string') throw { type: 'api', message: translate('torbox_error_file_link') };
+      return link;
+    };
+
+    const tryOpenDownloadLink = (link) => {
+      try {
+        if (typeof window.open === 'function') {
+          const opened = window.open(link, '_blank');
+          if (opened) return true;
+        }
+      } catch (e) {
+        LOG('Download link open failed', e?.message || e);
+      }
+      return false;
+    };
+
+    const downloadEpisodeLink = async (torrentData, file, button) => {
+      const btn = button && button.length ? button : null;
+      if (btn && btn.data('torboxDownloading')) return;
+
+      try {
+        if (btn) {
+          btn.data('torboxDownloading', true);
+          btn.addClass('torbox-file-download--loading');
+        }
+
+        const link = await resolveEpisodeDownloadLink(torrentData, file);
+        const opened = tryOpenDownloadLink(link);
+        Lampa.Utils.copyTextToClipboard(link, () => {
+          Lampa.Noty.show(
+            opened ? translate('torbox_download_link_opened') : translate('torbox_download_link_copied')
+          );
+        });
+      } catch (e) {
+        ErrorHandler.show(e?.type || 'error', e);
+      } finally {
+        if (btn) {
+          btn.data('torboxDownloading', false);
+          btn.removeClass('torbox-file-download--loading');
+        }
+        Lampa.Controller.toggle('content');
+      }
+    };
+
     const play = async (torrentData, file, callbacks = {}) => {
       const { onSuccess, onFail, onFinally, onStart } = callbacks || {};
       let playbackStarted = false;
@@ -2081,9 +2174,7 @@ try {
 
         if (object.movie?.id) Lampa.Favorite.add('history', object.movie);
 
-        const dl = await Api.requestDl(torrentData.id, file.id);
-        const link = dl?.url || dl?.data;
-        if (!link) throw { type: 'api', message: translate('torbox_error_file_link') };
+        const link = await resolveEpisodeDownloadLink(torrentData, file);
 
         const playbackConfig = _getPlayerConfig(link, file, object.movie);
 
@@ -3135,6 +3226,21 @@ try {
         en: 'Failed to obtain file link',
         uk: 'Не вдалося отримати посилання на файл',
       },
+      torbox_episode_download: {
+        ru: 'Ссылка для загрузки',
+        en: 'Download link',
+        uk: 'Посилання для завантаження',
+      },
+      torbox_download_link_copied: {
+        ru: 'Ссылка для загрузки скопирована',
+        en: 'Download link copied',
+        uk: 'Посилання для завантаження скопійовано',
+      },
+      torbox_download_link_opened: {
+        ru: 'Ссылка открыта и скопирована',
+        en: 'Download link opened and copied',
+        uk: 'Посилання відкрито та скопійовано',
+      },
       torbox_error_player_cancelled: {
         ru: 'Воспроизведение отменено',
         en: 'Playback cancelled',
@@ -3460,8 +3566,11 @@ try {
       Lampa.Template.add(
         'torbox_episode_item',
         '<div class="torbox-file-item selector" data-file-id="{file_id}">' +
-          '<div class="torbox-file-item__title">{title}</div>' +
-          '<div class="torbox-file-item__subtitle">{size}</div>' +
+          '<div class="torbox-file-item__body">' +
+            '<div class="torbox-file-item__title">{title}</div>' +
+            '<div class="torbox-file-item__subtitle">{size}</div>' +
+          '</div>' +
+          '<div class="torbox-file-download selector" role="button" aria-label="{download_label}">⬇</div>' +
         '</div>'
       );
     }
@@ -3591,9 +3700,13 @@ try {
           .torbox-cached-toggle.torbox-cached-toggle--active:not(.focus):not(:hover) {
             border-color:var(--color-second);
           }
-          .torbox-file-item { display:flex; justify-content:space-between; align-items:center; padding:1em 1.2em; margin-bottom:1em; border-radius:.8em; background:var(--color-background-light); transition:.25s; border:2px solid transparent; }
-          .torbox-file-item__title { font-weight:600; }
+          .torbox-file-item { display:flex; justify-content:space-between; align-items:center; gap:1em; padding:1em 1.2em; margin-bottom:1em; border-radius:.8em; background:var(--color-background-light); transition:.25s; border:2px solid transparent; }
+          .torbox-file-item__body { min-width:0; flex:1 1 auto; }
+          .torbox-file-item__title { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
           .torbox-file-item__subtitle { font-size:.9em; opacity:.75; }
+          .torbox-file-download { flex:0 0 2.4em; width:2.4em; height:2.4em; display:flex; align-items:center; justify-content:center; border-radius:.5em; border:2px solid rgba(255,255,255,.18); background:rgba(0,0,0,.12); color:inherit; font-size:1.05em; line-height:1; }
+          .torbox-file-download:hover, .torbox-file-download.focus { background:var(--color-second); color:var(--color-background); border-color:rgba(255,255,255,.35); }
+          .torbox-file-download--loading { opacity:.55; pointer-events:none; }
           .torbox-file-item--last-played { border-left:4px solid var(--color-second); }
           .torbox-file-item--watched { color:#8a8a8a; }
           .torbox-watched-item { display:flex; align-items:center; padding:1em; margin-bottom:1em; border-radius:.8em; background:var(--color-background-light); border-left:4px solid var(--color-second); transition:.25s; border:2px solid transparent; }
