@@ -684,6 +684,39 @@ test('episode download action is separate from playback', () => {
   assert.doesNotMatch(downloadBlock, /LOG\([^)]*link/);
 });
 
+test('episode download starts a file download path after requestdl resolves', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  assert.match(plugin, /const getEpisodeDownloadFilename = \(file\) =>/);
+  assert.match(plugin, /const prepareEpisodeDownloadOpen = \(file\) =>/);
+  assert.match(plugin, /const startEpisodeDownload = \(link, file, opener\) =>/);
+  assert.match(plugin, /document\.createElement\('a'\)/);
+  assert.match(plugin, /\.setAttribute\('download', filename\)/);
+  assert.match(plugin, /opener\.opener = null/);
+  assert.match(plugin, /AndroidJS\.openBrowser\(link\)/);
+  assert.match(plugin, /Lampa\.Android\.openBrowser\(link\)/);
+  assert.match(plugin, /window\.open\(link, '_blank', 'noopener'\)/);
+  assert.match(plugin, /return 'system';/);
+  assert.match(plugin, /return 'attempted';/);
+  assert.match(plugin, /return 'copy_only';/);
+  assert.match(plugin, /torbox_download_attempted/);
+
+  const downloadStart = plugin.indexOf('const downloadEpisodeLink = async');
+  const downloadEnd = plugin.indexOf('const play = async', downloadStart);
+  const downloadBlock = plugin.slice(downloadStart, downloadEnd);
+
+  const prepareIndex = downloadBlock.indexOf('opener = prepareEpisodeDownloadOpen(file);');
+  const resolveIndex = downloadBlock.indexOf('await resolveEpisodeDownloadLink(torrentData, file);');
+  const startIndex = downloadBlock.indexOf('const downloadState = startEpisodeDownload(link, file, opener);');
+
+  assert.ok(prepareIndex > -1, 'download must prepare a browser/open target before awaiting requestdl');
+  assert.ok(resolveIndex > -1, 'download must still resolve a TorBox requestdl link');
+  assert.ok(startIndex > -1, 'download must launch the resolved link through the download strategy');
+  assert.ok(prepareIndex < resolveIndex, 'preparing the open target must stay in the user activation path');
+  assert.ok(resolveIndex < startIndex, 'download launch should happen after requestdl returns a link');
+});
+
 test('security and failover guards are present in plugin source', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
