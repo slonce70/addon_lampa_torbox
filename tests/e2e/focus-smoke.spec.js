@@ -86,3 +86,75 @@ test('TV focus smoke: Right opens filter, Up follows visual order', async ({ pag
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('#search')).toBeFocused();
 });
+
+test('Episode download focus smoke: row plays, download button does not', async ({ page }) => {
+  await page.setContent(`
+    <html>
+      <body>
+        <button id="episode-1" data-row="0">Episode 1</button>
+        <button id="download-1" data-row="0">Download 1</button>
+        <button id="episode-2" data-row="1">Episode 2</button>
+        <button id="download-2" data-row="1">Download 2</button>
+        <script>
+          let zone = 'episode';
+          let index = 0;
+          window.playCount = 0;
+          window.downloadCount = 0;
+
+          function setFocus(nextZone, nextIndex) {
+            zone = nextZone;
+            index = nextIndex;
+            document.getElementById((zone === 'download' ? 'download-' : 'episode-') + (index + 1)).focus();
+          }
+
+          document.getElementById('episode-1').focus();
+
+          document.querySelectorAll('[id^="episode-"]').forEach((el) => {
+            el.addEventListener('click', () => { window.playCount += 1; });
+          });
+          document.querySelectorAll('[id^="download-"]').forEach((el) => {
+            el.addEventListener('click', (e) => {
+              e.stopPropagation();
+              window.downloadCount += 1;
+            });
+          });
+
+          window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' && zone === 'episode') {
+              setFocus('download', index);
+              e.preventDefault();
+            } else if (e.key === 'ArrowLeft' && zone === 'download') {
+              setFocus('episode', index);
+              e.preventDefault();
+            } else if (e.key === 'ArrowDown') {
+              setFocus(zone, Math.min(index + 1, 1));
+              e.preventDefault();
+            } else if (e.key === 'ArrowUp') {
+              setFocus(zone, Math.max(index - 1, 0));
+              e.preventDefault();
+            } else if (e.key === 'Enter') {
+              document.activeElement.click();
+              e.preventDefault();
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+
+  await expect(page.locator('#episode-1')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.playCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.downloadCount)).toBe(0);
+
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#download-1')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.downloadCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.playCount)).toBe(1);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#download-2')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#episode-2')).toBeFocused();
+});
