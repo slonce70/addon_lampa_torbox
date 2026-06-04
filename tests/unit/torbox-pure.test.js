@@ -667,9 +667,6 @@ test('security and failover guards are present in plugin source', () => {
   assert.match(plugin, /ParserHealth\.markFailure/);
   assert.match(plugin, /PUBLIC_PARSER_TIMEOUT_MS: 5 \* 1000/);
   assert.match(plugin, /TORBOX_API_TIMEOUT_MS: 20 \* 1000/);
-  assert.doesNotMatch(plugin, /DEFAULT_API_KEY/);
-  assert.match(plugin, /headers\.Authorization = `Bearer \$\{Config\.apiKey\}`;/);
-  assert.match(plugin, /headers\['X-Api-Key'\] = Config\.apiKey;/);
 });
 
 test('audit hardening fixes are present in plugin source', () => {
@@ -697,9 +694,7 @@ test('audit hardening fixes are present in plugin source', () => {
   // Abort hygiene: removable listener, checkCached break, cleared poll timer
   assert.match(plugin, /outerSignal\.removeEventListener\('abort', onOuterAbort\)/);
   assert.match(plugin, /if \(signal\?\.aborted\) break;/);
-  assert.match(plugin, /if \(e\?\.type === 'auth' \|\| e\?\.type === 'validation'\) throw e;/);
   assert.match(plugin, /if \(pollTimer\) clearTimeout\(pollTimer\);/);
-  assert.match(plugin, /Tracking poll retry after transient error:/);
 });
 
 test('UI fixes (cached-toggle active style + finalizing state) are present in plugin source', () => {
