@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.8');
+  console.log('[TorBox] boot strap', '51.2.9');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.8';
+  const VERSION = '51.2.9';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -1287,8 +1287,8 @@ try {
       CONTINUE: 'continue',
       LIST: 'list',
       FILTER: 'filter',
-      EPISODE: 'episode',
-      EPISODE_DOWNLOAD: 'episode_download',
+      FILE: 'file',
+      FILE_DOWNLOAD: 'file_download',
       EMPTY: 'empty',
     });
 
@@ -1414,9 +1414,9 @@ try {
           return root.find('.empty.selector');
         case FocusZones.FILTER:
           return getFilterFocusItems();
-        case FocusZones.EPISODE:
+        case FocusZones.FILE:
           return root.find('.torbox-file-item.selector');
-        case FocusZones.EPISODE_DOWNLOAD:
+        case FocusZones.FILE_DOWNLOAD:
           return root.find('.torbox-file-download.selector');
         default:
           return $();
@@ -1438,8 +1438,8 @@ try {
       ) {
         return FocusZones.FILTER;
       }
-      if (element.hasClass('torbox-file-download')) return FocusZones.EPISODE_DOWNLOAD;
-      if (element.hasClass('torbox-file-item')) return FocusZones.EPISODE;
+      if (element.hasClass('torbox-file-download')) return FocusZones.FILE_DOWNLOAD;
+      if (element.hasClass('torbox-file-item')) return FocusZones.FILE;
       if (element.hasClass('empty')) return FocusZones.EMPTY;
       return null;
     };
@@ -1486,8 +1486,8 @@ try {
     const focusContinueItem = () => focusZone(FocusZones.CONTINUE, 0);
     const focusFilterItem = (index = 0) => focusZone(FocusZones.FILTER, index);
     const focusEmptyMessage = () => focusZone(FocusZones.EMPTY, 0);
-    const focusEpisodeItem = (index = 0) => focusZone(FocusZones.EPISODE, index);
-    const focusEpisodeDownload = (index = 0) => focusZone(FocusZones.EPISODE_DOWNLOAD, index);
+    const focusFileItem = (index = 0) => focusZone(FocusZones.FILE, index);
+    const focusFileDownload = (index = 0) => focusZone(FocusZones.FILE_DOWNLOAD, index);
 
     const focusFirstListItem = () => {
       if (!scroll || typeof scroll.render !== 'function') return;
@@ -1653,19 +1653,19 @@ try {
           return true;
         },
       },
-      [FocusZones.EPISODE]: {
-        up: () => focusEpisodeItem(focusState.index - 1) || focusEpisodeItem(focusState.index),
-        down: () => focusEpisodeItem(focusState.index + 1) || focusEpisodeItem(focusState.index),
+      [FocusZones.FILE]: {
+        up: () => focusFileItem(focusState.index - 1) || focusFileItem(focusState.index),
+        down: () => focusFileItem(focusState.index + 1) || focusFileItem(focusState.index),
         left: () => {
           Lampa.Controller.toggle('menu');
           return true;
         },
-        right: () => focusEpisodeDownload(focusState.index) || true,
+        right: () => focusFileDownload(focusState.index) || true,
       },
-      [FocusZones.EPISODE_DOWNLOAD]: {
-        up: () => focusEpisodeDownload(focusState.index - 1) || focusEpisodeDownload(focusState.index),
-        down: () => focusEpisodeDownload(focusState.index + 1) || focusEpisodeDownload(focusState.index),
-        left: () => focusEpisodeItem(focusState.index) || true,
+      [FocusZones.FILE_DOWNLOAD]: {
+        up: () => focusFileDownload(focusState.index - 1) || focusFileDownload(focusState.index),
+        down: () => focusFileDownload(focusState.index + 1) || focusFileDownload(focusState.index),
+        left: () => focusFileItem(focusState.index) || true,
         right: () => true,
       },
     };
@@ -1682,7 +1682,7 @@ try {
 
     const handleDirectionalNavigation = (direction) => {
       if (state.view === 'episodes') {
-        const zone = focusState.zone || FocusZones.EPISODE;
+        const zone = focusState.zone || FocusZones.FILE;
         const handler = focusRoutes[zone]?.[direction];
         if (typeof handler === 'function' && handler()) return;
         if (Navigator.canmove(direction)) Navigator.move(direction);
@@ -1886,8 +1886,8 @@ try {
     };
 
     // ───────────────────────────── Core actions ─────────────────────────────
-    const drawEpisodes = (torrentData) => {
-      focusState.zone = FocusZones.EPISODE;
+    const drawEpisodes = (torrentData, preferredFile = null) => {
+      focusState.zone = FocusZones.FILE;
       focusState.index = 0;
       scroll.clear();
       filter.render().hide();
@@ -1911,7 +1911,9 @@ try {
       }
       // Scope by torrent: TorBox file ids are per-torrent, so a movie-only key
       // would highlight/focus an unrelated file in a different release.
-      const lastPlayedId = Store.get(`torbox_last_played_file_${mid}_${torrentKey}`, null);
+      const preferredFocusId =
+        preferredFile && preferredFile.id !== undefined && preferredFile.id !== null ? String(preferredFile.id) : null;
+      const storedLastPlayedId = Store.get(`torbox_last_played_file_${mid}_${torrentKey}`, null);
 
       const videoExtensions = getVideoExtensions();
       const videoRegex = new RegExp(
@@ -1930,7 +1932,7 @@ try {
       }
 
       let focusEl = null;
-      let firstEpisodeEl = null;
+      let firstFileEl = null;
 
       vids.forEach((file, idx) => {
         const clean = (file.name || '').split('/').pop();
@@ -1938,21 +1940,25 @@ try {
           title: Utils.escapeHtml(clean || file.name || translate('torbox_no_title')),
           size: Utils.formatBytes(file.size || 0),
           file_id: Utils.escapeHtml(String(file.id)),
-          download_label: Utils.escapeHtml(translate('torbox_episode_download')),
+          download_label: Utils.escapeHtml(translate('torbox_file_download')),
         });
-        if (!firstEpisodeEl) firstEpisodeEl = item;
+        if (!firstFileEl) firstFileEl = item;
 
         const fileIdStr = String(file.id);
         const isWatched = watchedSet.has(fileIdStr);
+        const isLastPlayed = storedLastPlayedId !== null && fileIdStr === String(storedLastPlayedId);
+        const shouldFocus = preferredFocusId ? fileIdStr === preferredFocusId : isLastPlayed;
         const downloadBtn = item.find('.torbox-file-download');
         if (isWatched) item.addClass('torbox-file-item--watched');
-        if (String(file.id) === String(lastPlayedId)) {
+        if (isLastPlayed) {
           item.addClass('torbox-file-item--last-played');
+        }
+        if (shouldFocus) {
           focusEl = item;
         }
 
         item
-          .data('torboxZone', FocusZones.EPISODE)
+          .data('torboxZone', FocusZones.FILE)
           .data('torboxIndex', idx)
           .on('hover:focus', (e) => {
             const target = $(e.currentTarget);
@@ -1964,7 +1970,7 @@ try {
             play(torrentData, file, {
               onStart: ({ changed }) => {
                 // Some Lampa builds may not reliably fire Player.callback on exit.
-                // Mark the episode as watched as soon as playback successfully starts,
+                // Mark the file as watched as soon as playback successfully starts,
                 // so the UI/state is consistent when returning later.
                 if (!watchedSet.has(fileIdStr) && changed) {
                   watchedSet.add(fileIdStr);
@@ -1984,9 +1990,9 @@ try {
           });
 
         downloadBtn
-          .data('torboxZone', FocusZones.EPISODE_DOWNLOAD)
+          .data('torboxZone', FocusZones.FILE_DOWNLOAD)
           .data('torboxIndex', idx)
-          .attr('title', translate('torbox_episode_download'))
+          .attr('title', translate('torbox_file_download'))
           .on('hover:focus', (e) => {
             const target = $(e.currentTarget);
             updateFocusMetaFromElement(target);
@@ -1995,15 +2001,15 @@ try {
           .on('hover:enter', (e) => {
             if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
             if (e && typeof e.preventDefault === 'function') e.preventDefault();
-            downloadEpisodeLink(torrentData, file, downloadBtn);
+            downloadFileLink(torrentData, file, downloadBtn);
           });
 
         scroll.append(item);
       });
 
-      if (focusEl || firstEpisodeEl) focusElement(focusEl || firstEpisodeEl);
+      if (focusEl || firstFileEl) focusElement(focusEl || firstFileEl);
       Lampa.Controller.enable('content');
-      updateDebugOverlay(focusEl || firstEpisodeEl || null);
+      updateDebugOverlay(focusEl || firstFileEl || null);
     };
 
     const _getPlayerConfig = (url, file, movie) => {
@@ -2117,14 +2123,14 @@ try {
         })[0] || null;
     };
 
-    const resolveEpisodeDownloadLink = async (torrentData, file) => {
+    const resolveFileDownloadLink = async (torrentData, file) => {
       const dl = await Api.requestDl(torrentData.id, file.id);
       const link = dl?.url || dl?.data;
       if (!link || typeof link !== 'string') throw { type: 'api', message: translate('torbox_error_file_link') };
       return link;
     };
 
-    const getEpisodeDownloadFilename = (file) => {
+    const getFileDownloadFilename = (file) => {
       const clean = String(file?.name || '').split('/').pop().trim();
       const fallback = `torbox-file-${file?.id ?? 'download'}.mp4`;
       const filename = (clean || fallback)
@@ -2192,7 +2198,7 @@ try {
       }
     };
 
-    const prepareEpisodeDownloadOpen = (file) => {
+    const prepareFileDownloadOpen = (file) => {
       if (canUseAndroidBrowser()) return null;
 
       try {
@@ -2203,7 +2209,7 @@ try {
         try {
           opener.opener = null;
           if (opener.document) {
-            opener.document.title = getEpisodeDownloadFilename(file);
+            opener.document.title = getFileDownloadFilename(file);
             if (opener.document.body) {
               opener.document.body.style.font = '16px sans-serif';
               opener.document.body.style.padding = '24px';
@@ -2224,7 +2230,7 @@ try {
     const clickAnchorDownload = (link, file) => {
       try {
         if (typeof document === 'undefined' || !document.body) return false;
-        const filename = getEpisodeDownloadFilename(file);
+        const filename = getFileDownloadFilename(file);
         const anchor = document.createElement('a');
         anchor.href = link;
         anchor.setAttribute('download', filename);
@@ -2259,7 +2265,7 @@ try {
       return false;
     };
 
-    const startEpisodeDownload = (link, file, opener) => {
+    const startFileDownload = (link, file, opener) => {
       if (tryAndroidDownloadOpen(link)) return 'system';
 
       try {
@@ -2276,7 +2282,7 @@ try {
       return 'copy_only';
     };
 
-    const downloadEpisodeLink = async (torrentData, file, button) => {
+    const downloadFileLink = async (torrentData, file, button) => {
       const btn = button && button.length ? button : null;
       if (btn && btn.data('torboxDownloading')) return;
       let opener = null;
@@ -2287,9 +2293,9 @@ try {
           btn.addClass('torbox-file-download--loading');
         }
 
-        opener = prepareEpisodeDownloadOpen(file);
-        const link = await resolveEpisodeDownloadLink(torrentData, file);
-        const downloadState = startEpisodeDownload(link, file, opener);
+        opener = prepareFileDownloadOpen(file);
+        const link = await resolveFileDownloadLink(torrentData, file);
+        const downloadState = startFileDownload(link, file, opener);
         opener = null;
         Lampa.Utils.copyTextToClipboard(link, () => {
           const message =
@@ -2330,7 +2336,7 @@ try {
 
         if (object.movie?.id) Lampa.Favorite.add('history', object.movie);
 
-        const link = await resolveEpisodeDownloadLink(torrentData, file);
+        const link = await resolveFileDownloadLink(torrentData, file);
 
         const playbackConfig = _getPlayerConfig(link, file, object.movie);
 
@@ -2451,39 +2457,27 @@ try {
         return;
       }
 
-      const seriesNeedsEpisodeList = isSeriesContent() && vids.length > 1;
-      if (seriesNeedsEpisodeList) {
+      const openFileList = (preferredFile = null) => {
         state.view = 'episodes';
         state.current_torrent_data = torrentData;
-        drawEpisodes(torrentData);
-        return;
-      }
+        drawEpisodes(torrentData, preferredFile);
+      };
 
       const remembered = getRememberedFile(torrentData, vids);
       if (remembered) {
-        rememberPreferredFile(torrentData, remembered);
-        play(torrentData, remembered);
-        return;
-      }
-
-      if (vids.length === 1) {
-        rememberPreferredFile(torrentData, vids[0]);
-        play(torrentData, vids[0]);
+        openFileList(remembered);
         return;
       }
 
       if (!isSeriesContent() && getAutoPickMovieFile()) {
         const best = pickBestVideoFile(vids);
         if (best) {
-          rememberPreferredFile(torrentData, best);
-          play(torrentData, best);
+          openFileList(best);
           return;
         }
       }
 
-      state.view = 'episodes';
-      state.current_torrent_data = torrentData;
-      drawEpisodes(torrentData);
+      openFileList();
     };
 
     const beginPendingPlayback = (hash, snapshot) => {
@@ -3382,7 +3376,7 @@ try {
         en: 'Failed to obtain file link',
         uk: 'Не вдалося отримати посилання на файл',
       },
-      torbox_episode_download: {
+      torbox_file_download: {
         ru: 'Ссылка для загрузки',
         en: 'Download link',
         uk: 'Посилання для завантаження',

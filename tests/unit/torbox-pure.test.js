@@ -614,7 +614,7 @@ test('all parser failures surface a diagnostics trail', async () => {
   );
 });
 
-test('series packs open episode list before remembered episode autoplay', () => {
+test('movie and single-file flows open file list instead of autoplay', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
@@ -625,57 +625,60 @@ test('series packs open episode list before remembered episode autoplay', () => 
   assert.notEqual(selectEnd, -1, 'selectFile block should end before pending playback helpers');
 
   const selectFileBlock = plugin.slice(selectStart, selectEnd);
-  const seriesGuard = selectFileBlock.indexOf('const seriesNeedsEpisodeList = isSeriesContent() && vids.length > 1;');
   const rememberedLookup = selectFileBlock.indexOf('const remembered = getRememberedFile(torrentData, vids);');
 
-  assert.notEqual(seriesGuard, -1, 'series packs need an explicit episode-list guard');
-  assert.notEqual(rememberedLookup, -1, 'remembered file lookup should remain for movie/file resume behavior');
-  assert.ok(
-    seriesGuard < rememberedLookup,
-    'series pack guard must run before remembered file lookup so Lampa shows episodes instead of replaying one file'
-  );
   assert.match(
-    selectFileBlock.slice(seriesGuard, rememberedLookup),
-    /state\.view\s*=\s*'episodes';[\s\S]*state\.current_torrent_data\s*=\s*torrentData;[\s\S]*drawEpisodes\(torrentData\);[\s\S]*return;/
+    selectFileBlock,
+    /const openFileList = \(preferredFile = null\) => \{[\s\S]*state\.view\s*=\s*'episodes';[\s\S]*state\.current_torrent_data\s*=\s*torrentData;[\s\S]*drawEpisodes\(torrentData, preferredFile\);[\s\S]*\};/
   );
+  assert.notEqual(rememberedLookup, -1, 'remembered file lookup should remain for movie/file resume behavior');
+  assert.match(selectFileBlock, /if \(remembered\) \{[\s\S]*openFileList\(remembered\);[\s\S]*return;/);
+  assert.match(selectFileBlock, /if \(!isSeriesContent\(\) && getAutoPickMovieFile\(\)\) \{[\s\S]*const best = pickBestVideoFile\(vids\);[\s\S]*openFileList\(best\);[\s\S]*return;/);
+  assert.match(selectFileBlock, /openFileList\(\);\s*\};/);
+  assert.doesNotMatch(selectFileBlock, /play\(torrentData, remembered\)/);
+  assert.doesNotMatch(selectFileBlock, /play\(torrentData, vids\[0\]\)/);
+  assert.doesNotMatch(selectFileBlock, /play\(torrentData, best\)/);
 });
 
-test('episode list explicitly focuses last played or first episode item', () => {
+test('file list explicitly focuses preferred, last played or first file item', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
-  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData) => {');
+  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData, preferredFile = null) => {');
   assert.notEqual(drawStart, -1, 'drawEpisodes function should exist');
 
   const drawEnd = plugin.indexOf('const _getPlayerConfig =', drawStart);
   assert.notEqual(drawEnd, -1, 'drawEpisodes block should end before player config helper');
 
   const drawEpisodesBlock = plugin.slice(drawStart, drawEnd);
-  assert.match(drawEpisodesBlock, /let focusEl = null;[\s\S]*let firstEpisodeEl = null;/);
-  assert.match(drawEpisodesBlock, /if \(!firstEpisodeEl\) firstEpisodeEl = item;/);
-  assert.match(drawEpisodesBlock, /if \(focusEl \|\| firstEpisodeEl\) focusElement\(focusEl \|\| firstEpisodeEl\);/);
+  assert.match(drawEpisodesBlock, /const preferredFocusId =[\s\S]*preferredFile[\s\S]*String\(preferredFile\.id\)/);
+  assert.match(drawEpisodesBlock, /const storedLastPlayedId = Store\.get\(`torbox_last_played_file_\$\{mid\}_\$\{torrentKey\}`/);
+  assert.match(drawEpisodesBlock, /let focusEl = null;[\s\S]*let firstFileEl = null;/);
+  assert.match(drawEpisodesBlock, /if \(!firstFileEl\) firstFileEl = item;/);
+  assert.match(drawEpisodesBlock, /const shouldFocus = preferredFocusId \? fileIdStr === preferredFocusId : isLastPlayed;/);
+  assert.match(drawEpisodesBlock, /if \(focusEl \|\| firstFileEl\) focusElement\(focusEl \|\| firstFileEl\);/);
 });
 
-test('episode download action is separate from playback', () => {
+test('file download action is separate from playback', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
-  assert.match(plugin, /EPISODE_DOWNLOAD:\s*'episode_download'/);
+  assert.match(plugin, /FILE_DOWNLOAD:\s*'file_download'/);
   assert.match(plugin, /root\.find\('\.torbox-file-download\.selector'\)/);
-  assert.match(plugin, /if \(element\.hasClass\('torbox-file-download'\)\) return FocusZones\.EPISODE_DOWNLOAD;/);
+  assert.match(plugin, /if \(element\.hasClass\('torbox-file-download'\)\) return FocusZones\.FILE_DOWNLOAD;/);
   assert.match(plugin, /torbox-file-download selector/);
-  assert.match(plugin, /const link = await resolveEpisodeDownloadLink\(torrentData, file\);/);
+  assert.match(plugin, /const link = await resolveFileDownloadLink\(torrentData, file\);/);
 
-  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData) => {');
+  const drawStart = plugin.indexOf('const drawEpisodes = (torrentData, preferredFile = null) => {');
   const drawEnd = plugin.indexOf('const _getPlayerConfig =', drawStart);
   const drawEpisodesBlock = plugin.slice(drawStart, drawEnd);
   assert.match(drawEpisodesBlock, /\.on\('hover:enter', \(\) => \{[\s\S]*play\(torrentData, file,/);
-  assert.match(drawEpisodesBlock, /downloadBtn[\s\S]*e\.stopPropagation\(\);[\s\S]*downloadEpisodeLink\(torrentData, file, downloadBtn\);/);
+  assert.match(drawEpisodesBlock, /downloadBtn[\s\S]*e\.stopPropagation\(\);[\s\S]*downloadFileLink\(torrentData, file, downloadBtn\);/);
 
-  const downloadStart = plugin.indexOf('const downloadEpisodeLink = async');
+  const downloadStart = plugin.indexOf('const downloadFileLink = async');
   const downloadEnd = plugin.indexOf('const play = async', downloadStart);
   const downloadBlock = plugin.slice(downloadStart, downloadEnd);
-  assert.match(downloadBlock, /resolveEpisodeDownloadLink\(torrentData, file\)/);
+  assert.match(downloadBlock, /resolveFileDownloadLink\(torrentData, file\)/);
   assert.match(downloadBlock, /Lampa\.Utils\.copyTextToClipboard\(link/);
   assert.doesNotMatch(downloadBlock, /play\(torrentData, file/);
   assert.doesNotMatch(downloadBlock, /_markWatched/);
@@ -684,13 +687,13 @@ test('episode download action is separate from playback', () => {
   assert.doesNotMatch(downloadBlock, /LOG\([^)]*link/);
 });
 
-test('episode download starts a file download path after requestdl resolves', () => {
+test('file download starts a download path after requestdl resolves', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
-  assert.match(plugin, /const getEpisodeDownloadFilename = \(file\) =>/);
-  assert.match(plugin, /const prepareEpisodeDownloadOpen = \(file\) =>/);
-  assert.match(plugin, /const startEpisodeDownload = \(link, file, opener\) =>/);
+  assert.match(plugin, /const getFileDownloadFilename = \(file\) =>/);
+  assert.match(plugin, /const prepareFileDownloadOpen = \(file\) =>/);
+  assert.match(plugin, /const startFileDownload = \(link, file, opener\) =>/);
   assert.match(plugin, /document\.createElement\('a'\)/);
   assert.match(plugin, /\.setAttribute\('download', filename\)/);
   assert.match(plugin, /opener\.opener = null/);
@@ -702,13 +705,13 @@ test('episode download starts a file download path after requestdl resolves', ()
   assert.match(plugin, /return 'copy_only';/);
   assert.match(plugin, /torbox_download_attempted/);
 
-  const downloadStart = plugin.indexOf('const downloadEpisodeLink = async');
+  const downloadStart = plugin.indexOf('const downloadFileLink = async');
   const downloadEnd = plugin.indexOf('const play = async', downloadStart);
   const downloadBlock = plugin.slice(downloadStart, downloadEnd);
 
-  const prepareIndex = downloadBlock.indexOf('opener = prepareEpisodeDownloadOpen(file);');
-  const resolveIndex = downloadBlock.indexOf('await resolveEpisodeDownloadLink(torrentData, file);');
-  const startIndex = downloadBlock.indexOf('const downloadState = startEpisodeDownload(link, file, opener);');
+  const prepareIndex = downloadBlock.indexOf('opener = prepareFileDownloadOpen(file);');
+  const resolveIndex = downloadBlock.indexOf('await resolveFileDownloadLink(torrentData, file);');
+  const startIndex = downloadBlock.indexOf('const downloadState = startFileDownload(link, file, opener);');
 
   assert.ok(prepareIndex > -1, 'download must prepare a browser/open target before awaiting requestdl');
   assert.ok(resolveIndex > -1, 'download must still resolve a TorBox requestdl link');

@@ -87,29 +87,49 @@ test('TV focus smoke: Right opens filter, Up follows visual order', async ({ pag
   await expect(page.locator('#search')).toBeFocused();
 });
 
-test('Episode download focus smoke: row plays, download button does not', async ({ page }) => {
+test('Movie file-list smoke: torrent opens file list, file plays, download does not', async ({ page }) => {
   await page.setContent(`
     <html>
       <body>
-        <button id="episode-1" data-row="0">Episode 1</button>
-        <button id="download-1" data-row="0">Download 1</button>
-        <button id="episode-2" data-row="1">Episode 2</button>
-        <button id="download-2" data-row="1">Download 2</button>
+        <div id="torrent-1" tabindex="0">Movie torrent</div>
+        <section id="file-screen" hidden>
+          <div id="file-1" tabindex="0" data-row="0">Movie file</div>
+          <div id="download-1" tabindex="0" data-row="0">Download</div>
+        </section>
         <script>
-          let zone = 'episode';
+          let zone = 'torrent';
           let index = 0;
           window.playCount = 0;
           window.downloadCount = 0;
+          window.fileListOpenCount = 0;
+          window.backCount = 0;
 
           function setFocus(nextZone, nextIndex) {
             zone = nextZone;
             index = nextIndex;
-            document.getElementById((zone === 'download' ? 'download-' : 'episode-') + (index + 1)).focus();
+            if (zone === 'torrent') {
+              document.getElementById('torrent-1').focus();
+            } else {
+              document.getElementById((zone === 'download' ? 'download-' : 'file-') + (index + 1)).focus();
+            }
           }
 
-          document.getElementById('episode-1').focus();
+          function openFileList() {
+            window.fileListOpenCount += 1;
+            document.getElementById('file-screen').hidden = false;
+            setFocus('file', 0);
+          }
 
-          document.querySelectorAll('[id^="episode-"]').forEach((el) => {
+          function closeFileList() {
+            window.backCount += 1;
+            document.getElementById('file-screen').hidden = true;
+            setFocus('torrent', 0);
+          }
+
+          document.getElementById('torrent-1').focus();
+          document.getElementById('torrent-1').addEventListener('click', openFileList);
+
+          document.querySelectorAll('[id^="file-"][tabindex]').forEach((el) => {
             el.addEventListener('click', () => { window.playCount += 1; });
           });
           document.querySelectorAll('[id^="download-"]').forEach((el) => {
@@ -120,20 +140,17 @@ test('Episode download focus smoke: row plays, download button does not', async 
           });
 
           window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowRight' && zone === 'episode') {
+            if (e.key === 'ArrowRight' && zone === 'file') {
               setFocus('download', index);
               e.preventDefault();
             } else if (e.key === 'ArrowLeft' && zone === 'download') {
-              setFocus('episode', index);
-              e.preventDefault();
-            } else if (e.key === 'ArrowDown') {
-              setFocus(zone, Math.min(index + 1, 1));
-              e.preventDefault();
-            } else if (e.key === 'ArrowUp') {
-              setFocus(zone, Math.max(index - 1, 0));
+              setFocus('file', index);
               e.preventDefault();
             } else if (e.key === 'Enter') {
               document.activeElement.click();
+              e.preventDefault();
+            } else if ((e.key === 'Escape' || e.key === 'Backspace') && zone !== 'torrent') {
+              closeFileList();
               e.preventDefault();
             }
           });
@@ -142,7 +159,14 @@ test('Episode download focus smoke: row plays, download button does not', async 
     </html>
   `);
 
-  await expect(page.locator('#episode-1')).toBeFocused();
+  await expect(page.locator('#torrent-1')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#file-screen')).toBeVisible();
+  await expect(page.locator('#file-1')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.fileListOpenCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.playCount)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.downloadCount)).toBe(0);
+
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => window.playCount)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.downloadCount)).toBe(0);
@@ -153,8 +177,11 @@ test('Episode download focus smoke: row plays, download button does not', async 
   await expect.poll(() => page.evaluate(() => window.downloadCount)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.playCount)).toBe(1);
 
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('#download-2')).toBeFocused();
   await page.keyboard.press('ArrowLeft');
-  await expect(page.locator('#episode-2')).toBeFocused();
+  await expect(page.locator('#file-1')).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#file-screen')).toBeHidden();
+  await expect(page.locator('#torrent-1')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.backCount)).toBe(1);
 });
