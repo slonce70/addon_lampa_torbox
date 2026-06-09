@@ -780,3 +780,10 @@ test('UI fixes (cached-toggle active style + finalizing state) are present in pl
   assert.match(plugin, /translate\('torbox_loading_finalizing'\)/);
   assert.match(plugin, /torbox_loading_finalizing:\s*{/);
 });
+
+test('plugin does not embed a shared TorBox API key fallback', () => {
+  const plugin = fs.readFileSync(path.resolve(__dirname, '../../torbox-lampa-plugin.js'), 'utf8');
+  assert.doesNotMatch(plugin, /DEFAULT_API_KEY/);
+  assert.doesNotMatch(plugin, /const\s+\w*API_KEY\w*\s*=\s*['\"][0-9a-f-]{36}['\"]/i);
+  assert.match(plugin, /if \(!b64\) return '';/);
+});

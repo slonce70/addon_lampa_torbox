@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.9');
+  console.log('[TorBox] boot strap', '51.2.10');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.9';
+  const VERSION = '51.2.10';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -133,10 +133,6 @@ try {
     return fallback;
   };
 
-  // Baked-in default TorBox API key so the plugin works out of the box.
-  // A user-entered key (stored below) always takes precedence.
-  const DEFAULT_API_KEY = '32f60da9-cfaa-4345-b7da-f7451b31e25b';
-
   const Config = {
     get debug() {
       return Store.get('torbox_debug', '0') === '1';
@@ -160,14 +156,14 @@ try {
     },
     get apiKey() {
       // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools.
-      // Falls back to the baked-in default when the user has not set their own.
+      // No public client-side fallback is used: each user must configure their own key.
       const b64 = Store.get('torbox_api_key_b64', '');
-      if (!b64) return DEFAULT_API_KEY;
+      if (!b64) return '';
       try {
-        return atob(b64) || DEFAULT_API_KEY;
+        return atob(b64) || '';
       } catch {
         Store.set('torbox_api_key_b64', '');
-        return DEFAULT_API_KEY;
+        return '';
       }
     },
     set apiKey(v) {
@@ -3774,9 +3770,7 @@ try {
           name: translate('torbox_settings_api_name'),
           desc: translate('torbox_settings_api_desc'),
           type: 'input',
-          // Show ONLY the user's own stored key (empty if none) — never the baked-in
-          // default. This avoids pinning a user's storage to the current default on a
-          // no-op confirm, and the runtime still falls back to DEFAULT_API_KEY.
+          // Show only the user's own stored key (empty if none).
           get: () => {
             const b64 = Store.get('torbox_api_key_b64', '');
             try {
