@@ -691,6 +691,10 @@ test('file download starts a download path after requestdl resolves', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
+  assert.match(plugin, /const normalizeSafeDownloadLink = \(link\) =>/);
+  assert.match(plugin, /const url = new URL\(link\.trim\(\)\);/);
+  assert.match(plugin, /url\.protocol !== 'http:' && url\.protocol !== 'https:'\) return null;/);
+  assert.match(plugin, /const link = normalizeSafeDownloadLink\(dl\?\.url \|\| dl\?\.data\);/);
   assert.match(plugin, /const getFileDownloadFilename = \(file\) =>/);
   assert.match(plugin, /const prepareFileDownloadOpen = \(file\) =>/);
   assert.match(plugin, /const startFileDownload = \(link, file, opener\) =>/);
