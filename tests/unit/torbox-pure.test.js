@@ -88,6 +88,17 @@ function normalizeCustomParsers(customStr = '') {
     .filter(Boolean);
 }
 
+function isSafeDownloadLink(link) {
+  if (!link || typeof link !== 'string') return false;
+
+  try {
+    const url = new URL(link.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
 function normalizeProgress(p) {
   const n = Number(p);
   if (!isFinite(n) || n < 0) return 0;
@@ -360,6 +371,18 @@ test('custom parser URLs are normalized to host (+path), dropping junk and inval
     parsers.map((p) => p.url),
     ['good.example/api', 'plain.example']
   );
+});
+
+test('download link validation only accepts absolute http(s) URLs', () => {
+  assert.equal(isSafeDownloadLink('https://example.com/file.mp4'), true);
+  assert.equal(isSafeDownloadLink('  http://example.com/file.mp4  '), true);
+  assert.equal(isSafeDownloadLink('javascript:alert(1)'), false);
+  assert.equal(isSafeDownloadLink('intent://example/#Intent;scheme=https;end'), false);
+  assert.equal(isSafeDownloadLink('file:///sdcard/download.mp4'), false);
+  assert.equal(isSafeDownloadLink('//example.com/file.mp4'), false);
+  assert.equal(isSafeDownloadLink('/relative/file.mp4'), false);
+  assert.equal(isSafeDownloadLink(''), false);
+  assert.equal(isSafeDownloadLink(null), false);
 });
 
 test('downloadPhase distinguishes downloading / finalizing / ready', () => {
@@ -668,6 +691,9 @@ test('file download action is separate from playback', () => {
   assert.match(plugin, /if \(element\.hasClass\('torbox-file-download'\)\) return FocusZones\.FILE_DOWNLOAD;/);
   assert.match(plugin, /torbox-file-download selector/);
   assert.match(plugin, /const link = await resolveFileDownloadLink\(torrentData, file\);/);
+  assert.match(plugin, /const isSafeDownloadLink = \(link\) =>/);
+  assert.match(plugin, /new URL\(link\.trim\(\)\)/);
+  assert.match(plugin, /url\.protocol === 'http:' \|\| url\.protocol === 'https:'/);
 
   const drawStart = plugin.indexOf('const drawEpisodes = (torrentData, preferredFile = null) => {');
   const drawEnd = plugin.indexOf('const _getPlayerConfig =', drawStart);
