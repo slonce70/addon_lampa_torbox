@@ -691,15 +691,21 @@ test('file download starts a download path after requestdl resolves', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
+  assert.match(plugin, /const normalizeHttpDownloadLink = \(link\) =>/);
+  assert.match(plugin, /new URL\(link\.trim\(\)\)/);
+  assert.match(plugin, /url\.protocol !== 'http:' && url\.protocol !== 'https:'\)/);
+  assert.match(plugin, /const link = normalizeHttpDownloadLink\(dl\?\.url \|\| dl\?\.data\);/);
   assert.match(plugin, /const getFileDownloadFilename = \(file\) =>/);
   assert.match(plugin, /const prepareFileDownloadOpen = \(file\) =>/);
   assert.match(plugin, /const startFileDownload = \(link, file, opener\) =>/);
   assert.match(plugin, /document\.createElement\('a'\)/);
   assert.match(plugin, /\.setAttribute\('download', filename\)/);
   assert.match(plugin, /opener\.opener = null/);
+  assert.match(plugin, /opened\.opener = null/);
+  assert.match(plugin, /\.setAttribute\('rel', 'noopener noreferrer'\)/);
   assert.match(plugin, /AndroidJS\.openBrowser\(link\)/);
   assert.match(plugin, /Lampa\.Android\.openBrowser\(link\)/);
-  assert.match(plugin, /window\.open\(link, '_blank', 'noopener'\)/);
+  assert.match(plugin, /window\.open\(link, '_blank', 'noopener,noreferrer'\)/);
   assert.match(plugin, /return 'system';/);
   assert.match(plugin, /return 'attempted';/);
   assert.match(plugin, /return 'copy_only';/);

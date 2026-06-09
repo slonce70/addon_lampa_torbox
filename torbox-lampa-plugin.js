@@ -2123,10 +2123,22 @@ try {
         })[0] || null;
     };
 
+    const normalizeHttpDownloadLink = (link) => {
+      if (!link || typeof link !== 'string') return null;
+
+      try {
+        const url = new URL(link.trim());
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        return url.href;
+      } catch (_) {
+        return null;
+      }
+    };
+
     const resolveFileDownloadLink = async (torrentData, file) => {
       const dl = await Api.requestDl(torrentData.id, file.id);
-      const link = dl?.url || dl?.data;
-      if (!link || typeof link !== 'string') throw { type: 'api', message: translate('torbox_error_file_link') };
+      const link = normalizeHttpDownloadLink(dl?.url || dl?.data);
+      if (!link) throw { type: 'api', message: translate('torbox_error_file_link') };
       return link;
     };
 
@@ -2235,7 +2247,7 @@ try {
         anchor.href = link;
         anchor.setAttribute('download', filename);
         anchor.setAttribute('target', '_blank');
-        anchor.setAttribute('rel', 'noopener');
+        anchor.setAttribute('rel', 'noopener noreferrer');
         anchor.style.display = 'none';
         document.body.appendChild(anchor);
         anchor.click();
@@ -2256,8 +2268,15 @@ try {
     const tryOpenDownloadLink = (link) => {
       try {
         if (typeof window.open === 'function') {
-          const opened = window.open(link, '_blank', 'noopener');
-          if (opened) return true;
+          const opened = window.open(link, '_blank', 'noopener,noreferrer');
+          if (opened) {
+            try {
+              opened.opener = null;
+            } catch (_) {
+              /* ignore cross-window opener failures */
+            }
+            return true;
+          }
         }
       } catch (e) {
         LOG('Download link open failed', e?.message || e);
