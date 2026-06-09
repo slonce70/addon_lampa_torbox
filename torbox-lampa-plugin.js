@@ -2123,10 +2123,22 @@ try {
         })[0] || null;
     };
 
+    const normalizeSafeDownloadLink = (link) => {
+      if (!link || typeof link !== 'string') return null;
+
+      try {
+        const url = new URL(link.trim());
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        return url.href;
+      } catch (_) {
+        return null;
+      }
+    };
+
     const resolveFileDownloadLink = async (torrentData, file) => {
       const dl = await Api.requestDl(torrentData.id, file.id);
-      const link = dl?.url || dl?.data;
-      if (!link || typeof link !== 'string') throw { type: 'api', message: translate('torbox_error_file_link') };
+      const link = normalizeSafeDownloadLink(dl?.url || dl?.data);
+      if (!link) throw { type: 'api', message: translate('torbox_error_file_link') };
       return link;
     };
 
