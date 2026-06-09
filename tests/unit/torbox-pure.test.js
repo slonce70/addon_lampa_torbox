@@ -761,6 +761,18 @@ test('audit hardening fixes are present in plugin source', () => {
   assert.match(plugin, /if \(pollTimer\) clearTimeout\(pollTimer\);/);
 });
 
+
+test('plugin source does not ship a hardcoded TorBox API key fallback', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  assert.doesNotMatch(plugin, /DEFAULT_API_KEY/);
+  assert.doesNotMatch(plugin, /const\s+[A-Z_]*API[A-Z_]*KEY[A-Z_]*\s*=\s*['\"][0-9a-f-]{20,}['\"]/i);
+  assert.match(plugin, /if \(!b64\) return '';/);
+  assert.match(plugin, /return atob\(b64\) \|\| '';/);
+  assert.match(plugin, /return '';/);
+});
+
 test('UI fixes (cached-toggle active style + finalizing state) are present in plugin source', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
