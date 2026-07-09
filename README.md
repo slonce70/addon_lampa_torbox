@@ -4,7 +4,7 @@
 
 A plugin for [Lampa](https://lampa.mx) that adds torrent streaming via [TorBox.app](https://torbox.app) right from the movie/series card.
 
-Current version: **51.2.9**
+Current version: **51.2.10**
 
 ## Features
 
