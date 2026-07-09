@@ -35,6 +35,17 @@ Current version: **51.2.10**
 
 Advanced parameters (quality/audio/codec priority, excluded trackers, status polling, video extensions, custom parsers, debug and diagnostics) are hidden from the UI and run on sensible defaults. If needed, they can be overridden via the corresponding `torbox_*` keys in `localStorage`.
 
+### CORS proxy (Cloudflare Worker)
+
+The source of the reference CORS proxy lives in [proxy/cloudflare-worker.js](proxy/cloudflare-worker.js). It only proxies requests to the TorBox API and the public parsers, attaches the API key server-side for `api.torbox.app` only, and returns CORS headers on every response (including errors). To deploy your own copy:
+
+```bash
+cd proxy
+npx wrangler deploy
+```
+
+If you use custom parsers, add their domains to `ALLOWED_HOSTS` in the worker.
+
 ## TV remote control
 
 - Navigation follows standard Lampa rules: `.selector` elements and `hover:focus` / `hover:enter` events.

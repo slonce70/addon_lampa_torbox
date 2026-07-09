@@ -45,3 +45,6 @@ out/
 test-results/
 coverage/
 plan.md
+
+# Wrangler local state
+.wrangler/
