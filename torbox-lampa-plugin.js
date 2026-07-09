@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.9');
+  console.log('[TorBox] boot strap', '51.2.10');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.9';
+  const VERSION = '51.2.10';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -135,7 +135,7 @@ try {
 
   // Baked-in default TorBox API key so the plugin works out of the box.
   // A user-entered key (stored below) always takes precedence.
-  const DEFAULT_API_KEY = '32f60da9-cfaa-4345-b7da-f7451b31e25b';
+  const DEFAULT_API_KEY = '4b7b263b-b5a8-483f-a9a5-53b4127c4bb2';
 
   const Config = {
     get debug() {
