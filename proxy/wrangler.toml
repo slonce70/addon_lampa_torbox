@@ -1,0 +1,4 @@
+name = "my-torbox-proxy"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-07-01"
+workers_dev = true
