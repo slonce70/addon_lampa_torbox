@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.10');
+  console.log('[TorBox] boot strap', '51.2.11');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.10';
+  const VERSION = '51.2.11';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -137,6 +137,12 @@ try {
   // A user-entered key (stored below) always takes precedence.
   const DEFAULT_API_KEY = '***REMOVED***';
 
+  // Retired shared default keys. A default key (current or retired) must never
+  // survive in storage as a "user" key: older builds pinned it there on a no-op
+  // settings confirm, which silently overrode every later default rotation.
+  const LEGACY_DEFAULT_API_KEYS = ['***REMOVED***'];
+  const isDefaultApiKey = (key) => key === DEFAULT_API_KEY || LEGACY_DEFAULT_API_KEYS.includes(key);
+
   const Config = {
     get debug() {
       return Store.get('torbox_debug', '0') === '1';
@@ -164,7 +170,12 @@ try {
       const b64 = Store.get('torbox_api_key_b64', '');
       if (!b64) return DEFAULT_API_KEY;
       try {
-        return atob(b64) || DEFAULT_API_KEY;
+        const stored = atob(b64);
+        if (!stored || isDefaultApiKey(stored)) {
+          Store.set('torbox_api_key_b64', '');
+          return DEFAULT_API_KEY;
+        }
+        return stored;
       } catch {
         Store.set('torbox_api_key_b64', '');
         return DEFAULT_API_KEY;
@@ -174,7 +185,7 @@ try {
       const normalized = String(v || '')
         .replace(/[\r\n]+/g, '')
         .trim();
-      if (!normalized) Store.set('torbox_api_key_b64', '');
+      if (!normalized || isDefaultApiKey(normalized)) Store.set('torbox_api_key_b64', '');
       else Store.set('torbox_api_key_b64', btoa(normalized));
     },
   };
@@ -3806,7 +3817,10 @@ try {
         let currentField = null;
         Lampa.SettingsApi.addParam({
           component: 'torbox_enh',
-          param: { name: p.key, type: p.type, values: '', default: p.get() },
+          // default must be '' (never the current stored value): with a non-empty
+          // default, clearing the field makes Lampa fall back to that snapshot and
+          // the "deleted" value silently comes back on confirm.
+          param: { name: p.key, type: p.type, values: '', default: '' },
           field: { name: p.name, description: p.desc },
           onChange: (v) => {
             const value = typeof v === 'object' ? v.value : v;
