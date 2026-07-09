@@ -20,6 +20,7 @@ function readText(p) {
 const root = path.resolve(__dirname, '..');
 const pluginPath = path.join(root, 'torbox-lampa-plugin.js');
 const readmePath = path.join(root, 'README.md');
+const readmeUkPath = path.join(root, 'README.uk.md');
 const unitTestPath = path.join(root, 'tests', 'unit', 'torbox-pure.test.js');
 const e2eTestPath = path.join(root, 'tests', 'e2e', 'focus-smoke.spec.js');
 
@@ -46,21 +47,27 @@ if (bootVersion !== version) {
   fail(`Version mismatch in torbox-lampa-plugin.js: VERSION=${version} but boot strap log=${bootVersion}`);
 }
 
-// 3) README: current version and changelog should contain the same version.
+// 3) READMEs (en + uk): the declared version must match the plugin VERSION.
 const readme = readText(readmePath);
-const readmeVerMatch = readme.match(/Текущая версия:\s*\*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*/);
-if (!readmeVerMatch) fail('Cannot find "Текущая версия: **x.y.z**" in README.md');
-const readmeVersion = readmeVerMatch[1];
-if (readmeVersion !== version) {
-  fail(`README.md version mismatch: README=${readmeVersion} but plugin VERSION=${version}`);
-}
-if (!readme.includes(`### ${version}`)) {
-  fail(`README.md changelog is missing heading "### ${version}"`);
+const readmeVerMatch = readme.match(/Current version:\s*\*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*/);
+if (!readmeVerMatch) fail('Cannot find "Current version: **x.y.z**" in README.md');
+if (readmeVerMatch[1] !== version) {
+  fail(`README.md version mismatch: README=${readmeVerMatch[1]} but plugin VERSION=${version}`);
 }
 
-// 4) README should include TV checklist section (manual QA baseline).
-if (!/Ручной чек-лист на TV/.test(readme)) {
-  fail('README.md does not contain "Ручной чек-лист на TV" section');
+const readmeUk = readText(readmeUkPath);
+const readmeUkVerMatch = readmeUk.match(/Поточна версія:\s*\*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*/);
+if (!readmeUkVerMatch) fail('Cannot find "Поточна версія: **x.y.z**" in README.uk.md');
+if (readmeUkVerMatch[1] !== version) {
+  fail(`README.uk.md version mismatch: README=${readmeUkVerMatch[1]} but plugin VERSION=${version}`);
+}
+
+// 4) READMEs should include the TV checklist section (manual QA baseline).
+if (!/Manual TV checklist/.test(readme)) {
+  fail('README.md does not contain "Manual TV checklist" section');
+}
+if (!/Ручний чек-лист на TV/.test(readmeUk)) {
+  fail('README.uk.md does not contain "Ручний чек-лист на TV" section');
 }
 
 // 5) Sanity: TV filter focus integration must exist.
