@@ -1,131 +1,77 @@
 # TorBox Lampa Plugin
 
-Плагин для [Lampa](https://lampa.mx), который добавляет просмотр торрентов через [TorBox.app](https://torbox.app) прямо из карточки фильма/сериала.
+**English** | [Українська](README.uk.md)
 
-Текущая версия: **51.2.9**
+A plugin for [Lampa](https://lampa.mx) that adds torrent streaming via [TorBox.app](https://torbox.app) right from the movie/series card.
 
-## Установка
-1. Откройте Lampa: `Настройки` → `Плагины` → `Добавить плагин`.
-2. Вставьте URL:
+Current version: **51.2.9**
+
+## Features
+
+- 🔍 Torrent search via public parsers (MaxVol, Jacred) with failover and automatic cooldown for unavailable ones
+- ⚡ TorBox cache check: instantly see which torrents are cached (⚡) and which are not (☁️), plus a "cached only" toggle
+- 🎛 Filters (quality, video type, voiceover, audio language, codecs, tracker) and sorting (seeders, size, date)
+- 📺 Series: episode list, watched-episode tracking, "Continue watching" panel
+- 🎬 Movies: file list with automatic best-file pick (largest, excluding sample/trailer)
+- ⬇ Direct download links via TorBox with system handoff and clipboard fallback
+- 🕹 Full TV remote navigation
+- 🌍 Interface languages: English, Ukrainian, Russian
+
+## Installation
+
+1. Open Lampa: `Settings` → `Plugins` → `Add plugin`.
+2. Paste the URL:
    ```
    https://slonce70.github.io/addon_lampa_torbox/torbox-lampa-plugin.js
    ```
-3. Нажмите `Enter`.
+3. Press `Enter` and restart Lampa.
 
-## Настройка
-`Настройки` → `TorBox`:
-- `CORS proxy URL`: URL прокси (через него идут все запросы) — обязателен.
-- `API key`: ключ TorBox. По умолчанию вшит рабочий ключ, так что плагин работает «из коробки»; при желании можно указать свой.
+## Configuration
 
-Остальные параметры (приоритет качества/аудио/кодеков, исключение трекеров, опрос статуса, видео-расширения, кастомные парсеры, debug и диагностика) скрыты из интерфейса и работают на разумных значениях по умолчанию. При необходимости их можно переопределить через соответствующие ключи в `localStorage` (`torbox_*`).
+`Settings` → `TorBox`:
 
-## Управление с пульта (TV)
-- Навигация построена на стандартных правилах Lampa: элементы с `.selector` и события `hover:focus/hover:enter`.
-- `Right` из списка торрентов сразу открывает фильтры.
-- Переключатель `⚡/☁️` встроен в панель фильтров и не должен ломать фокус.
+- **CORS proxy URL** — the proxy all requests go through. Required. Note: the proxy can see your API key, so only use a proxy you trust (HTTPS strongly recommended).
+- **API key** — your TorBox API key. A default key is baked in so the plugin works out of the box; a key you enter always takes precedence.
 
-## Тестирование
-Есть `validate`, `unit` и минимальный `e2e smoke` (Playwright, Chromium).
+Advanced parameters (quality/audio/codec priority, excluded trackers, status polling, video extensions, custom parsers, debug and diagnostics) are hidden from the UI and run on sensible defaults. If needed, they can be overridden via the corresponding `torbox_*` keys in `localStorage`.
 
-### Быстрые проверки (локально)
+## TV remote control
+
+- Navigation follows standard Lampa rules: `.selector` elements and `hover:focus` / `hover:enter` events.
+- `Right` from the torrent list opens the filters immediately.
+- The `⚡/☁️` toggle is built into the filter bar and does not break focus.
+- In the file list: `OK` on a file starts playback, `Right` moves focus to the `⬇` download button.
+
+## Development
+
+### Quick checks (local)
+
 ```bash
-node scripts/validate.js
-node --test tests/unit/torbox-pure.test.js
-npx --yes playwright install chromium
-npx --yes playwright test tests/e2e/focus-smoke.spec.js --project=chromium
+npm ci
+npm run validate
+npm run test:unit
+npx playwright install chromium
+npm run test:e2e
 ```
 
-### Ручной чек-лист на TV
-- Открыть карточку фильма/сериала -> зайти в TorBox.
-- Пока идет загрузка: `Right/Left/Up/Down/Back` не ломают экран.
-- Список торрентов: `Up/Down` листает, фокус не пропадает.
-- `Right` из списка -> фильтры открываются сразу.
-- При наличии «Продолжить просмотр»: `Up` с первого элемента списка -> «Продолжить просмотр», затем `Up` -> поиск/фильтры.
-- Переключатель `⚡/☁️`: OK переключает режим, список обновляется, фокус не скачет.
-- OK на торренте открывает список видеофайлов (для фильмов, single-file и сериалов).
-- В списке файлов: OK на файле запускает просмотр; `Right` с файла -> кнопка `⬇`; OK на `⬇` получает прямую ссылку TorBox, передает её системе для загрузки/внешнего открытия и копирует ссылку как fallback; `Left` возвращает на файл; Back возвращает к списку торрентов.
+CI (GitHub Actions) runs the same steps on every push and pull request.
 
-## Диагностика
-- Включи `Debug mode` и смотри `Console` (сообщения с префиксом `[TorBox]`).
-- Если на ТВ “фильтр не открывается”, почти всегда причина в фокусе (не на той кнопке) или в том, что элемент не попал в коллекцию навигации.
+### Manual TV checklist
 
-## Changelog
+- Open a movie/series card → open TorBox.
+- While loading: `Right/Left/Up/Down/Back` do not break the screen.
+- Torrent list: `Up/Down` scrolls, focus never gets lost.
+- `Right` from the list → filters open immediately.
+- With "Continue watching" present: `Up` from the first list item → "Continue watching", then `Up` → search/filters.
+- `⚡/☁️` toggle: `OK` switches the mode, the list refreshes, focus does not jump.
+- `OK` on a torrent opens the video file list (movies, single-file releases and series).
+- In the file list: `OK` on a file starts playback; `Right` from a file → the `⬇` button; `OK` on `⬇` requests a direct TorBox link, hands it to the system for download/external open and copies the link as a fallback; `Left` returns to the file; `Back` returns to the torrent list.
 
-### 51.2.9
-- Фильмы и single-file релизы теперь тоже открывают список файлов перед запуском: OK на файле запускает просмотр, `Right` переводит фокус на `⬇` для загрузки.
-- Скрытая настройка auto-pick для фильмов теперь выбирает стартовый файл в списке, но не запускает просмотр автоматически.
+## Troubleshooting
 
-### 51.2.8
-- Исправлена кнопка `⬇`: теперь она не только копирует direct link, а готовит открытие до async `requestdl`, затем пробует Android `openBrowser`, подготовленное окно и `<a download>` fallback.
-- Сообщения уточнены: если система приняла ссылку, показывается, что загрузка передана системе; ссылка всё равно копируется как запасной вариант.
+- Enable debug mode (`localStorage.torbox_debug = '1'`) and watch the `Console` for messages prefixed with `[TorBox]`.
+- If filters "don't open" on TV, the cause is almost always focus (wrong button focused) or the element missing from the navigation collection.
 
-### 51.2.7
-- В списке эпизодов добавлена отдельная кнопка `⬇` для получения прямой ссылки на файл через TorBox `requestdl`.
-- OK на строке эпизода по-прежнему сразу запускает просмотр; кнопка `⬇` не отмечает серию просмотренной и не меняет последний выбранный файл.
-- Для TV-навигации добавлен отдельный фокус на кнопку загрузки: `Right` с серии -> `⬇`, `Left` -> обратно на серию.
+## Disclaimer
 
-### 51.2.6
-- Откат 51.2.5: возвращена рабочая схема определения кешированных торрентов и загрузки из 51.2.4.
-- Версия поднята, чтобы Lampa подтянула rollback-релиз как новое обновление.
-
-### 51.2.4
-- Переключатель `⚡/☁️`: во включённом состоянии («Только кешированные») больше не подсвечивается как сфокусированный — теперь это тонкая акцентная рамка, а не заливка выделения (фокус остаётся только на реальном элементе списка).
-- Трекинг загрузки: когда торрент скачан на 100%, но ещё не кеширован, вместо вводящего в заблуждение «осталось N часов» показывается «Загрузка завершена, готовим к запуску…». Так понятно, что идёт подготовка, а не зависание.
-
-### 51.2.3
-- Настройки упрощены: в интерфейсе остались только `CORS proxy URL` и `API key`; остальные параметры скрыты и работают на значениях по умолчанию (логика не изменилась).
-- Вшит дефолтный API-ключ TorBox — плагин работает «из коробки»; пользовательский ключ (если задан) имеет приоритет.
-- `Debug` по умолчанию выключен и убран из интерфейса.
-
-### 51.2.2
-- Поиск по парсерам теперь корректно работает для сериалов: запрос строится из `name/original_name/first_air_date`, а не только из `title/year` (раньше для сериалов без `title` запрос вырождался в год или пустую строку).
-- Надёжный разбор magnet: btih извлекается из гибридных/v2-magnet (несколько `xt`) независимо от порядка, а битый `%`-encoding больше не отбрасывает все результаты парсера и не вызывает ложный 15-минутный cooldown.
-- Кастомные парсеры нормализуются через `URL()` (срезается путь/query/fragment, отбрасываются некорректные хосты), чтобы вставленный полный URL не ломал запрос.
-- Безопасность: экранированы ранее «сырые» динамические поля — `file.id` в списке серий, `detail/message` ответа API на `success:false`, метка качества в панели «Продолжить просмотр».
-- Список серий: ключ последней просмотренной серии теперь привязан к торренту (`mid_torrentKey`), а не только к фильму — нет ложной подсветки/фокуса при разных раздачах одного сериала.
-- `isSeriesContent` дополнен сигналами `number_of_seasons/seasons/media_type=tv` для более надёжного определения сериалов.
-- Гигиена ресурсов сети: снятие abort-listener в `request()`, остановка перебора чанков `checkCached` после отмены, очистка таймера опроса `track()` при abort.
-
-### 51.2.1
-- Исправлен сериаловый сценарий: если в торренте несколько видеофайлов, повторный вход теперь всегда открывает список серий, а не запускает автоматически последнюю выбранную серию.
-- Сохранённый эпизод остаётся полезным как подсветка/фокус в списке серий; автозапуск remembered-файла оставлен для фильмов и однофайловых релизов.
-
-### 51.2.0
-- P0 security hardening: закрыты критичные HTML-инъекции (`Tracker`, `file.name`, `filter.chosen`, пустые состояния и related paths).
-- Ошибки API теперь сохраняют `detail/message` для 4xx/5xx, чтобы диагностика была предметной.
-- P1 compatibility: регистрация плагина переведена на корректный `Manifest.plugins = manifest` (+ fallback), добавлен запуск из меню плагинов (`onContextMenu/onContextLauch`).
-- `requestdl` стратегия: опция `Prefer permanent link` (`redirect=true`) с безопасным fallback на классический режим.
-- Добавлены пользовательские предпочтения: дефолт cached-only, приоритет качества/аудио/кодека, исключение трекеров.
-- Улучшен выбор файла: запоминание выбранного файла по торренту, авто-эвристика для фильмов (largest + ignore sample/trailer).
-- Наблюдаемость: `Debug overlay`, телеметрия последних ошибок/логов, экспорт JSON-диагностики в буфер.
-- Тесты: unit (pure helpers + security guards) и e2e smoke (focus navigation in real browser).
-
-### 51.1.6
-- `Right` из списка торрентов теперь сразу открывает фильтры (без промежуточного наведения на кнопку).
-- При наличии «Продолжить просмотр»: `Up` с первого элемента списка сначала переводит фокус на панель «Продолжить просмотр», а уже потом на поиск/фильтры (логический порядок сверху вниз).
-- Отметка просмотренной серии стала надёжнее: серия помечается как просмотренная сразу после успешного старта плеера (даже если callback плеера в конкретной сборке не срабатывает).
-
-### 51.1.5
-- Исправлен сценарий с появлением «Продолжить просмотр»: фокус больше не “проскальзывает” мимо панели поиска/фильтров и не уводит навигацию наверх.
-- Навигация стала стабильнее: по умолчанию фокус стартует со списка, `Up` ведёт в фильтры/поиск, `Down` из фильтров ведёт в «Продолжить просмотр» (если есть).
-
-### 51.1.4
-- Исправлена навигация по фильтрам на ТВ: фокус с пульта попадает на реальную кнопку `filter--filter`, а не на кастомный переключатель.
-- Панель «Продолжить просмотр» добавляется/удаляется из навигационной коллекции, чтобы фокус не «пропускал» элемент.
-
-### 51.1.3
-- Исправлена навигация: первый переход вправо фокусирует панель фильтров, вверх с первого элемента списка переносит к фильтрам и поиску без дополнительных нажатий.
-- Переключатель «⚡/☁️» интегрирован в панель фильтров и не перехватывает управление.
-
-### 51.1.2
-- Добавлена защита `try/catch` вокруг инициализации, запись стека ошибки в `localStorage` и нотификация в Lampa, обновление версии.
-
-### 51.1.1
-- Исправлен критический регресс, мешавший загрузке плагина (инициализация контроллеров фокуса вызывалась до определения функций).
-
-### 51.1.0
-- Введена табличная схема фокуса с учётом панели «Продолжить просмотр» и переключателя кеша.
-- Добавлен безопасный откат UI при отменённом/несостающемся воспроизведении, отметка серий выполняется только после старта.
-- Исключены «сырые» данные из кеша и состояния, списки просмотренных серий ограничены 250 записями, снапшоты урезаются по размеру.
-- Появились настройки количества повторов трекинга, интервала опроса и списка видео-расширений; данные нормализуются автоматически.
-- Генератор уточнений поиска учитывает альтернативные названия, годы, сезоны, ключевые слова и ID, подсказки снабжены метками категорий.
+The plugin does not host or distribute any content. It only integrates the TorBox API and public torrent indexers into the Lampa interface. You are responsible for how you use it and for complying with the laws of your country.
