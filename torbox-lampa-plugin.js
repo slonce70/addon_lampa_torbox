@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.9');
+  console.log('[TorBox] boot strap', '51.2.10');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.9';
+  const VERSION = '51.2.10';
 
   const CONST = {
     CACHE_LIMIT: 128,
