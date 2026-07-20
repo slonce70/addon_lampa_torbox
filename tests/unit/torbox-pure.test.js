@@ -737,6 +737,17 @@ test('security and failover guards are present in plugin source', () => {
   assert.match(plugin, /TORBOX_API_TIMEOUT_MS: 20 \* 1000/);
 });
 
+test('embedded connection defaults back both runtime and settings UI', () => {
+  const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+
+  assert.match(plugin, /const DEFAULT_PROXY_URL = 'https:\/\/my-torbox-proxy\.slonce70\.workers\.dev';/);
+  assert.match(plugin, /return Store\.get\('torbox_proxy_url', ''\) \|\| DEFAULT_PROXY_URL;/);
+  assert.match(plugin, /default: DEFAULT_PROXY_URL,[\s\S]*?get: \(\) => Config\.proxyUrl/);
+  assert.match(plugin, /default: DEFAULT_API_KEY,[\s\S]*?get: \(\) => Config\.apiKey/);
+  assert.match(plugin, /param: \{ name: p\.key, type: p\.type, values: '', default: p\.default \}/);
+});
+
 test('audit hardening fixes are present in plugin source', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
