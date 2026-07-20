@@ -4,7 +4,7 @@
 
 A plugin for [Lampa](https://lampa.mx) that adds torrent streaming via [TorBox.app](https://torbox.app) right from the movie/series card.
 
-Current version: **51.2.11**
+Current version: **51.2.12**
 
 ## Features
 
@@ -30,7 +30,7 @@ Current version: **51.2.11**
 
 `Settings` → `TorBox`:
 
-- **CORS proxy URL** — the proxy all requests go through. Required. Note: the proxy can see your API key, so only use a proxy you trust (HTTPS strongly recommended).
+- **CORS proxy URL** — the proxy all requests go through. The reference proxy is built in; a URL you enter always takes precedence. Note: the proxy can see your API key, so only use a proxy you trust (HTTPS strongly recommended).
 - **API key** — your TorBox API key. A default key is baked in so the plugin works out of the box; a key you enter always takes precedence.
 
 Advanced parameters (quality/audio/codec priority, excluded trackers, status polling, video extensions, custom parsers, debug and diagnostics) are hidden from the UI and run on sensible defaults. If needed, they can be overridden via the corresponding `torbox_*` keys in `localStorage`.
