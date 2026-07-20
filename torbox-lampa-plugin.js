@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.11');
+  console.log('[TorBox] boot strap', '51.2.12');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.11';
+  const VERSION = '51.2.12';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -133,8 +133,9 @@ try {
     return fallback;
   };
 
-  // Baked-in default TorBox API key so the plugin works out of the box.
-  // A user-entered key (stored below) always takes precedence.
+  // Baked-in connection defaults so the plugin works out of the box.
+  // User-entered values (stored below) always take precedence.
+  const DEFAULT_PROXY_URL = 'https://my-torbox-proxy.slonce70.workers.dev';
   const DEFAULT_API_KEY = '4b7b263b-b5a8-483f-a9a5-53b4127c4bb2';
 
   // Retired shared default keys. A default key (current or retired) must never
@@ -156,7 +157,7 @@ try {
       Store.set('torbox_debug', v ? '1' : '0');
     },
     get proxyUrl() {
-      return Store.get('torbox_proxy_url', '');
+      return Store.get('torbox_proxy_url', '') || DEFAULT_PROXY_URL;
     },
     set proxyUrl(v) {
       const normalized = String(v || '')
@@ -3789,6 +3790,7 @@ try {
           name: translate('torbox_settings_proxy_name'),
           desc: translate('torbox_settings_proxy_desc'),
           type: 'input',
+          default: DEFAULT_PROXY_URL,
           get: () => Config.proxyUrl,
           set: (v) => (Config.proxyUrl = String(v || '').trim()),
         },
@@ -3797,17 +3799,8 @@ try {
           name: translate('torbox_settings_api_name'),
           desc: translate('torbox_settings_api_desc'),
           type: 'input',
-          // Show ONLY the user's own stored key (empty if none) — never the baked-in
-          // default. This avoids pinning a user's storage to the current default on a
-          // no-op confirm, and the runtime still falls back to DEFAULT_API_KEY.
-          get: () => {
-            const b64 = Store.get('torbox_api_key_b64', '');
-            try {
-              return b64 ? atob(b64) : '';
-            } catch {
-              return '';
-            }
-          },
+          default: DEFAULT_API_KEY,
+          get: () => Config.apiKey,
           set: (v) => (Config.apiKey = String(v || '').trim()),
           mask: true,
         },
@@ -3817,10 +3810,7 @@ try {
         let currentField = null;
         Lampa.SettingsApi.addParam({
           component: 'torbox_enh',
-          // default must be '' (never the current stored value): with a non-empty
-          // default, clearing the field makes Lampa fall back to that snapshot and
-          // the "deleted" value silently comes back on confirm.
-          param: { name: p.key, type: p.type, values: '', default: '' },
+          param: { name: p.key, type: p.type, values: '', default: p.default },
           field: { name: p.name, description: p.desc },
           onChange: (v) => {
             const value = typeof v === 'object' ? v.value : v;
