@@ -14,7 +14,7 @@
  * --------------------------------------------------------------------- */
 
 try {
-  console.log('[TorBox] boot strap', '51.2.12');
+  console.log('[TorBox] boot strap', '51.2.13');
   (function () {
   'use strict';
 
@@ -24,7 +24,7 @@ try {
   window[PLUGIN_FLAG] = true;
 
   // ───────────────────────────── Constants / Config ─────────────────────────────
-  const VERSION = '51.2.12';
+  const VERSION = '51.2.13';
 
   const CONST = {
     CACHE_LIMIT: 128,
@@ -133,16 +133,8 @@ try {
     return fallback;
   };
 
-  // Baked-in connection defaults so the plugin works out of the box.
-  // User-entered values (stored below) always take precedence.
+  // User-entered connection values (stored below) always take precedence.
   const DEFAULT_PROXY_URL = 'https://my-torbox-proxy.slonce70.workers.dev';
-  const DEFAULT_API_KEY = '***REMOVED***';
-
-  // Retired shared default keys. A default key (current or retired) must never
-  // survive in storage as a "user" key: older builds pinned it there on a no-op
-  // settings confirm, which silently overrode every later default rotation.
-  const LEGACY_DEFAULT_API_KEYS = ['***REMOVED***'];
-  const isDefaultApiKey = (key) => key === DEFAULT_API_KEY || LEGACY_DEFAULT_API_KEYS.includes(key);
 
   const Config = {
     get debug() {
@@ -167,27 +159,20 @@ try {
     },
     get apiKey() {
       // Masked at rest via base64 to avoid casual shoulder‑surfing in devtools.
-      // Falls back to the baked-in default when the user has not set their own.
       const b64 = Store.get('torbox_api_key_b64', '');
-      if (!b64) return DEFAULT_API_KEY;
+      if (!b64) return '';
       try {
-        const stored = atob(b64);
-        if (!stored || isDefaultApiKey(stored)) {
-          Store.set('torbox_api_key_b64', '');
-          return DEFAULT_API_KEY;
-        }
-        return stored;
+        return atob(b64);
       } catch {
         Store.set('torbox_api_key_b64', '');
-        return DEFAULT_API_KEY;
+        return '';
       }
     },
     set apiKey(v) {
       const normalized = String(v || '')
         .replace(/[\r\n]+/g, '')
         .trim();
-      if (!normalized || isDefaultApiKey(normalized)) Store.set('torbox_api_key_b64', '');
-      else Store.set('torbox_api_key_b64', btoa(normalized));
+      Store.set('torbox_api_key_b64', normalized ? btoa(normalized) : '');
     },
   };
   const LOG = (...args) => {
@@ -3799,7 +3784,7 @@ try {
           name: translate('torbox_settings_api_name'),
           desc: translate('torbox_settings_api_desc'),
           type: 'input',
-          default: DEFAULT_API_KEY,
+          default: '',
           get: () => Config.apiKey,
           set: (v) => (Config.apiKey = String(v || '').trim()),
           mask: true,

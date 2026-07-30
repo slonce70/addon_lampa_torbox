@@ -737,14 +737,17 @@ test('security and failover guards are present in plugin source', () => {
   assert.match(plugin, /TORBOX_API_TIMEOUT_MS: 20 \* 1000/);
 });
 
-test('embedded connection defaults back both runtime and settings UI', () => {
+test('proxy default remains embedded while API key requires user storage', () => {
   const pluginPath = path.resolve(__dirname, '..', '..', 'torbox-lampa-plugin.js');
   const plugin = fs.readFileSync(pluginPath, 'utf8');
 
   assert.match(plugin, /const DEFAULT_PROXY_URL = 'https:\/\/my-torbox-proxy\.slonce70\.workers\.dev';/);
   assert.match(plugin, /return Store\.get\('torbox_proxy_url', ''\) \|\| DEFAULT_PROXY_URL;/);
   assert.match(plugin, /default: DEFAULT_PROXY_URL,[\s\S]*?get: \(\) => Config\.proxyUrl/);
-  assert.match(plugin, /default: DEFAULT_API_KEY,[\s\S]*?get: \(\) => Config\.apiKey/);
+  assert.match(plugin, /key: 'torbox_api_key',[\s\S]*?default: '',[\s\S]*?get: \(\) => Config\.apiKey/);
+  assert.match(plugin, /if \(!b64\) return '';[\s\S]*?return atob\(b64\);/);
+  assert.match(plugin, /Store\.set\('torbox_api_key_b64', normalized \? btoa\(normalized\) : ''\);/);
+  assert.doesNotMatch(plugin, /DEFAULT_API_KEY|LEGACY_DEFAULT_API_KEYS/);
   assert.match(plugin, /param: \{ name: p\.key, type: p\.type, values: '', default: p\.default \}/);
 });
 
